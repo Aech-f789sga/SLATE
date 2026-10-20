@@ -1,0 +1,6 @@
+{
+  "name": "SLATE",
+  "description": "SLATE is a professional digital notebook and multimedia canvas for handwritten notes, sketching, documents, images, and videos with mobile-first offline support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
