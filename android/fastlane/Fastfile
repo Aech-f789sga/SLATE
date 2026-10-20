@@ -1,0 +1,49 @@
+default_platform(:android)
+
+# Run all lanes from the android/ directory:
+#   cd android
+#   bundle exec fastlane build
+#   bundle exec fastlane internal
+#   bundle exec fastlane deploy   # build + upload
+platform :android do
+  desc "Build a signed release Android App Bundle (.aab)"
+  lane :build do
+    # The signing config and versionCode/versionName are read from environment
+    # variables by android/app/build.gradle.
+    gradle(
+      task: "clean bundleRelease",
+      print_command: true
+    )
+  end
+
+  desc "Upload the existing AAB to the Google Play internal testing track"
+  lane :internal do
+    aab_path = "app/build/outputs/bundle/release/app-release.aab"
+
+    unless File.exist?(aab_path)
+      UI.user_error!(
+        "AAB not found at #{aab_path}. Run `bundle exec fastlane build` first."
+      )
+    end
+
+    upload_to_play_store(
+      track: "internal",
+      release_status: "completed",
+      aab: aab_path,
+      metadata_path: "fastlane/metadata/android",
+      # Only the binary and changelog are managed by this pipeline. Store
+      # listing text, images, and screenshots are managed in Play Console.
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: false
+    )
+  end
+
+  desc "Build a signed AAB and upload it to internal testing"
+  lane :deploy do
+    build
+    internal
+  end
+end

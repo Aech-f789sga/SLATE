@@ -1,0 +1,169 @@
+name: Deploy Android to Google Play (Internal)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two Play uploads run at the same time. A queued run is safer than
+# cancelling a run that may already be uploading an AAB.
+concurrency:
+  group: google-play-internal
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build AAB and publish to internal testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      # The Gemfile lives at the repo root; Fastlane itself lives in android/fastlane.
+      BUNDLE_GEMFILE: ${{ github.workspace }}/Gemfile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate required secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD \
+            PLAY_SERVICE_ACCOUNT_JSON_BASE64; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required repository secret: ${name}"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # `bunx` honors the Capacitor CLI's `#!/usr/bin/env node` shebang, so Node
+      # must exist. Bun still owns install and the Vite build.
+      - name: Set up Node 22 for the Capacitor CLI
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock', 'bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build web app
+        run: bun run build
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          # Capacitor 8 compiles/targets API 36. Adjust here if you pin Capacitor 7.
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Sync web assets with Capacitor
+        run: bunx cap sync android
+
+      - name: Make Gradle wrapper executable
+        run: |
+          # Protect against a Windows checkout committing CRLF into the wrapper.
+          sed -i 's/\r$//' android/gradlew
+          chmod +x android/gradlew
+
+      - name: Compute version code and version name
+        run: |
+          set -euo pipefail
+          # Play requires a strictly increasing versionCode. Start CI at 1001 so a
+          # manually uploaded versionCode 1 (the first release) never conflicts.
+          echo "VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=1.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Decode signing key and Play service account
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PLAY_SERVICE_ACCOUNT_JSON_BASE64: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/android/app/release.jks"
+          PLAY_JSON_PATH="$RUNNER_TEMP/play-service-account.json"
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON_BASE64" | base64 --decode > "$PLAY_JSON_PATH"
+          chmod 600 "$KEYSTORE_PATH" "$PLAY_JSON_PATH"
+
+          # Fail early with a clear message if the keystore password or alias is wrong.
+          keytool -list \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -alias "$ANDROID_KEY_ALIAS" > /dev/null
+
+          # Fail early if the service account secret is not valid JSON.
+          jq -e . "$PLAY_JSON_PATH" > /dev/null
+
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          echo "PLAY_SERVICE_ACCOUNT_JSON_PATH=$PLAY_JSON_PATH" >> "$GITHUB_ENV"
+
+      - name: Build signed AAB with Fastlane
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: bundle exec fastlane build
+
+      - name: Verify AAB is signed
+        run: |
+          set -euo pipefail
+          keytool -printcert \
+            -jarfile android/app/build/outputs/bundle/release/app-release.aab \
+            > /dev/null
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: slate-internal-${{ github.run_number }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish to Google Play internal testing with Fastlane
+        working-directory: android
+        run: bundle exec fastlane internal

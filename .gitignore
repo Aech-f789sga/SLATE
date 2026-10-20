@@ -6,3 +6,11 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Android signing and Play credentials
+*.jks
+*.keystore
+android/fastlane/play-service-account.json
+
+# Android local machine config
+android/local.properties

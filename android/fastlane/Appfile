@@ -1,0 +1,11 @@
+# The Play package name. It must exactly match applicationId in
+# android/app/build.gradle and the app you created in Play Console.
+package_name("com.aech.slate")
+
+# Fastlane's `supply` uses this service account key to talk to the Google Play
+# Developer API. In CI, the workflow sets PLAY_SERVICE_ACCOUNT_JSON_PATH to an
+# absolute path under $RUNNER_TEMP. Locally, put the JSON key at
+# android/fastlane/play-service-account.json (and never commit it).
+json_key_path = ENV["PLAY_SERVICE_ACCOUNT_JSON_PATH"]
+json_key_path = "fastlane/play-service-account.json" if json_key_path.nil? || json_key_path.empty?
+json_key_file(json_key_path)
