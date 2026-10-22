@@ -53,21 +53,20 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
         const text = event.target?.result as string;
         const parsed = JSON.parse(text);
         if (parsed && Array.isArray(parsed.notebooks)) {
-          if (confirm(`Found ${parsed.notebooks.length} notebooks in backup. Do you want to restore them?`)) {
+          if (confirm(`Restore ${parsed.notebooks.length} notebooks?`)) {
             onRestoreNotebooks(parsed.notebooks);
             onClose();
           }
         } else if (Array.isArray(parsed)) {
-          // Direct array
-          if (confirm(`Found ${parsed.length} notebooks in backup. Restore?`)) {
+          if (confirm(`Restore ${parsed.length} notebooks?`)) {
             onRestoreNotebooks(parsed);
             onClose();
           }
         } else {
-          alert('Invalid SLATE backup file format.');
+          alert('Invalid backup file.');
         }
       } catch {
-        alert('Could not parse backup file.');
+        alert('Could not read backup file.');
       }
     };
     reader.readAsText(file);
@@ -75,9 +74,7 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
   };
 
   const handleWipeData = async () => {
-    const confirmed = prompt(
-      'WARNING: This will permanently erase ALL notebooks, sketches, pages, and media from this device. To confirm, type "DELETE":'
-    );
+    const confirmed = prompt('Type "DELETE" to permanently erase all notebooks and media:');
     if (confirmed === 'DELETE') {
       try {
         localStorage.removeItem('inkpad');
@@ -85,7 +82,6 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
         localStorage.removeItem('inkpad-fonts');
         await clearAllMedia();
         onFactoryReset();
-        alert('All local app data has been successfully erased.');
         onClose();
       } catch {
         alert('Failed to erase all data.');
@@ -95,63 +91,56 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="data-title"
     >
       <div
-        className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-2xl p-6 shadow-2xl"
+        className="w-full max-w-md flex flex-col rounded-2xl p-5 shadow-2xl"
         style={{ backgroundColor: 'var(--sf)', color: 'var(--tx)', border: '1px solid var(--bd)' }}
       >
         <div className="flex items-center justify-between pb-3 border-b" style={{ borderColor: 'var(--bd)' }}>
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-bold" id="data-title">
-              Data Safety &amp; Backup
-            </h3>
-            <span
-              className="text-xs px-2 py-0.5 rounded-full font-semibold"
-              style={{ backgroundColor: 'rgba(47, 109, 246, 0.15)', color: 'var(--ac)' }}
-            >
-              Export / Import
-            </span>
-          </div>
+          <h3 className="text-base font-bold" id="data-title">
+            Backup &amp; Storage
+          </h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-            aria-label="Close data management dialog"
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            aria-label="Close"
           >
             ✕
           </button>
         </div>
 
-        <div className="overflow-y-auto py-4 space-y-4 text-sm">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Export a full JSON backup of your notebooks to move them to another phone, iPad, tablet, or PC, or restore from a previous backup.
-          </p>
-
-          <div className="p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ borderColor: 'var(--bd)' }}>
+        <div className="py-3 space-y-2.5 text-xs">
+          {/* Export */}
+          <div className="p-3 rounded-xl border flex items-center justify-between gap-3" style={{ borderColor: 'var(--bd)' }}>
             <div>
-              <div className="font-semibold">📦 Export Complete Backup</div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Saves all {notebooks.length} notebooks, pages, strokes, and figure libraries.
+              <div className="font-semibold text-sm flex items-center gap-1.5">
+                <span>📦</span> Export Backup
+              </div>
+              <p className="text-gray-500 dark:text-gray-400 mt-0.5">
+                Save {notebooks.length} notebooks as a JSON file.
               </p>
             </div>
             <button
               onClick={handleExportBackup}
-              className="on px-4 py-2 text-xs font-semibold rounded-xl flex-none"
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg flex-none"
               style={{ backgroundColor: 'var(--ac)', color: '#fff' }}
             >
-              Export JSON
+              Export
             </button>
           </div>
 
-          <div className="p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ borderColor: 'var(--bd)' }}>
+          {/* Import */}
+          <div className="p-3 rounded-xl border flex items-center justify-between gap-3" style={{ borderColor: 'var(--bd)' }}>
             <div>
-              <div className="font-semibold">📥 Restore from Backup</div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Select a previously exported SLATE JSON backup file.
+              <div className="font-semibold text-sm flex items-center gap-1.5">
+                <span>📥</span> Restore Backup
+              </div>
+              <p className="text-gray-500 dark:text-gray-400 mt-0.5">
+                Load notebooks from a backup file.
               </p>
               <input
                 ref={fileInputRef}
@@ -163,36 +152,37 @@ export const DataManagementModal: React.FC<DataManagementModalProps> = ({
             </div>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="px-4 py-2 text-xs font-semibold rounded-xl flex-none border"
-              style={{ borderColor: 'var(--bd)', backgroundColor: 'var(--sf)' }}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg flex-none border"
+              style={{ borderColor: 'var(--bd)' }}
             >
               Select File
             </button>
           </div>
 
-          <div className="p-4 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-500/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Wipe */}
+          <div className="p-3 rounded-xl border border-red-200 dark:border-red-900/40 bg-red-500/5 flex items-center justify-between gap-3">
             <div>
-              <div className="font-semibold text-red-600 dark:text-red-400">
-                ⚠️ Permanent Data Deletion
+              <div className="font-semibold text-sm text-red-600 dark:text-red-400 flex items-center gap-1.5">
+                <span>⚠️</span> Erase All Data
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Google Play Store compliant account &amp; data erasure. Wipes all local notebooks, media vault files, and settings.
+              <p className="text-gray-500 dark:text-gray-400 mt-0.5">
+                Permanently wipes all local notebooks and media.
               </p>
             </div>
             <button
               onClick={handleWipeData}
-              className="px-4 py-2 text-xs font-semibold rounded-xl flex-none text-white bg-red-600 hover:bg-red-700 transition"
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg flex-none text-white bg-red-600 hover:bg-red-700 transition"
             >
-              Wipe All Data
+              Wipe
             </button>
           </div>
         </div>
 
-        <div className="pt-3 border-t flex justify-end" style={{ borderColor: 'var(--bd)' }}>
+        <div className="pt-2 border-t flex justify-end" style={{ borderColor: 'var(--bd)' }}>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 text-sm font-semibold rounded-xl"
-            style={{ backgroundColor: 'var(--sf)', border: '1px solid var(--bd)' }}
+            className="px-4 py-1.5 text-xs font-semibold rounded-xl border"
+            style={{ borderColor: 'var(--bd)' }}
           >
             Close
           </button>

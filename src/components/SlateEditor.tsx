@@ -23,6 +23,7 @@ import { soundEngine } from '../services/soundEngine';
 import { SIZES, READY_MADE_PAPERS, calculateLuminance, PaperPatternConfig } from '../utils/paperTemplates';
 import { dens, inPoly, shapePts, zEnd, rotateBox, BoundingBox } from '../utils/geometry';
 import { saveMediaItem, getMediaUrl } from '../services/mediaVault';
+import { detectDevice, computeAutoZoom, ViewportState, AutoFitMode } from '../utils/layout';
 
 const Ico: React.FC<{ path: string; size?: number }> = ({ path, size = 18 }) => (
   <svg
@@ -89,6 +90,15 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
   const [dpi, setDpi] = useState<number>(2);
   const [delArm, setDelArm] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Auto-Responsive Layout & Orientation state (Phone / Tablet / PC, Landscape / Portrait)
+  const [viewport, setViewport] = useState<ViewportState>(() =>
+    typeof window !== 'undefined'
+      ? detectDevice(window.innerWidth, window.innerHeight, 'ontouchstart' in window)
+      : { width: 1024, height: 768, deviceType: 'desktop', orientation: 'landscape', isTouch: false }
+  );
+  const [autoFitMode, setAutoFitMode] = useState<AutoFitMode>('auto');
+  const [showMobileMore, setShowMobileMore] = useState<boolean>(false);
 
   // Active drawer
   const [activeDrawer, setActiveDrawer] = useState<
@@ -188,6 +198,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
   const stampCacheRef = useRef<WeakMap<any, any>>(new WeakMap());
   const imageCacheRef = useRef<Record<string, HTMLImageElement>>({});
   const videoElementsRef = useRef<Record<string, HTMLVideoElement>>({});
+  const drawRef = useRef<() => void>(() => {});
 
   // Initialize Brush Tip Masks
   useEffect(() => {
@@ -239,7 +250,20 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
     }
   }, []);
 
-  // Update layout sizing
+  // Listen to window resize and orientation changes
+  useEffect(() => {
+    const handleResize = () => {
+      setViewport(detectDevice(window.innerWidth, window.innerHeight, 'ontouchstart' in window));
+    };
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
+
+  // Update layout sizing automatically based on device and orientation
   const updateLayout = useCallback(() => {
     const s = stateRef.current;
     const stage = stageRef.current;
@@ -253,8 +277,24 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
     s.H = ph;
 
     cv.style.aspectRatio = `${pw}/${ph}`;
-    const stageW = stage.clientWidth - 40;
-    const targetW = Math.max(200, Math.min(stageW, (820 * pw) / 800) * s.zoom);
+
+    // Auto calculate zoom according to device format and orientation
+    if (autoFitMode !== 'actual') {
+      const stageW = stage.clientWidth;
+      const stageH = stage.clientHeight;
+      const optimalZoom = computeAutoZoom(
+        pw,
+        ph,
+        stageW,
+        stageH,
+        autoFitMode,
+        viewport.orientation,
+        viewport.deviceType
+      );
+      s.zoom = optimalZoom;
+    }
+
+    const targetW = Math.max(160, pw * s.zoom);
     wrap.style.width = `${targetW}px`;
 
     const capDpi = /Mobi|Android|iPad|iPhone/.test(navigator.userAgent) ? 4 : 6;
@@ -266,7 +306,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
     if (ctx) {
       ctx.setTransform(d, 0, 0, d, 0, 0);
     }
-  }, [currentPage, dpi]);
+  }, [currentPage, dpi, autoFitMode, viewport]);
 
   // Stroke Bounding Box computation
   const getStrokeBounds = useCallback((s: AnyStroke): BoundingBox => {
@@ -562,7 +602,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
         let img = imageCacheRef.current[imgStroke.src];
         if (!img) {
           img = new Image();
-          img.onload = () => draw();
+          img.onload = () => drawRef.current();
           img.src = imgStroke.src;
           imageCacheRef.current[imgStroke.src] = img;
         }
@@ -588,7 +628,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
           } else if (vs.src) {
             vid.src = vs.src;
           }
-          vid.onloadeddata = () => draw();
+          vid.onloadeddata = () => drawRef.current();
           videoElementsRef.current[vs.id] = vid;
         }
 
@@ -826,6 +866,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
       ctx.restore();
     }
   }, [currentPage, renderPage, getSelectionBox]);
+  drawRef.current = draw;
 
   // Pointer position helper
   const getCanvasPos = (e: React.PointerEvent<HTMLCanvasElement>): [number, number] => {
@@ -1353,14 +1394,22 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
 
   return (
     <div className="flex flex-col h-full w-full select-none" style={{ backgroundColor: 'var(--bg)', color: 'var(--tx)' }}>
-      {/* Top Toolbar */}
+      {/* Top Toolbar: Auto-Rearranges on Phone / Tablet / PC in Landscape & Portrait */}
       <div
         id="bar"
-        className="flex items-center gap-1.5 flex-wrap mx-2 mt-2 px-2.5 py-1.5 rounded-2xl border shadow-md flex-none overflow-x-auto"
+        className={`flex items-center gap-1 mx-2 mt-1.5 px-2 py-1 rounded-2xl border shadow-md flex-none overflow-x-auto ${
+          viewport.deviceType === 'phone' && viewport.orientation === 'landscape'
+            ? 'h-9 py-0.5'
+            : ''
+        }`}
         style={{ backgroundColor: 'var(--sf)', borderColor: 'var(--bd)' }}
       >
-        <button onClick={onBackToLibrary} className="text-xs font-semibold px-2 py-1" title="Back to notebook library">
-          ‹ Library
+        <button
+          onClick={onBackToLibrary}
+          className="text-xs font-semibold px-2 py-1 flex-none"
+          title="Back to library"
+        >
+          ‹ {viewport.deviceType === 'phone' ? '' : 'Library'}
         </button>
 
         <input
@@ -1370,9 +1419,11 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
             nb.name = e.target.value;
             saveState();
           }}
-          className="font-semibold text-xs border-0 border-b w-32 px-1 focus:outline-none"
+          className={`font-semibold text-xs border-0 border-b px-1 focus:outline-none flex-none ${
+            viewport.deviceType === 'phone' ? 'w-20 sm:w-28' : 'w-32'
+          }`}
           style={{ borderColor: 'var(--bd)', backgroundColor: 'transparent', color: 'var(--tx)' }}
-          placeholder="Notebook Title"
+          placeholder="Title"
           aria-label="Notebook title"
         />
 
@@ -1385,12 +1436,12 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
             setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
             setActiveDrawer((cur) => (cur === 'brush' ? null : 'brush'));
           }}
-          className={`ic flex items-center gap-1.5 ${tool === 'pen' ? 'on' : ''}`}
+          className={`ic flex items-center gap-1 ${tool === 'pen' ? 'on' : ''}`}
           title="Brushes & Pens"
           aria-label="Brushes"
         >
           <Ico path={IC_PATHS.pen} />
-          <span className="text-xs font-semibold">Pen</span>
+          {viewport.deviceType !== 'phone' && <span className="text-xs font-semibold">Pen</span>}
         </button>
 
         {/* Highlighter */}
@@ -1399,12 +1450,12 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
             setTool('hl');
             setActiveDrawer(null);
           }}
-          className={`ic flex items-center gap-1.5 ${tool === 'hl' ? 'on' : ''}`}
+          className={`ic flex items-center gap-1 ${tool === 'hl' ? 'on' : ''}`}
           title="Highlighter"
           aria-label="Highlighter"
         >
           <Ico path={IC_PATHS.hl} />
-          <span className="text-xs font-semibold">HL</span>
+          {viewport.deviceType !== 'phone' && <span className="text-xs font-semibold">HL</span>}
         </button>
 
         {/* Eraser Drawer */}
@@ -1421,162 +1472,122 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
           <Ico path={IC_PATHS.er} />
         </button>
 
-        {/* Shapes Drawer */}
-        <button
-          onClick={(e) => {
-            setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
-            setActiveDrawer((cur) => (cur === 'shape' ? null : 'shape'));
-          }}
-          className={`ic ${['line', 'rect', 'ell', 'arrow', 'hid', 'ax2', 'ax3'].includes(tool) ? 'on' : ''}`}
-          title="Shapes & Coordinate Axes"
-          aria-label="Shapes"
-        >
-          <Ico path={IC_PATHS.line} />
-        </button>
-
-        {/* Text */}
-        <button
-          onClick={() => {
-            setTool('text');
-            setActiveDrawer(null);
-          }}
-          className={`ic ${tool === 'text' ? 'on' : ''}`}
-          title="Text Tool"
-          aria-label="Text"
-        >
-          <Ico path={IC_PATHS.text} />
-        </button>
-
-        {/* Lasso */}
-        <button
-          onClick={(e) => {
-            setTool('sel');
-            setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
-            setActiveDrawer((cur) => (cur === 'lasso' ? null : 'lasso'));
-          }}
-          className={`ic ${tool === 'sel' ? 'on' : ''}`}
-          title="Lasso Selection"
-          aria-label="Selection"
-        >
-          <Ico path={IC_PATHS.sel} />
-        </button>
-
-        {/* Paint Bucket */}
-        <button
-          onClick={() => {
-            setTool('bk');
-            setActiveDrawer(null);
-          }}
-          className={`ic ${tool === 'bk' ? 'on' : ''}`}
-          title="Paint Bucket (Flood Fill)"
-          aria-label="Paint bucket"
-        >
-          <Ico path={IC_PATHS.bk} />
-        </button>
-
-        {/* Laser */}
-        <button
-          onClick={() => {
-            setTool('laser');
-            setActiveDrawer(null);
-          }}
-          className={`ic ${tool === 'laser' ? 'on' : ''}`}
-          title="Laser Pointer"
-          aria-label="Laser pointer"
-        >
-          <Ico path={IC_PATHS.laser} />
-        </button>
-
-        <span className="sep"></span>
-
-        {/* Media / Insert Menu */}
-        <button
-          onClick={(e) => {
-            setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
-            setActiveDrawer((cur) => (cur === 'media' ? null : 'media'));
-          }}
-          className="ic"
-          title="Insert Photo, Video, or File"
-          aria-label="Insert Media"
-        >
-          <Ico path={IC_PATHS.media} />
-        </button>
-
-        {/* Engineering Symbols */}
-        <button
-          onClick={(e) => {
-            setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
-            setActiveDrawer((cur) => (cur === 'symbols' ? null : 'symbols'));
-          }}
-          className="ic text-sm font-bold"
-          title="Engineering Symbols"
-          aria-label="Symbols"
-        >
-          Σ
-        </button>
-
-        {/* Figure Library */}
-        <button
-          onClick={(e) => {
-            setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
-            setActiveDrawer((cur) => (cur === 'library' ? null : 'library'));
-          }}
-          className="ic"
-          title="Saved Figure Library"
-          aria-label="Figures"
-        >
-          <Ico path={IC_PATHS.library} />
-        </button>
-
-        <span className="sep"></span>
-
-        {/* Color Palette */}
-        <div className="flex items-center gap-1">
-          {COLORS.map((c) => (
+        {/* Primary tools on Tablet / PC / Landscape Phone */}
+        {(viewport.deviceType !== 'phone' || viewport.orientation === 'landscape') && (
+          <>
             <button
-              key={c}
-              onClick={() => setColor(c)}
-              className={`sw ${color === c ? 'on' : ''}`}
-              style={{ backgroundColor: c }}
-              title={`Color ${c}`}
-              aria-label={`Color ${c}`}
+              onClick={(e) => {
+                setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                setActiveDrawer((cur) => (cur === 'shape' ? null : 'shape'));
+              }}
+              className={`ic ${['line', 'rect', 'ell', 'arrow', 'hid', 'ax2', 'ax3'].includes(tool) ? 'on' : ''}`}
+              title="Shapes"
+              aria-label="Shapes"
+            >
+              <Ico path={IC_PATHS.line} />
+            </button>
+
+            <button
+              onClick={() => {
+                setTool('text');
+                setActiveDrawer(null);
+              }}
+              className={`ic ${tool === 'text' ? 'on' : ''}`}
+              title="Text"
+              aria-label="Text"
+            >
+              <Ico path={IC_PATHS.text} />
+            </button>
+
+            <button
+              onClick={(e) => {
+                setTool('sel');
+                setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                setActiveDrawer((cur) => (cur === 'lasso' ? null : 'lasso'));
+              }}
+              className={`ic ${tool === 'sel' ? 'on' : ''}`}
+              title="Selection"
+              aria-label="Selection"
+            >
+              <Ico path={IC_PATHS.sel} />
+            </button>
+
+            <button
+              onClick={(e) => {
+                setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                setActiveDrawer((cur) => (cur === 'media' ? null : 'media'));
+              }}
+              className="ic"
+              title="Insert Media"
+              aria-label="Insert Media"
+            >
+              <Ico path={IC_PATHS.media} />
+            </button>
+
+            <button
+              onClick={(e) => {
+                setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                setActiveDrawer((cur) => (cur === 'symbols' ? null : 'symbols'));
+              }}
+              className="ic text-sm font-bold"
+              title="Symbols"
+              aria-label="Symbols"
+            >
+              Σ
+            </button>
+          </>
+        )}
+
+        <span className="sep"></span>
+
+        {/* Color Palette: On phone portrait show compact active color picker, on tablet/PC show full palette */}
+        {viewport.deviceType === 'phone' && viewport.orientation === 'portrait' ? (
+          <div className="flex items-center gap-1 flex-none">
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-5 h-5 p-0 border rounded-full cursor-pointer"
+              title="Color"
+              aria-label="Color"
             />
-          ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 flex-none">
+            {COLORS.slice(0, viewport.deviceType === 'phone' ? 4 : 7).map((c) => (
+              <button
+                key={c}
+                onClick={() => setColor(c)}
+                className={`sw ${color === c ? 'on' : ''}`}
+                style={{ backgroundColor: c, width: 20, height: 20 }}
+                title={`Color ${c}`}
+                aria-label={`Color ${c}`}
+              />
+            ))}
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-5 h-5 p-0 border rounded cursor-pointer"
+              title="Custom color"
+              aria-label="Custom color"
+            />
+          </div>
+        )}
+
+        {/* Size Slider on Tablet / PC */}
+        {viewport.deviceType !== 'phone' && (
           <input
-            type="color"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-            className="w-6 h-6 p-0 border rounded cursor-pointer"
-            title="Custom color"
-            aria-label="Custom color picker"
+            type="range"
+            min={1}
+            max={24}
+            value={size}
+            onChange={(e) => setSize(+e.target.value)}
+            className="w-14"
+            title={`Size: ${size}px`}
+            aria-label="Stroke size"
           />
-        </div>
-
-        {/* Size Slider */}
-        <input
-          type="range"
-          min={1}
-          max={24}
-          value={size}
-          onChange={(e) => setSize(+e.target.value)}
-          className="w-16"
-          title={`Stroke width: ${size}px`}
-          aria-label="Stroke size"
-        />
-
-        {/* Pressure Sensitivity */}
-        <select
-          value={pressureMode}
-          onChange={(e) => setPressureMode(e.target.value as StylusPressure)}
-          className="text-xs p-1"
-          title="Stylus Pressure Sensitivity"
-          aria-label="Pressure"
-        >
-          <option value="1">Pressure: Normal</option>
-          <option value=".6">Pressure: Soft</option>
-          <option value="1.7">Pressure: Firm</option>
-          <option value="off">Pressure: Off</option>
-        </select>
+        )}
 
         <span className="sep"></span>
 
@@ -1614,72 +1625,133 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
           <Ico path={IC_PATHS.redo} />
         </button>
 
-        {/* Zoom Controls */}
+        {/* Auto-Layout / Auto-Fit Feature button */}
         <button
           onClick={() => {
-            stateRef.current.zoom = Math.max(0.5, stateRef.current.zoom / 1.2);
-            updateLayout();
-            draw();
+            const nextMode: Record<AutoFitMode, AutoFitMode> = {
+              auto: 'fit-width',
+              'fit-width': 'fit-height',
+              'fit-height': 'actual',
+              actual: 'auto',
+            };
+            const next = nextMode[autoFitMode];
+            setAutoFitMode(next);
+            showToast(
+              next === 'auto'
+                ? 'Auto Layout (Adaptive)'
+                : next === 'fit-width'
+                ? 'Fit Width'
+                : next === 'fit-height'
+                ? 'Fit Height'
+                : '100% Size'
+            );
           }}
-          className="ic text-xs font-bold"
-          title="Zoom Out"
-          aria-label="Zoom out"
+          className={`px-2 py-0.5 rounded-lg text-xs font-semibold border flex items-center gap-1 flex-none ${
+            autoFitMode === 'auto' ? 'on' : ''
+          }`}
+          style={
+            autoFitMode === 'auto'
+              ? { backgroundColor: 'var(--ac)', color: '#fff', borderColor: 'var(--ac)' }
+              : { borderColor: 'var(--bd)' }
+          }
+          title={`Layout: ${autoFitMode}. Click to switch.`}
+          aria-label="Auto Layout Mode"
         >
-          🔍−
-        </button>
-        <button
-          onClick={() => {
-            stateRef.current.zoom = Math.min(3.0, stateRef.current.zoom * 1.2);
-            updateLayout();
-            draw();
-          }}
-          className="ic text-xs font-bold"
-          title="Zoom In"
-          aria-label="Zoom in"
-        >
-          🔍+
+          <span>📐</span>
+          <span className="text-[11px] font-mono">
+            {autoFitMode === 'auto'
+              ? 'Auto'
+              : autoFitMode === 'fit-width'
+              ? 'Fit ↔'
+              : autoFitMode === 'fit-height'
+              ? 'Fit ↕'
+              : '100%'}
+          </span>
         </button>
 
-        {/* Thumbnails Sidebar Toggle */}
-        <button
-          onClick={() => setShowThumbs((v) => !v)}
-          className={`ic ${showThumbs ? 'on' : ''}`}
-          title="Toggle Page Thumbnails"
-          aria-label="Thumbnails"
-        >
-          <Ico path={IC_PATHS.thumbnails} />
-        </button>
+        {/* Zoom & Extras on Tablet / PC */}
+        {viewport.deviceType !== 'phone' && (
+          <>
+            <button
+              onClick={() => {
+                setAutoFitMode('actual');
+                stateRef.current.zoom = Math.max(0.4, stateRef.current.zoom / 1.2);
+                updateLayout();
+                draw();
+              }}
+              className="ic text-xs font-bold"
+              title="Zoom Out"
+              aria-label="Zoom out"
+            >
+              🔍−
+            </button>
+            <button
+              onClick={() => {
+                setAutoFitMode('actual');
+                stateRef.current.zoom = Math.min(3.0, stateRef.current.zoom * 1.2);
+                updateLayout();
+                draw();
+              }}
+              className="ic text-xs font-bold"
+              title="Zoom In"
+              aria-label="Zoom in"
+            >
+              🔍+
+            </button>
 
-        {/* Paper & Page Setup Drawer */}
-        <button
-          onClick={(e) => {
-            setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
-            setActiveDrawer((cur) => (cur === 'paper' ? null : 'paper'));
-          }}
-          className="ic"
-          title="Paper Style & Page Sizes"
-          aria-label="Paper"
-        >
-          <Ico path={IC_PATHS.paper} />
-        </button>
+            <button
+              onClick={() => setShowThumbs((v) => !v)}
+              className={`ic ${showThumbs ? 'on' : ''}`}
+              title="Thumbnails"
+              aria-label="Thumbnails"
+            >
+              <Ico path={IC_PATHS.thumbnails} />
+            </button>
 
-        {/* Print / PDF */}
-        <button onClick={handlePrintPDF} className="ic" title="Print or Save as PDF" aria-label="Export PDF">
-          <Ico path={IC_PATHS.print} />
-        </button>
+            <button
+              onClick={(e) => {
+                setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                setActiveDrawer((cur) => (cur === 'paper' ? null : 'paper'));
+              }}
+              className="ic"
+              title="Paper Style"
+              aria-label="Paper"
+            >
+              <Ico path={IC_PATHS.paper} />
+            </button>
 
-        {/* Settings */}
-        <button
-          onClick={(e) => {
-            setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
-            setActiveDrawer((cur) => (cur === 'settings' ? null : 'settings'));
-          }}
-          className="ic"
-          title="Settings & Gestures"
-          aria-label="Settings"
-        >
-          <Ico path={IC_PATHS.settings} />
-        </button>
+            <button onClick={handlePrintPDF} className="ic" title="PDF" aria-label="Export PDF">
+              <Ico path={IC_PATHS.print} />
+            </button>
+
+            <button
+              onClick={(e) => {
+                setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                setActiveDrawer((cur) => (cur === 'settings' ? null : 'settings'));
+              }}
+              className="ic"
+              title="Settings"
+              aria-label="Settings"
+            >
+              <Ico path={IC_PATHS.settings} />
+            </button>
+          </>
+        )}
+
+        {/* Mobile More Button (Phone Portrait) */}
+        {viewport.deviceType === 'phone' && viewport.orientation === 'portrait' && (
+          <button
+            onClick={() => setShowMobileMore((v) => !v)}
+            className={`px-2 py-1 rounded-lg text-xs font-bold border ml-auto flex-none ${
+              showMobileMore ? 'on' : ''
+            }`}
+            style={{ borderColor: 'var(--bd)' }}
+            title="More Tools"
+            aria-label="More Tools"
+          >
+            ⋯ More
+          </button>
+        )}
       </div>
 
       {/* Main Content Area */}
@@ -1817,35 +1889,37 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
         </div>
       )}
 
-      {/* Bottom Page Navigation Bar */}
+      {/* Bottom Page Navigation Bar: Responsive on Phone / Tablet / PC */}
       <div
         id="pg"
-        className="flex items-center justify-center gap-3 p-2 border-t flex-none"
+        className={`flex items-center justify-center gap-2 p-1.5 border-t flex-none ${
+          viewport.deviceType === 'phone' && viewport.orientation === 'landscape' ? 'h-8 py-0.5' : ''
+        }`}
         style={{ backgroundColor: 'var(--sf)', borderColor: 'var(--bd)' }}
       >
-        <button onClick={() => goToPage(pi - 1)} disabled={pi === 0} className="px-2.5 py-1 text-xs font-semibold">
+        <button onClick={() => goToPage(pi - 1)} disabled={pi === 0} className="px-2 py-0.5 text-xs font-semibold">
           ‹
         </button>
         <span id="pn" className="text-xs font-semibold">
-          Page {pi + 1} of {nb.pages.length}
+          {pi + 1} / {nb.pages.length}
         </span>
         <button
           onClick={() => goToPage(pi + 1)}
           disabled={pi === nb.pages.length - 1}
-          className="px-2.5 py-1 text-xs font-semibold"
+          className="px-2 py-0.5 text-xs font-semibold"
         >
           ›
         </button>
 
         <span className="sep"></span>
 
-        <button onClick={addPage} className="px-2.5 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400">
+        <button onClick={addPage} className="px-2 py-0.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
           + Page
         </button>
-        <button onClick={duplicatePage} className="px-2.5 py-1 text-xs font-semibold">
+        <button onClick={duplicatePage} className="px-2 py-0.5 text-xs font-semibold">
           Duplicate
         </button>
-        <button onClick={deletePage} className={`px-2.5 py-1 text-xs font-semibold ${delArm ? 'text-red-600 font-bold' : ''}`}>
+        <button onClick={deletePage} className={`px-2 py-0.5 text-xs font-semibold ${delArm ? 'text-red-600 font-bold' : ''}`}>
           {delArm ? 'Sure?' : 'Delete'}
         </button>
       </div>
@@ -1891,6 +1965,206 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
         </div>
       )}
 
+      {/* Mobile More Sheet / Drawer (Phone Portrait) */}
+      {showMobileMore && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-2 bg-black/40 backdrop-blur-xs"
+          onClick={() => setShowMobileMore(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl p-4 shadow-2xl flex flex-col gap-3 max-h-[80vh] overflow-y-auto"
+            style={{ backgroundColor: 'var(--sf)', color: 'var(--tx)', border: '1px solid var(--bd)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: 'var(--bd)' }}>
+              <div className="font-bold text-sm">Tools &amp; Settings</div>
+              <button
+                onClick={() => setShowMobileMore(false)}
+                className="p-1 rounded text-gray-400 hover:text-gray-600 border-0"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Stroke Width Slider */}
+            <div>
+              <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                <span>Stroke Size</span>
+                <span className="font-mono text-[11px]">{size}px</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={24}
+                value={size}
+                onChange={(e) => setSize(+e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            {/* Stylus Pressure */}
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold">Pressure</span>
+              <select
+                value={pressureMode}
+                onChange={(e) => setPressureMode(e.target.value as StylusPressure)}
+                className="text-xs p-1 rounded border"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <option value="1">Normal</option>
+                <option value=".6">Soft</option>
+                <option value="1.7">Firm</option>
+                <option value="off">Off</option>
+              </select>
+            </div>
+
+            {/* Additional Tools Grid */}
+            <div className="grid grid-cols-4 gap-1.5 pt-1 border-t" style={{ borderColor: 'var(--bd)' }}>
+              <button
+                onClick={(e) => {
+                  setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                  setActiveDrawer('shape');
+                  setShowMobileMore(false);
+                }}
+                className="p-2 border rounded-xl flex flex-col items-center gap-1 text-[11px]"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.line} />
+                <span>Shapes</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setTool('text');
+                  setShowMobileMore(false);
+                }}
+                className="p-2 border rounded-xl flex flex-col items-center gap-1 text-[11px]"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.text} />
+                <span>Text</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                  setActiveDrawer('lasso');
+                  setShowMobileMore(false);
+                }}
+                className="p-2 border rounded-xl flex flex-col items-center gap-1 text-[11px]"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.sel} />
+                <span>Lasso</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setTool('bk');
+                  setShowMobileMore(false);
+                }}
+                className="p-2 border rounded-xl flex flex-col items-center gap-1 text-[11px]"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.bk} />
+                <span>Fill</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setTool('laser');
+                  setShowMobileMore(false);
+                }}
+                className="p-2 border rounded-xl flex flex-col items-center gap-1 text-[11px]"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.laser} />
+                <span>Laser</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                  setActiveDrawer('media');
+                  setShowMobileMore(false);
+                }}
+                className="p-2 border rounded-xl flex flex-col items-center gap-1 text-[11px]"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.media} />
+                <span>Media</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                  setActiveDrawer('symbols');
+                  setShowMobileMore(false);
+                }}
+                className="p-2 border rounded-xl flex flex-col items-center gap-1 text-[11px]"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <span className="font-bold text-base">Σ</span>
+                <span>Symbols</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                  setActiveDrawer('paper');
+                  setShowMobileMore(false);
+                }}
+                className="p-2 border rounded-xl flex flex-col items-center gap-1 text-[11px]"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.paper} />
+                <span>Paper</span>
+              </button>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--bd)' }}>
+              <button
+                onClick={() => {
+                  setShowThumbs((v) => !v);
+                  setShowMobileMore(false);
+                }}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg border flex items-center justify-center gap-1"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.thumbnails} size={15} />
+                <span>Pages</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handlePrintPDF();
+                  setShowMobileMore(false);
+                }}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg border flex items-center justify-center gap-1"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.print} size={15} />
+                <span>PDF</span>
+              </button>
+
+              <button
+                onClick={(e) => {
+                  setDrawerAnchorRect(e.currentTarget.getBoundingClientRect());
+                  setActiveDrawer('settings');
+                  setShowMobileMore(false);
+                }}
+                className="flex-1 py-1.5 text-xs font-semibold rounded-lg border flex items-center justify-center gap-1"
+                style={{ borderColor: 'var(--bd)' }}
+              >
+                <Ico path={IC_PATHS.settings} size={15} />
+                <span>Settings</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating Active Drawer */}
       {activeDrawer && drawerAnchorRect && (
         <div
@@ -1905,8 +2179,8 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
         >
           {/* Media / Insert Drawer */}
           {activeDrawer === 'media' && (
-            <div className="space-y-2 text-xs">
-              <div className="font-bold text-gray-500 pb-1 border-b">Insert Media &amp; Files</div>
+            <div className="space-y-1.5 text-xs">
+              <div className="font-bold text-gray-500 pb-1 border-b">Insert Media</div>
               <button
                 onClick={() => {
                   imageInputRef.current?.click();
@@ -1915,7 +2189,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
                 className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
               >
                 <span>🖼️</span>
-                <span>Photo from Gallery</span>
+                <span>Gallery Photo</span>
               </button>
               <button
                 onClick={() => {
@@ -1925,7 +2199,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
                 className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
               >
                 <span>📷</span>
-                <span>Take Photo (Camera)</span>
+                <span>Camera Photo</span>
               </button>
               <button
                 onClick={() => {
@@ -1935,7 +2209,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
                 className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
               >
                 <span>🎥</span>
-                <span>Video Clip from Gallery</span>
+                <span>Video Clip</span>
               </button>
               <button
                 onClick={() => {
@@ -1945,17 +2219,17 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
                 className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
               >
                 <span>🔤</span>
-                <span>Import Custom Font (.ttf/.woff)</span>
+                <span>Custom Font</span>
               </button>
               <button
                 onClick={() => {
                   onOpenGallery();
                   setActiveDrawer(null);
                 }}
-                className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 border-t pt-2"
+                className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 border-t pt-1.5"
               >
                 <span>🗄️</span>
-                <span className="font-semibold text-blue-600">Open Media Vault</span>
+                <span className="font-semibold text-blue-600">Media Vault</span>
               </button>
             </div>
           )}
@@ -2127,8 +2401,8 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
 
           {/* Eraser Drawer */}
           {activeDrawer === 'eraser' && (
-            <div className="space-y-2 text-xs">
-              <div className="font-bold text-gray-500 pb-1 border-b">Eraser Tools</div>
+            <div className="space-y-1.5 text-xs">
+              <div className="font-bold text-gray-500 pb-1 border-b">Erasers</div>
               <button
                 onClick={() => {
                   setTool('er');
@@ -2138,7 +2412,6 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
                 style={{ borderColor: 'var(--bd)' }}
               >
                 <div className="font-semibold">Ink Eraser</div>
-                <div className="text-[10px] text-gray-400">Erases only touched strokes like real ink</div>
               </button>
               <button
                 onClick={() => {
@@ -2149,7 +2422,6 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
                 style={{ borderColor: 'var(--bd)' }}
               >
                 <div className="font-semibold">Stroke Eraser</div>
-                <div className="text-[10px] text-gray-400">Removes the entire touched stroke or shape</div>
               </button>
             </div>
           )}
@@ -2157,15 +2429,15 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
           {/* Shapes Drawer */}
           {activeDrawer === 'shape' && (
             <div className="space-y-2 text-xs">
-              <div className="font-bold text-gray-500 pb-1 border-b">Geometric Shapes &amp; Axes</div>
+              <div className="font-bold text-gray-500 pb-1 border-b">Shapes</div>
               <div className="grid grid-cols-2 gap-1">
                 {[
                   ['line', 'Line'],
                   ['arrow', 'Arrow'],
                   ['rect', 'Rectangle'],
                   ['ell', 'Oval'],
-                  ['ax2', 'X–Y 2D Axes'],
-                  ['ax3', 'X–Y–Z 3D Axes'],
+                  ['ax2', 'X–Y Axes'],
+                  ['ax3', 'X–Y–Z Axes'],
                   ['hid', 'Hidden Line'],
                 ].map(([k, n]) => (
                   <button
@@ -2197,9 +2469,9 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
           {/* Settings Drawer */}
           {activeDrawer === 'settings' && (
             <div className="space-y-3 text-xs">
-              <div className="font-bold text-gray-500 pb-1 border-b">Mobile &amp; App Settings</div>
+              <div className="font-bold text-gray-500 pb-1 border-b">Settings</div>
               <label className="flex items-center justify-between">
-                <span>Page turn curl animation</span>
+                <span>Page turn animation</span>
                 <input
                   type="checkbox"
                   checked={stateRef.current.pageFlipAnimation}
@@ -2211,7 +2483,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
               </label>
 
               <label className="flex items-center justify-between">
-                <span>Touch gesture: Pen only</span>
+                <span>Pen only mode</span>
                 <input type="checkbox" checked={penOnly} onChange={(e) => setPenOnly(e.target.checked)} />
               </label>
 
@@ -2223,7 +2495,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
                   }}
                   className="w-full text-left py-1 text-blue-600 font-semibold"
                 >
-                  🛡️ Manage Permissions &amp; Data Safety
+                  🛡️ Permissions &amp; Storage
                 </button>
                 <button
                   onClick={() => {
@@ -2232,7 +2504,7 @@ export const SlateEditor: React.FC<SlateEditorProps> = ({
                   }}
                   className="w-full text-left py-1 text-gray-600 dark:text-gray-300"
                 >
-                  📜 Read Privacy Policy
+                  📜 Privacy Policy
                 </button>
               </div>
             </div>

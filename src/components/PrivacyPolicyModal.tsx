@@ -15,92 +15,81 @@ export const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({ isOpen, 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="privacy-title"
     >
       <div
-        className="w-full max-w-xl max-h-[85vh] flex flex-col rounded-2xl p-6 shadow-2xl"
+        className="w-full max-w-md flex flex-col rounded-2xl p-5 shadow-2xl"
         style={{ backgroundColor: 'var(--sf)', color: 'var(--tx)', border: '1px solid var(--bd)' }}
       >
         <div className="flex items-center justify-between pb-3 border-b" style={{ borderColor: 'var(--bd)' }}>
           <div className="flex items-center gap-2">
-            <span className="text-xl font-bold" id="privacy-title">
-              SLATE Privacy Policy
-            </span>
+            <h3 className="text-base font-bold" id="privacy-title">
+              Privacy Policy
+            </h3>
             <span
-              className="text-xs px-2 py-0.5 rounded-full font-semibold"
-              style={{ backgroundColor: 'rgba(47, 109, 246, 0.15)', color: 'var(--ac)' }}
+              className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+              style={{ backgroundColor: 'rgba(47, 109, 246, 0.12)', color: 'var(--ac)' }}
             >
-              Google Play &amp; Apple Store Verified
+              100% On-Device
             </span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-            aria-label="Close Privacy Policy"
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+            aria-label="Close"
           >
             ✕
           </button>
         </div>
 
-        <div className="overflow-y-auto py-4 space-y-4 text-sm leading-relaxed pr-1">
-          <div>
-            <h4 className="font-semibold text-base mb-1">1. Zero Data Collection &amp; 100% On-Device Privacy</h4>
-            <p className="text-gray-600 dark:text-gray-300">
-              SLATE is built on a privacy-first, zero-telemetry architecture. All notebooks, handwritten strokes, drawings, imported photos, videos, custom fonts, and audio effects are stored strictly on your local device using standard HTML5 LocalStorage and sandboxed IndexedDB storage.
+        <div className="py-3 space-y-2.5 text-xs">
+          <div className="p-2.5 rounded-xl border" style={{ borderColor: 'var(--bd)' }}>
+            <div className="font-semibold text-sm mb-0.5 flex items-center gap-1.5">
+              <span>🔒</span> Zero Data Collection
+            </div>
+            <p className="text-gray-500 dark:text-gray-400">
+              Notes, drawings, and media stay strictly on your device. No cloud uploads.
             </p>
           </div>
 
-          <div>
-            <h4 className="font-semibold text-base mb-1">2. Media Storage &amp; Gallery Permissions</h4>
-            <p className="text-gray-600 dark:text-gray-300">
-              When you choose to insert an image or video into your notes:
-            </p>
-            <ul className="list-disc pl-5 mt-1 space-y-1 text-gray-600 dark:text-gray-300">
-              <li>
-                <strong>Photos and Videos:</strong> Stored securely in a private on-device IndexedDB database vault. Your media is never uploaded to any remote server or shared with third parties.
-              </li>
-              <li>
-                <strong>Camera Access:</strong> Used only on-demand when you explicitly tap to take a photo or scan a document to embed directly onto the page.
-              </li>
-              <li>
-                <strong>Files and Fonts:</strong> Used solely to load local font files (.ttf, .otf, .woff, .woff2) or save exported PDF documents.
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="font-semibold text-base mb-1">3. Realistic Acoustic Sound Synthesis</h4>
-            <p className="text-gray-600 dark:text-gray-300">
-              The optional pen and pencil sound effects are synthesized in real-time on your device using the Web Audio API (AudioContext) via synthetic noise filtering. The microphone is never accessed or recorded.
+          <div className="p-2.5 rounded-xl border" style={{ borderColor: 'var(--bd)' }}>
+            <div className="font-semibold text-sm mb-0.5 flex items-center gap-1.5">
+              <span>🖼️</span> Media Vault
+            </div>
+            <p className="text-gray-500 dark:text-gray-400">
+              Imported photos and videos are stored in private on-device storage.
             </p>
           </div>
 
-          <div>
-            <h4 className="font-semibold text-base mb-1">4. Data Deletion &amp; Account Rights (Google Play Policy)</h4>
-            <p className="text-gray-600 dark:text-gray-300">
-              You maintain total ownership of your data. You can export complete backups of all your notebooks, pages, and media at any time, or permanently delete all local data using the Data Management menu.
+          <div className="p-2.5 rounded-xl border" style={{ borderColor: 'var(--bd)' }}>
+            <div className="font-semibold text-sm mb-0.5 flex items-center gap-1.5">
+              <span>✍️</span> Synthesized Audio
+            </div>
+            <p className="text-gray-500 dark:text-gray-400">
+              Pen friction sounds are generated via Web Audio. Microphone is never used.
             </p>
           </div>
 
-          <div>
-            <h4 className="font-semibold text-base mb-1">5. Children’s Privacy (COPPA) &amp; GDPR</h4>
-            <p className="text-gray-600 dark:text-gray-300">
-              SLATE does not require accounts, sign-ins, or personally identifiable information (PII). It is safe for all ages, including children and educational institutions.
+          <div className="p-2.5 rounded-xl border" style={{ borderColor: 'var(--bd)' }}>
+            <div className="font-semibold text-sm mb-0.5 flex items-center gap-1.5">
+              <span>🛡️</span> No Ads or Trackers
+            </div>
+            <p className="text-gray-500 dark:text-gray-400">
+              No account required, no cookies, and no third-party telemetry.
             </p>
           </div>
         </div>
 
-        <div className="pt-3 border-t flex justify-end" style={{ borderColor: 'var(--bd)' }}>
+        <div className="pt-2 border-t flex justify-end" style={{ borderColor: 'var(--bd)' }}>
           <button
             onClick={onClose}
-            className="on px-5 py-2 text-sm font-semibold rounded-xl"
+            className="on px-4 py-1.5 text-xs font-semibold rounded-xl"
             style={{ backgroundColor: 'var(--ac)', color: '#fff' }}
           >
-            I Understand
+            Done
           </button>
         </div>
       </div>

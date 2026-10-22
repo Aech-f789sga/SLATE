@@ -175,7 +175,7 @@ export default function App() {
       ) : (
         <LibraryView
           notebooks={notebooks}
-          onOpenNotebook={(nb) => setActiveNotebookId(nb.id)}
+          onOpenNotebook={(id) => setActiveNotebookId(typeof id === 'number' ? id : (id as any).id)}
           onCreateNotebook={handleCreateNotebook}
           onToggleFavorite={handleToggleFavorite}
           onToggleTrash={handleToggleTrash}
