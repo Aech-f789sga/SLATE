@@ -41,6 +41,7 @@ const pwaHead = `
 <script type="module" src="/src/cloudSync.ts"></script>
 <script type="module" src="/src/tour.ts"></script>
 <script type="module" src="/src/snap.ts"></script>
+<script type="module" src="/src/theme.ts"></script>
 `;
 content = mustReplace(content, '</head>', `${pwaHead}</head>`, '</head>');
 
@@ -475,6 +476,7 @@ const requiredMarkers = [
   ['auth client script', 'function authDoSubmit()'],
   ['cloud sync bridge', 'window.__inkpad_cloud'],
   ['cloud sync module', 'src="/src/cloudSync.ts"'],
+  ['goodnotes shell module', 'src="/src/theme.ts"'],
   ['notebook save hook', 'window.__inkpad_cloud.onSave(nb)'],
   ['window.lib exposure', 'window.lib=lib;window.showLib=showLib;'],
   ['native window.open preserved', 'function openNotebook(n){nb=n;'],
