@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile and preferences",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "Profile picture URL" },
+        "updatedAt": { "type": "number", "description": "Last updated epoch timestamp" }
+      },
+      "required": ["uid"]
+    },
+    "Notebook": {
+      "title": "Notebook",
+      "description": "Inkpad notebook containing pages, strokes, layers and metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Notebook ID" },
+        "userId": { "type": "string", "description": "Owner user UID" },
+        "name": { "type": "string", "description": "Notebook title" },
+        "cover": { "type": "string", "description": "Cover hex color" },
+        "upd": { "type": "number", "description": "Last updated epoch timestamp" },
+        "fav": { "type": "boolean", "description": "Whether notebook is starred as favorite" },
+        "del": { "type": "number", "description": "Trash flag (1 if in trash)" },
+        "pagesJson": { "type": "string", "description": "JSON string containing pages, strokes and templates" },
+        "libJson": { "type": "string", "description": "JSON string of notebook figure library" }
+      },
+      "required": ["id", "userId", "name", "cover", "upd", "pagesJson"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and metadata"
+    },
+    "/users/{userId}/notebooks/{notebookId}": {
+      "schema": "Notebook",
+      "description": "User notebooks collection with drawings and pages"
+    }
+  }
+}

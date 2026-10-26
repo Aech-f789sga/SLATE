@@ -14,9 +14,9 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'SLATE - Notes & Media Canvas',
-          short_name: 'SLATE',
-          description: 'Handwritten notes, sketching, documents, images, and videos with mobile-first offline support.',
+          name: 'Inkpad – Handwritten Notes',
+          short_name: 'Inkpad',
+          description: 'Inkpad is a handwritten notes and multimedia canvas for sketching, documents, and animations with cloud sync and offline PWA support.',
           theme_color: '#2f6df6',
           background_color: '#1a1a1c',
           display: 'standalone',
