@@ -61,6 +61,31 @@ html[data-bar=compact] #bar{padding-right:0}
 `;
 content = mustReplace(content, '</style>', `${responsiveStyles}</style>`, '</style> (responsive)');
 
+// 2c. Styles for the Home panels: stylus/pen mapping and cloud backup.
+const panelStyles = `
+#pen-md,#cloud-md{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:99;padding:16px}
+#pen-md.on,#cloud-md.on{display:flex}
+#pen-md .box,#cloud-md .box{background:var(--sf);border-radius:18px;padding:20px;width:min(94vw,430px);max-height:88vh;overflow:auto;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,.28);border:1px solid var(--bd)}
+#pen-md .row,#cloud-md .row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
+#pen-md .row select,#cloud-md select{font:inherit;font-size:13px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;max-width:170px}
+#pen-md h4{margin:2px 0 0;font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
+#pen-pad{height:92px;border:1px dashed var(--bd);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;color:var(--mu);font-size:12px;touch-action:none;background:var(--bg);user-select:none;-webkit-user-select:none;cursor:crosshair}
+#pen-pad b{font-size:20px;color:var(--tx);font-weight:600}
+.pen-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px;color:var(--mu)}
+.pen-meta i{color:var(--tx);font-style:normal;font-weight:600}
+#pen-bar{height:6px;border-radius:3px;background:var(--bd);overflow:hidden}
+#pen-bar>i{display:block;height:100%;width:0;background:var(--ac);transition:width .08s linear}
+.pen-hint{font-size:11.5px;color:var(--mu);line-height:1.5}
+#guest-banner{display:flex;align-items:flex-start;gap:10px;background:color-mix(in srgb,var(--ac) 9%,var(--sf));border:1px solid color-mix(in srgb,var(--ac) 35%,var(--bd));border-radius:12px;padding:10px 12px;margin-bottom:16px;font-size:12.5px;line-height:1.45}
+#guest-banner .grow{flex:1}
+#guest-banner button{font-size:12px;padding:5px 10px;flex:none}
+#cloud-files{max-height:150px;overflow:auto;border:1px solid var(--bd);border-radius:10px;font-size:12px}
+#cloud-files div{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;border-bottom:1px solid var(--bd)}
+#cloud-files div:last-child{border-bottom:0}
+#cloud-files span{color:var(--mu);flex:none}
+`;
+content = mustReplace(content, '</style>', `${panelStyles}</style>`, '</style> (panels)');
+
 // 3. Update #nav with cloud status and login/user controls
 const navOld = `<nav id="nav"><b>Inkpad</b><a data-f="all" data-n="Documents" class="on">📚 Documents</a><a data-f="fav" data-n="Favorites">★ Favorites</a><a data-f="trash" data-n="Trash">🗑 Trash</a></nav>`;
 const navNew = `<nav id="nav">
@@ -160,6 +185,26 @@ const fitOld = `let b=aw;if(DEV==='desktop'||document.documentElement.dataset.or
 const fitNew = `let b=Math.min(aw,Math.max(260,ah*W/H));`;
 content = mustReplace(content, fitOld, fitNew, 'page fit rule');
 
+// 7e. Pen buttons: the engine hardcodes the eraser end to "eraser" and allows
+// only Eraser/Lasso/Nothing on the barrel button. Route every pen button
+// through penBtn() so the Home panel can map them to any Inkpad tool, and also
+// accept pointerType "eraser" (some Android drivers report it).
+const penBtnOld = `if(e.pointerType==="pen"){penInfo(e);const bt=(e.buttons&32||e.button===5)?'er':((e.buttons&2||e.button===2)&&SIDE!=='none')?SIDE:'';if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}`;
+const penBtnNew = `if(e.pointerType==="pen"||e.pointerType==="eraser"){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}`;
+content = mustReplace(content, penBtnOld, penBtnNew, 'pen button mapping');
+
+// 7f. The engine's own settings dialog gets the full tool list and writes to the
+// shared pen config, so both places stay in sync.
+const penSelOld = `[['er','Eraser'],['sel','Lasso'],['none','Nothing']].forEach(([v,t])=>{const o=el('option',0,t);o.value=v;s3.append(o)});s3.value=SIDE;s3.onchange=()=>{SIDE=s3.value;saveSet()};`;
+const penSelNew = `PEN_TOOLS.forEach(([v,t])=>{const o=el('option',0,t);o.value=v;s3.append(o)});s3.value=PENCFG.side;s3.onchange=()=>{SIDE=s3.value;saveSet();penCfgSet('side',s3.value)};`;
+content = mustReplace(content, penSelOld, penSelNew, 'engine pen settings select');
+
+// 7g. Tell the cloud layer when the device store is full, so it can offer a
+// backup instead of losing the notebook silently.
+const saveCatchOld = `try{localStorage.setItem("inkpad",JSON.stringify(lib))}catch(e){}if(window.__inkpad_cloud)window.__inkpad_cloud.onSave(nb)`;
+const saveCatchNew = `try{localStorage.setItem("inkpad",JSON.stringify(lib))}catch(e){if(window.__inkpad_storageFull)window.__inkpad_storageFull()}if(window.__inkpad_cloud)window.__inkpad_cloud.onSave(nb)`;
+content = mustReplace(content, saveCatchOld, saveCatchNew, 'save() storage hook');
+
 // 8. Add client-side script for auth modal interactions
 const authScript = `
 let authMode = 'signin';
@@ -226,7 +271,136 @@ async function authDoSubmit(){
   }
 }
 `;
-content = mustReplace(content, 'showLib();\n</script>', `${authScript}\nshowLib();\n</script>`, 'auth client script');
+// 8b. Stylus / pen support: button mapping to Inkpad tools, pressure and palm
+// controls, and a live detector so third-party pens (XP-Pen, Huion, Wacom,
+// Apple Pencil, S Pen) can be verified without guessing.
+const penScript = `
+var PEN_TOOLS=[['pen','Pen'],['hl','Highlight'],['er','Eraser'],['sel','Lasso select'],['line','Line'],['rect','Rectangle'],['ell','Oval'],['text','Text'],['laser','Laser pointer'],['none','Nothing']];
+var PENCFG={eraser:'er',side:'er',side2:'none'};
+var PENLIVE={seen:0,type:'-',pr:0,prMin:1,prMax:0,tilt:0,btn:'none',eraser:0,side:0,side2:0};
+function penCfgLoad(){
+  var o=null;try{o=JSON.parse(localStorage.getItem('inkpad-pen')||'null')}catch(e){o=null}
+  if(!o||typeof o!=='object')o={};
+  if(o.eraser)PENCFG.eraser=o.eraser;
+  if(o.side)PENCFG.side=o.side;
+  if(o.side2)PENCFG.side2=o.side2;
+  if(!('side' in o)){try{var s=JSON.parse(localStorage.getItem('inkpad-set')||'{}');if(s.side)PENCFG.side=s.side}catch(e){}}
+}
+function penCfgSave(){try{localStorage.setItem('inkpad-pen',JSON.stringify(PENCFG))}catch(e){}}
+function penCfgSet(k,v){
+  PENCFG[k]=v;penCfgSave();
+  if(k==='side'){try{var s=JSON.parse(localStorage.getItem('inkpad-set')||'{}');s.side=v;localStorage.setItem('inkpad-set',JSON.stringify(s))}catch(e){}}
+}
+function penBtn(e){
+  if(e.pointerType!=='pen'&&e.pointerType!=='eraser')return '';
+  if((e.buttons&32)||e.button===5||e.pointerType==='eraser')return PENCFG.eraser==='none'?'':PENCFG.eraser;
+  if((e.buttons&2)||e.button===2)return PENCFG.side==='none'?'':PENCFG.side;
+  if((e.buttons&4)||e.button===1)return PENCFG.side2==='none'?'':PENCFG.side2;
+  return '';
+}
+function penMeta(){
+  var m=document.getElementById('pen-meta');if(!m)return;
+  var prs=PENLIVE.prMax-PENLIVE.prMin>.08;
+  var kind=PENLIVE.type==='pen'?'stylus':PENLIVE.type==='eraser'?'eraser':PENLIVE.type==='touch'?'finger':PENLIVE.seen?'mouse':'waiting';
+  m.innerHTML='<div>Device <i>'+kind+'</i></div>'+
+    '<div>Pressure <i>'+(PENLIVE.type==='pen'?(prs?'variable':'not reported'):'-')+'</i></div>'+
+    '<div>Tilt <i>'+(PENLIVE.tilt?'yes':'no')+'</i></div>'+
+    '<div>Last button <i>'+PENLIVE.btn+'</i></div>'+
+    '<div>Eraser end <i>'+(PENLIVE.eraser?'detected':'not seen')+'</i></div>'+
+    '<div>Barrel <i>'+(PENLIVE.side?'detected':(PENLIVE.side2?'second only':'not seen'))+'</i></div>';
+  var bar=document.querySelector('#pen-bar>i');
+  if(bar)bar.style.width=Math.round(Math.max(0,Math.min(1,PENLIVE.pr))*100)+'%';
+}
+function penPad(){
+  var pad=document.getElementById('pen-pad');if(!pad)return;
+  function note(e){
+    PENLIVE.seen=1;PENLIVE.type=e.pointerType||'-';
+    var p=(typeof e.pressure==='number')?e.pressure:0;
+    if(e.type!=='pointerup'&&p>0){PENLIVE.pr=p;if(p<PENLIVE.prMin)PENLIVE.prMin=p;if(p>PENLIVE.prMax)PENLIVE.prMax=p}
+    PENLIVE.tilt=Math.max(Math.abs(e.tiltX||0),Math.abs(e.tiltY||0));
+    if((e.buttons&32)||e.button===5)PENLIVE.eraser=1;
+    if((e.buttons&2)||e.button===2)PENLIVE.side=1;
+    if((e.buttons&4)||e.button===1)PENLIVE.side2=1;
+    PENLIVE.btn=e.type==='pointerup'?'none':(e.button===0?'tip':e.button===5?'eraser':e.button===2?'barrel':e.button===1?'barrel 2':'b'+e.button);
+    penMeta();
+    var s=pad.querySelector('span');
+    if(s&&e.type!=='pointerup')s.textContent='pressure '+p.toFixed(2)+'  ·  tilt '+PENLIVE.tilt+'°';
+  }
+  ['pointerdown','pointermove','pointerup','pointercancel'].forEach(function(t){pad.addEventListener(t,note)});
+  pad.addEventListener('contextmenu',function(e){e.preventDefault()});
+  pad.addEventListener('pointerdown',function(e){try{pad.setPointerCapture(e.pointerId)}catch(err){}});
+}
+function penFill(sel,val){
+  var s=document.getElementById(sel);if(!s)return;
+  s.innerHTML='';
+  PEN_TOOLS.forEach(function(p){var o=document.createElement('option');o.value=p[0];o.textContent=p[1];s.appendChild(o)});
+  s.value=val;
+}
+function openPenPanel(){
+  var md=document.getElementById('pen-md');
+  if(!md){
+    md=document.createElement('div');md.id='pen-md';
+    md.innerHTML='<div class="box">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center">'+
+        '<b style="font-size:17px">Stylus &amp; pen</b>'+
+        '<button class="ic" id="pen-close" style="font-size:16px;padding:2px 6px" aria-label="Close">✕</button>'+
+      '</div>'+
+      '<div id="pen-pad"><b>Try your pen here</b><span>Draw on this pad, or press a barrel button</span></div>'+
+      '<div class="pen-meta" id="pen-meta"></div>'+
+      '<div id="pen-bar"><i></i></div>'+
+      '<h4>Button mapping</h4>'+
+      '<div class="row"><span>Eraser end</span><select id="pen-eraser"></select></div>'+
+      '<div class="row"><span>Barrel button</span><select id="pen-side"></select></div>'+
+      '<div class="row"><span>Second barrel button</span><select id="pen-side2"></select></div>'+
+      '<h4>Pressure &amp; palm</h4>'+
+      '<div class="row"><span>Pressure response</span><select id="pen-prs"><option value=".6">Soft</option><option value="1">Normal</option><option value="1.7">Firm</option><option value="off">Off (speed only)</option></select></div>'+
+      '<div class="row"><span>Palm rejection (pen only)</span><input type="checkbox" id="pen-po"></div>'+
+      '<div class="pen-hint">The pen tip always draws with the current tool. The eraser end and barrel buttons can be mapped to any tool, and the previous tool returns as soon as you lift the pen. XP-Pen, Huion and Wacom only send pressure and button data to the browser when Windows Ink / pointer events is enabled in their driver.</div>'+
+      '<div style="display:flex;justify-content:flex-end"><button id="pen-done" class="on">Done</button></div>'+
+    '</div>';
+    document.body.appendChild(md);
+    document.getElementById('pen-close').onclick=function(){md.classList.remove('on')};
+    document.getElementById('pen-done').onclick=function(){md.classList.remove('on')};
+    md.addEventListener('pointerdown',function(e){if(e.target===md)md.classList.remove('on')});
+    penPad();
+    document.getElementById('pen-eraser').onchange=function(){penCfgSet('eraser',this.value)};
+    document.getElementById('pen-side').onchange=function(){penCfgSet('side',this.value)};
+    document.getElementById('pen-side2').onchange=function(){penCfgSet('side2',this.value)};
+    document.getElementById('pen-prs').onchange=function(){
+      var p=document.getElementById('prs');
+      if(p){p.value=this.value;p.dispatchEvent(new Event('change'))}
+    };
+    document.getElementById('pen-po').onchange=function(){
+      var c=document.getElementById('po');
+      if(c){c.checked=this.checked;c.dispatchEvent(new Event('change'))}
+    };
+  }
+  penFill('pen-eraser',PENCFG.eraser);
+  penFill('pen-side',PENCFG.side);
+  penFill('pen-side2',PENCFG.side2);
+  var prs=document.getElementById('prs');if(prs)document.getElementById('pen-prs').value=prs.value;
+  var po=document.getElementById('po');if(po)document.getElementById('pen-po').checked=po.checked;
+  penMeta();
+  md.classList.add('on');
+}
+function penNavBtn(){
+  if(document.getElementById('pen-btn'))return;
+  var nav=document.getElementById('nav');if(!nav)return;
+  var b=document.createElement('button');
+  b.id='pen-btn';b.type='button';b.textContent='✒️ Stylus & pen';
+  b.style.cssText='text-align:left;background:transparent;border:0;border-radius:10px;padding:9px 12px;font:inherit;cursor:pointer;color:inherit';
+  b.onclick=openPenPanel;
+  var links=nav.querySelectorAll('a[data-f]');
+  var anchor=links.length?links[links.length-1]:null;
+  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(b,anchor.nextSibling);
+  else nav.appendChild(b);
+}
+penCfgLoad();
+penNavBtn();
+(function(){var c=document.getElementById('cv');if(c)c.addEventListener('contextmenu',function(e){e.preventDefault()})})();
+`;
+
+content = mustReplace(content, 'showLib();\n</script>', `${authScript}\n${penScript}\nshowLib();\n</script>`, 'auth client script');
 
 // Final gate: every auth piece must be present in the generated file.
 const requiredMarkers = [
@@ -239,6 +413,10 @@ const requiredMarkers = [
   ['notebook save hook', 'window.__inkpad_cloud.onSave(nb)'],
   ['window.lib exposure', 'window.lib=lib;window.showLib=showLib;'],
   ['native window.open preserved', 'function openNotebook(n){nb=n;'],
+  ['pen button mapping', 'const bt=penBtn(e);'],
+  ['pen settings panel', "id='pen-md'"],
+  ['pen config store', "localStorage.setItem('inkpad-pen'"],
+  ['storage-full hook', 'window.__inkpad_storageFull'],
 ];
 for (const [label, marker] of requiredMarkers) {
   if (!content.includes(marker)) {

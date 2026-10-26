@@ -41,6 +41,27 @@ input[type=range]{width:80px;padding:0}
 html[data-bar=compact] #tb{padding-right:44px}
 html[data-bar=compact] #tb #more{position:absolute;right:0;top:0;bottom:0;order:0;margin:0;width:44px;height:auto;display:flex;align-items:center;justify-content:center;border:0;border-left:1px solid var(--bd);border-radius:0 13px 13px 0;box-shadow:none;background:var(--sf);z-index:3}
 html[data-bar=compact] #bar{padding-right:0}
+
+#pen-md,#cloud-md{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:99;padding:16px}
+#pen-md.on,#cloud-md.on{display:flex}
+#pen-md .box,#cloud-md .box{background:var(--sf);border-radius:18px;padding:20px;width:min(94vw,430px);max-height:88vh;overflow:auto;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,.28);border:1px solid var(--bd)}
+#pen-md .row,#cloud-md .row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
+#pen-md .row select,#cloud-md select{font:inherit;font-size:13px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;max-width:170px}
+#pen-md h4{margin:2px 0 0;font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
+#pen-pad{height:92px;border:1px dashed var(--bd);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;color:var(--mu);font-size:12px;touch-action:none;background:var(--bg);user-select:none;-webkit-user-select:none;cursor:crosshair}
+#pen-pad b{font-size:20px;color:var(--tx);font-weight:600}
+.pen-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px;color:var(--mu)}
+.pen-meta i{color:var(--tx);font-style:normal;font-weight:600}
+#pen-bar{height:6px;border-radius:3px;background:var(--bd);overflow:hidden}
+#pen-bar>i{display:block;height:100%;width:0;background:var(--ac);transition:width .08s linear}
+.pen-hint{font-size:11.5px;color:var(--mu);line-height:1.5}
+#guest-banner{display:flex;align-items:flex-start;gap:10px;background:color-mix(in srgb,var(--ac) 9%,var(--sf));border:1px solid color-mix(in srgb,var(--ac) 35%,var(--bd));border-radius:12px;padding:10px 12px;margin-bottom:16px;font-size:12.5px;line-height:1.45}
+#guest-banner .grow{flex:1}
+#guest-banner button{font-size:12px;padding:5px 10px;flex:none}
+#cloud-files{max-height:150px;overflow:auto;border:1px solid var(--bd);border-radius:10px;font-size:12px}
+#cloud-files div{display:flex;justify-content:space-between;gap:8px;padding:6px 9px;border-bottom:1px solid var(--bd)}
+#cloud-files div:last-child{border-bottom:0}
+#cloud-files span{color:var(--mu);flex:none}
 </style><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat&family=Kalam&family=Patrick+Hand&family=Indie+Flower&family=Dancing+Script&family=Reenie+Beanie&family=Homemade+Apple&display=swap">
 <meta name="theme-color" content="#2f6df6">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -120,7 +141,7 @@ let W=800,H=1100;const COLORS=["#111111","#2f6df6","#e5383b","#2a9d4f","#f4a300"
 let lib=[],nb=null,pi=0,tool="pen",color=COLORS[0],size=3,cur=null,undo=[],redo=[],tmr;
 const $=s=>document.querySelector(s),cv=$("#cv"),ctx=cv.getContext("2d");
 try{lib=JSON.parse(localStorage.getItem("inkpad")||"[]")}catch(e){lib=[]};window.lib=lib;window.showLib=showLib;
-function save(){if(nb)nb.upd=Date.now();clearTimeout(tmr);tmr=setTimeout(()=>{try{localStorage.setItem("inkpad",JSON.stringify(lib))}catch(e){}if(window.__inkpad_cloud)window.__inkpad_cloud.onSave(nb)},300)}
+function save(){if(nb)nb.upd=Date.now();clearTimeout(tmr);tmr=setTimeout(()=>{try{localStorage.setItem("inkpad",JSON.stringify(lib))}catch(e){if(window.__inkpad_storageFull)window.__inkpad_storageFull()}if(window.__inkpad_cloud)window.__inkpad_cloud.onSave(nb)},300)}
 const pg=()=>nb.pages[pi];
 function bg(c,tpl,col){c.fillStyle=col||"#fff";c.fillRect(0,0,W,H);c.strokeStyle="rgba(120,140,170,.35)";c.lineWidth=1;c.fillStyle="rgba(120,140,170,.55)";
  if(tpl==="cornell"){for(let y=120;y<900;y+=32){c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke()}c.strokeStyle="rgba(120,140,170,.8)";c.lineWidth=2;c.beginPath();c.moveTo(220,70);c.lineTo(220,900);c.moveTo(0,900);c.lineTo(W,900);c.stroke();c.lineWidth=1}
@@ -175,7 +196,7 @@ function fit(){fitting=1;cv.style.aspectRatio=W+'/'+H;layout();const d=cvD=wantD
 function pos(e){const r=cv.getBoundingClientRect(),p=[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];return SNAPON?gSnap(p):p}
 function snap(){undo.push(JSON.stringify(pg().strokes));if(undo.length>60)undo.shift();redo=[]}
 function eraseAt(x,y){if(cur&&cur.pe)return partial(x,y);const s=pg().strokes,n=s.length,r=12+size;pg().strokes=s.filter(k=>{if(k.t==="ers"||frH(k))return true;if(!k.p){if(k.fl)return true;const b=bb(k);return !(x>b[0]-r&&x<b[2]+r&&y>b[1]-r&&y<b[3]+r)}return !k.p.some(q=>Math.hypot(q[0]-x,q[1]-y)<r+(k.t==="hl"?k.w*2:k.w/2))});if(pg().strokes.length!==n)return true;let fc=false;for(const k of pg().strokes)if(k.fl&&fillCut(k,x,y))fc=true;return fc}
-cv.addEventListener("pointerdown",e=>{if(flipping)return;if(e.pointerType==="pen"&&!penSeen){penSeen=1;$("#po").checked=true;$("#po").dispatchEvent(new Event("change"))}if($("#po").checked&&e.pointerType==="touch")return;if(e.pointerType==="pen"){penInfo(e);const bt=(e.buttons&32||e.button===5)?'er':((e.buttons&2||e.button===2)&&SIDE!=='none')?SIDE:'';if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}e.preventDefault();cv.setPointerCapture(e.pointerId);{const r0=pos(e);if(gdDown(r0[0],r0[1]))return;if(lyBlock())return;SNAPON=gdTool()}const[x,y]=pos(e);commitText();if(tool==="text"&&!textSel(x,y)){openText(x,y);return}if(tool==="bk"){bucket(x,y);return}if(tool==="laser"){cur={t:"laser",s:{p:[[x,y,performance.now()]],rt:0,l:[x,y],m:LM}};trail.push(cur.s);laserLoop();return}if(tool==="sel"||tool==="text"){snap();cur=null;sel=sel.filter(lyOn);const k=W/cv.getBoundingClientRect().width;
+cv.addEventListener("pointerdown",e=>{if(flipping)return;if(e.pointerType==="pen"&&!penSeen){penSeen=1;$("#po").checked=true;$("#po").dispatchEvent(new Event("change"))}if($("#po").checked&&e.pointerType==="touch")return;if(e.pointerType==="pen"||e.pointerType==="eraser"){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}e.preventDefault();cv.setPointerCapture(e.pointerId);{const r0=pos(e);if(gdDown(r0[0],r0[1]))return;if(lyBlock())return;SNAPON=gdTool()}const[x,y]=pos(e);commitText();if(tool==="text"&&!textSel(x,y)){openText(x,y);return}if(tool==="bk"){bucket(x,y);return}if(tool==="laser"){cur={t:"laser",s:{p:[[x,y,performance.now()]],rt:0,l:[x,y],m:LM}};trail.push(cur.s);laserLoop();return}if(tool==="sel"||tool==="text"){snap();cur=null;sel=sel.filter(lyOn);const k=W/cv.getBoundingClientRect().width;
  if(sel.length){const b=selBox(),C=cor(b);let h=-1;C.forEach((c,i)=>{if(Math.hypot(x-c[0],y-c[1])<16*k)h=i});
   if(Math.hypot(x-(b[0]+b[2])/2,y-b[1]+34)<16*k){const cx=(b[0]+b[2])/2,cy=(b[1]+b[3])/2;cur={t:"sel",rot:1,cx,cy,a0:Math.atan2(y-cy,x-cx),o:sel.map(s=>JSON.parse(JSON.stringify(s)))}}else if(h>=0){const c=C[h],a=C[3-h];cur={t:"sel",rs:1,a,w0:Math.abs(c[0]-a[0])||1,h0:Math.abs(c[1]-a[1])||1,sx:Math.sign(c[0]-a[0])||1,sy:Math.sign(c[1]-a[1])||1,o:sel.map(s=>JSON.parse(JSON.stringify(s)))}}
   else if(sel.length===1&&sel[0].t==="text"&&Math.hypot(x-(b[2]+6),y-(b[1]+b[3])/2)<16*k)cur={t:"sel",tw:1,it:sel[0]};else if(x>b[0]-6&&x<b[2]+6&&y>b[1]-6&&y<b[3]+6)cur={t:"sel",mv:1,l:[x,y],tap:tool==="text"?wasSel:null}}
@@ -382,7 +403,7 @@ function goPageOld(n){if(!nb||n<0||n>=nb.pages.length||n===pi||flipping)return;i
 function fillSet(d){hd(d,'Page turning');[[false,'Classic (instant)'],[true,'Flip animation']].forEach(([v,t])=>{const l=el('label','display:flex;gap:8px;align-items:center;padding:4px 0'),r=el('input');r.type='radio';r.name='flip';r.checked=FLIP===v;r.onchange=()=>{FLIP=v;saveSet()};l.append(r,t);d.append(l)});
  const l=el('label','display:flex;gap:8px;align-items:center;padding:4px 0;max-width:300px'),c=el('input');c.type='checkbox';c.checked=SCRL;c.onchange=()=>{SCRL=c.checked;saveSet()};l.append(c,'Scroll to turn pages (keep scrolling past the end of a page)');d.append(l);
  const l2=el('label','display:flex;gap:8px;align-items:center;padding:4px 0'),c2=el('input');c2.type='checkbox';c2.checked=SFLIP;c2.onchange=()=>{SFLIP=c2.checked;saveSet();if(SFLIP)flipSound(.5)};l2.append(c2,'Page-flip sound');d.append(l2);
- hd(d,'Stylus');const l3=el('label','display:flex;gap:8px;align-items:center;padding:4px 0','Pen side button:'),s3=el('select');[['er','Eraser'],['sel','Lasso'],['none','Nothing']].forEach(([v,t])=>{const o=el('option',0,t);o.value=v;s3.append(o)});s3.value=SIDE;s3.onchange=()=>{SIDE=s3.value;saveSet()};l3.append(s3);d.append(l3);d.append(el('div','color:var(--mu);font-size:12px;max-width:290px',penStatus()))}
+ hd(d,'Stylus');const l3=el('label','display:flex;gap:8px;align-items:center;padding:4px 0','Pen side button:'),s3=el('select');PEN_TOOLS.forEach(([v,t])=>{const o=el('option',0,t);o.value=v;s3.append(o)});s3.value=PENCFG.side;s3.onchange=()=>{SIDE=s3.value;saveSet();penCfgSet('side',s3.value)};l3.append(s3);d.append(l3);d.append(el('div','color:var(--mu);font-size:12px;max-width:290px',penStatus()))}
 function render(c,page,live){const w0=W,h0=H;W=page.pw||800;H=page.ph||1100;try{render0(c,page,live)}finally{W=w0;H=h0}}
 let curlCol='#f4f2ec';const pcOf=p=>p.pp?(p.pp.bg||'#fff'):(p.col||'#f4f2ec');
 function bgPP(c,p){c.fillStyle=p.bg||'#fff';c.fillRect(0,0,W,H);const g=p.gap||32,lw=p.lw||1,k=p.k;c.strokeStyle=c.fillStyle=p.ln||'rgba(120,140,170,.4)';c.lineWidth=lw;const L=(x0,y0,x1,y1)=>{c.beginPath();c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke()};
@@ -942,6 +963,131 @@ async function authDoSubmit(){
     else authShowErr((err&&err.message)||'Authentication error.');
   }
 }
+
+
+var PEN_TOOLS=[['pen','Pen'],['hl','Highlight'],['er','Eraser'],['sel','Lasso select'],['line','Line'],['rect','Rectangle'],['ell','Oval'],['text','Text'],['laser','Laser pointer'],['none','Nothing']];
+var PENCFG={eraser:'er',side:'er',side2:'none'};
+var PENLIVE={seen:0,type:'-',pr:0,prMin:1,prMax:0,tilt:0,btn:'none',eraser:0,side:0,side2:0};
+function penCfgLoad(){
+  var o=null;try{o=JSON.parse(localStorage.getItem('inkpad-pen')||'null')}catch(e){o=null}
+  if(!o||typeof o!=='object')o={};
+  if(o.eraser)PENCFG.eraser=o.eraser;
+  if(o.side)PENCFG.side=o.side;
+  if(o.side2)PENCFG.side2=o.side2;
+  if(!('side' in o)){try{var s=JSON.parse(localStorage.getItem('inkpad-set')||'{}');if(s.side)PENCFG.side=s.side}catch(e){}}
+}
+function penCfgSave(){try{localStorage.setItem('inkpad-pen',JSON.stringify(PENCFG))}catch(e){}}
+function penCfgSet(k,v){
+  PENCFG[k]=v;penCfgSave();
+  if(k==='side'){try{var s=JSON.parse(localStorage.getItem('inkpad-set')||'{}');s.side=v;localStorage.setItem('inkpad-set',JSON.stringify(s))}catch(e){}}
+}
+function penBtn(e){
+  if(e.pointerType!=='pen'&&e.pointerType!=='eraser')return '';
+  if((e.buttons&32)||e.button===5||e.pointerType==='eraser')return PENCFG.eraser==='none'?'':PENCFG.eraser;
+  if((e.buttons&2)||e.button===2)return PENCFG.side==='none'?'':PENCFG.side;
+  if((e.buttons&4)||e.button===1)return PENCFG.side2==='none'?'':PENCFG.side2;
+  return '';
+}
+function penMeta(){
+  var m=document.getElementById('pen-meta');if(!m)return;
+  var prs=PENLIVE.prMax-PENLIVE.prMin>.08;
+  var kind=PENLIVE.type==='pen'?'stylus':PENLIVE.type==='eraser'?'eraser':PENLIVE.type==='touch'?'finger':PENLIVE.seen?'mouse':'waiting';
+  m.innerHTML='<div>Device <i>'+kind+'</i></div>'+
+    '<div>Pressure <i>'+(PENLIVE.type==='pen'?(prs?'variable':'not reported'):'-')+'</i></div>'+
+    '<div>Tilt <i>'+(PENLIVE.tilt?'yes':'no')+'</i></div>'+
+    '<div>Last button <i>'+PENLIVE.btn+'</i></div>'+
+    '<div>Eraser end <i>'+(PENLIVE.eraser?'detected':'not seen')+'</i></div>'+
+    '<div>Barrel <i>'+(PENLIVE.side?'detected':(PENLIVE.side2?'second only':'not seen'))+'</i></div>';
+  var bar=document.querySelector('#pen-bar>i');
+  if(bar)bar.style.width=Math.round(Math.max(0,Math.min(1,PENLIVE.pr))*100)+'%';
+}
+function penPad(){
+  var pad=document.getElementById('pen-pad');if(!pad)return;
+  function note(e){
+    PENLIVE.seen=1;PENLIVE.type=e.pointerType||'-';
+    var p=(typeof e.pressure==='number')?e.pressure:0;
+    if(e.type!=='pointerup'&&p>0){PENLIVE.pr=p;if(p<PENLIVE.prMin)PENLIVE.prMin=p;if(p>PENLIVE.prMax)PENLIVE.prMax=p}
+    PENLIVE.tilt=Math.max(Math.abs(e.tiltX||0),Math.abs(e.tiltY||0));
+    if((e.buttons&32)||e.button===5)PENLIVE.eraser=1;
+    if((e.buttons&2)||e.button===2)PENLIVE.side=1;
+    if((e.buttons&4)||e.button===1)PENLIVE.side2=1;
+    PENLIVE.btn=e.type==='pointerup'?'none':(e.button===0?'tip':e.button===5?'eraser':e.button===2?'barrel':e.button===1?'barrel 2':'b'+e.button);
+    penMeta();
+    var s=pad.querySelector('span');
+    if(s&&e.type!=='pointerup')s.textContent='pressure '+p.toFixed(2)+'  ·  tilt '+PENLIVE.tilt+'°';
+  }
+  ['pointerdown','pointermove','pointerup','pointercancel'].forEach(function(t){pad.addEventListener(t,note)});
+  pad.addEventListener('contextmenu',function(e){e.preventDefault()});
+  pad.addEventListener('pointerdown',function(e){try{pad.setPointerCapture(e.pointerId)}catch(err){}});
+}
+function penFill(sel,val){
+  var s=document.getElementById(sel);if(!s)return;
+  s.innerHTML='';
+  PEN_TOOLS.forEach(function(p){var o=document.createElement('option');o.value=p[0];o.textContent=p[1];s.appendChild(o)});
+  s.value=val;
+}
+function openPenPanel(){
+  var md=document.getElementById('pen-md');
+  if(!md){
+    md=document.createElement('div');md.id='pen-md';
+    md.innerHTML='<div class="box">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center">'+
+        '<b style="font-size:17px">Stylus &amp; pen</b>'+
+        '<button class="ic" id="pen-close" style="font-size:16px;padding:2px 6px" aria-label="Close">✕</button>'+
+      '</div>'+
+      '<div id="pen-pad"><b>Try your pen here</b><span>Draw on this pad, or press a barrel button</span></div>'+
+      '<div class="pen-meta" id="pen-meta"></div>'+
+      '<div id="pen-bar"><i></i></div>'+
+      '<h4>Button mapping</h4>'+
+      '<div class="row"><span>Eraser end</span><select id="pen-eraser"></select></div>'+
+      '<div class="row"><span>Barrel button</span><select id="pen-side"></select></div>'+
+      '<div class="row"><span>Second barrel button</span><select id="pen-side2"></select></div>'+
+      '<h4>Pressure &amp; palm</h4>'+
+      '<div class="row"><span>Pressure response</span><select id="pen-prs"><option value=".6">Soft</option><option value="1">Normal</option><option value="1.7">Firm</option><option value="off">Off (speed only)</option></select></div>'+
+      '<div class="row"><span>Palm rejection (pen only)</span><input type="checkbox" id="pen-po"></div>'+
+      '<div class="pen-hint">The pen tip always draws with the current tool. The eraser end and barrel buttons can be mapped to any tool, and the previous tool returns as soon as you lift the pen. XP-Pen, Huion and Wacom only send pressure and button data to the browser when Windows Ink / pointer events is enabled in their driver.</div>'+
+      '<div style="display:flex;justify-content:flex-end"><button id="pen-done" class="on">Done</button></div>'+
+    '</div>';
+    document.body.appendChild(md);
+    document.getElementById('pen-close').onclick=function(){md.classList.remove('on')};
+    document.getElementById('pen-done').onclick=function(){md.classList.remove('on')};
+    md.addEventListener('pointerdown',function(e){if(e.target===md)md.classList.remove('on')});
+    penPad();
+    document.getElementById('pen-eraser').onchange=function(){penCfgSet('eraser',this.value)};
+    document.getElementById('pen-side').onchange=function(){penCfgSet('side',this.value)};
+    document.getElementById('pen-side2').onchange=function(){penCfgSet('side2',this.value)};
+    document.getElementById('pen-prs').onchange=function(){
+      var p=document.getElementById('prs');
+      if(p){p.value=this.value;p.dispatchEvent(new Event('change'))}
+    };
+    document.getElementById('pen-po').onchange=function(){
+      var c=document.getElementById('po');
+      if(c){c.checked=this.checked;c.dispatchEvent(new Event('change'))}
+    };
+  }
+  penFill('pen-eraser',PENCFG.eraser);
+  penFill('pen-side',PENCFG.side);
+  penFill('pen-side2',PENCFG.side2);
+  var prs=document.getElementById('prs');if(prs)document.getElementById('pen-prs').value=prs.value;
+  var po=document.getElementById('po');if(po)document.getElementById('pen-po').checked=po.checked;
+  penMeta();
+  md.classList.add('on');
+}
+function penNavBtn(){
+  if(document.getElementById('pen-btn'))return;
+  var nav=document.getElementById('nav');if(!nav)return;
+  var b=document.createElement('button');
+  b.id='pen-btn';b.type='button';b.textContent='✒️ Stylus & pen';
+  b.style.cssText='text-align:left;background:transparent;border:0;border-radius:10px;padding:9px 12px;font:inherit;cursor:pointer;color:inherit';
+  b.onclick=openPenPanel;
+  var links=nav.querySelectorAll('a[data-f]');
+  var anchor=links.length?links[links.length-1]:null;
+  if(anchor&&anchor.parentNode)anchor.parentNode.insertBefore(b,anchor.nextSibling);
+  else nav.appendChild(b);
+}
+penCfgLoad();
+penNavBtn();
+(function(){var c=document.getElementById('cv');if(c)c.addEventListener('contextmenu',function(e){e.preventDefault()})})();
 
 showLib();
 </script></body></html>
