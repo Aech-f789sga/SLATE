@@ -206,14 +206,14 @@ let delArm=0;$("#del").onclick=function(){if(nb.pages.length<2){snap();pg().stro
  if(!delArm){delArm=1;this.textContent="Sure?";setTimeout(()=>{delArm=0;this.textContent="Delete page"},2500);return}
  delArm=0;this.textContent="Delete page";nb.pages.splice(pi,1);pi=Math.max(0,pi-1);load();save()};
 $("#back").onclick=()=>{$("#ed").style.display="none";$("#lib").style.display="flex";showLib()};
-function open(n){nb=n;pi=0;$("#lib").style.display="none";$("#ed").style.display="flex";fit();load()}
+function openNotebook(n){nb=n;pi=0;$("#lib").style.display="none";$("#ed").style.display="flex";fit();load()}
 function showLib(){const g=$("#grid");g.innerHTML="";const nw=document.createElement("div");nw.className="new";nw.textContent="+";nw.title="New notebook";
  nw.onclick=()=>{$("#md").classList.add("on");$("#nn").focus()};if(flt!=="trash")g.append(nw);
  lib.filter(n=>(n.name||"").toLowerCase().includes($("#find").value.toLowerCase())&&(flt==="trash"?n.del:!n.del&&(flt!=="fav"||n.fav))).sort((a,b)=>(b.upd||0)-(a.upd||0)).forEach(n=>{const d=document.createElement("div");d.className="card";d.innerHTML=`<div class="cv" style="--c:${n.cover}"><canvas width="240" height="330"></canvas></div><div class="nm"></div><div class="sub"><span>${n.pages.length} page${n.pages.length>1?"s":""}</span><span><button class="fv"></button> <button class="dl"></button></span></div>`;
   d.querySelector(".nm").textContent=n.name||"Untitled";
   const c=d.querySelector("canvas").getContext("2d");{const p0=n.pages[0],k=Math.min(240/(p0.pw||800),330/(p0.ph||1100));c.scale(k,k);render(c,p0)}
   const fv=d.querySelector(".fv"),bt=d.querySelector(".dl");fv.textContent=n.fav?"★":"☆";bt.textContent=n.del?"Restore":"Delete";fv.onclick=e=>{e.stopPropagation();n.fav=!n.fav;save();showLib()};bt.onclick=e=>{e.stopPropagation();n.del=n.del?0:1;save();showLib();if(n.del&&window.__inkpad_cloud)window.__inkpad_cloud.onDelete(n.id);};
-  d.onclick=()=>{if(!n.del)open(n)};g.append(d)})}
+  d.onclick=()=>{if(!n.del)openNotebook(n)};g.append(d)})}
 addEventListener("resize",()=>{if(nb&&$("#ed").style.display==="flex")fit()});
 $("#find").oninput=showLib;
 let flt="all",trail=[],lp=0,ncov=COVERS[0];let LM="hold";try{LM=localStorage.getItem("inkpad-laser")==="fade"?"fade":"hold"}catch(e){}
@@ -315,7 +315,7 @@ document.querySelectorAll("#nav a").forEach(a=>a.onclick=()=>{flt=a.dataset.f;do
 $("#et").onclick=()=>{const toDel=lib.filter(n=>n.del);lib=lib.filter(n=>!n.del);save();showLib();if(window.__inkpad_cloud)toDel.forEach(n=>window.__inkpad_cloud.onDelete(n.id));};
 COVERS.forEach((c,i)=>{const b=document.createElement("button");b.className="sw"+(i?"":" on");b.style.background=c;b.setAttribute("aria-label","Cover "+(i+1));b.onclick=()=>{ncov=c;document.querySelectorAll("#cvs .sw").forEach(x=>x.classList.toggle("on",x===b))};$("#cvs").append(b)});
 $("#nc").onclick=()=>$("#md").classList.remove("on");
-$("#ok").onclick=()=>{const n={id:Date.now(),name:$("#nn").value.trim()||"Untitled",cover:ncov,upd:Date.now(),pages:[{tpl:$("#np").value,strokes:[]}]};lib.unshift(n);$("#md").classList.remove("on");$("#nn").value="";save();open(n)};
+$("#ok").onclick=()=>{const n={id:Date.now(),name:$("#nn").value.trim()||"Untitled",cover:ncov,upd:Date.now(),pages:[{tpl:$("#np").value,strokes:[]}]};lib.unshift(n);$("#md").classList.remove("on");$("#nn").value="";save();openNotebook(n)};
 $("#pc").onchange=e=>{pg().col=e.target.value||null;if(e.target.value==="#1f2430")setCol("#ffffff");draw();save();thumbs()};
 $("#dup").onclick=()=>{nb.pages.splice(pi+1,0,JSON.parse(JSON.stringify(pg())));pi++;load();save()};
 $("#fs").onclick=$("#fx").onclick=()=>{const h=$("#tb").style.display==="none";$("#tb").style.display=h?"flex":"none";$("#pg").style.display=h?"flex":"none";$("#fx").style.display=h?"none":"block";layout()};

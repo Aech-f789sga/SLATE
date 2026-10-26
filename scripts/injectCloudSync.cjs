@@ -11,6 +11,21 @@ const destPath = path.join(__dirname, '../index.html');
 
 let content = fs.readFileSync(srcPath, 'utf8');
 
+// Normalise line endings so the anchor replacements below always match,
+// no matter which OS / editor the source HTML came from.
+content = content.replace(/\r\n?/g, '\n');
+
+/**
+ * Replace an anchor and fail loudly if it is missing.
+ * Silent no-op replacements used to drop the auth UI without any error.
+ */
+function mustReplace(source, needle, replacement, label) {
+  if (!source.includes(needle)) {
+    throw new Error(`[injectCloudSync] anchor not found: ${label}`);
+  }
+  return source.replace(needle, replacement);
+}
+
 // 1. Add PWA meta tags & cloudSync module to <head>
 const pwaHead = `
 <meta name="theme-color" content="#2f6df6">
@@ -22,7 +37,7 @@ const pwaHead = `
 <link rel="manifest" href="/manifest.webmanifest">
 <script type="module" src="/src/cloudSync.ts"></script>
 `;
-content = content.replace('</head>', `${pwaHead}</head>`);
+content = mustReplace(content, '</head>', `${pwaHead}</head>`, '</head>');
 
 // 2. Add auth modal styling to <style>
 const authStyles = `
@@ -31,7 +46,7 @@ const authStyles = `
 #auth-md .box{background:var(--sf);border-radius:18px;padding:22px;width:min(92vw,360px);display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 32px rgba(0,0,0,.28);border:1px solid var(--bd)}
 #auth-md input{font:inherit;padding:9px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);width:100%}
 `;
-content = content.replace('</style>', `${authStyles}</style>`);
+content = mustReplace(content, '</style>', `${authStyles}</style>`, '</style>');
 
 // 3. Update #nav with cloud status and login/user controls
 const navOld = `<nav id="nav"><b>Inkpad</b><a data-f="all" data-n="Documents" class="on">📚 Documents</a><a data-f="fav" data-n="Favorites">★ Favorites</a><a data-f="trash" data-n="Trash">🗑 Trash</a></nav>`;
@@ -52,7 +67,7 @@ const navNew = `<nav id="nav">
     </div>
   </div>
 </nav>`;
-content = content.replace(navOld, navNew);
+content = mustReplace(content, navOld, navNew, '#nav block');
 
 // 4. Add #auth-md dialog markup right after #md
 const authModalHtml = `
@@ -82,26 +97,40 @@ const authModalHtml = `
   </div>
 </div>
 `;
-content = content.replace('<div id="md">', `${authModalHtml}\n<div id="md">`);
+content = mustReplace(content, '<div id="md">', `${authModalHtml}\n<div id="md">`, '<div id="md">');
 
 // 5. Update save() function to sync to cloud
 const oldSave = `function save(){if(nb)nb.upd=Date.now();clearTimeout(tmr);tmr=setTimeout(()=>{try{localStorage.setItem("inkpad",JSON.stringify(lib))}catch(e){}},300)}`;
 const newSave = `function save(){if(nb)nb.upd=Date.now();clearTimeout(tmr);tmr=setTimeout(()=>{try{localStorage.setItem("inkpad",JSON.stringify(lib))}catch(e){}if(window.__inkpad_cloud)window.__inkpad_cloud.onSave(nb)},300)}`;
-content = content.replace(oldSave, newSave);
+content = mustReplace(content, oldSave, newSave, 'save()');
 
 // 6. Expose lib and showLib to window for external cloud hydration
 const libInitOld = `try{lib=JSON.parse(localStorage.getItem("inkpad")||"[]")}catch(e){lib=[]}`;
 const libInitNew = `try{lib=JSON.parse(localStorage.getItem("inkpad")||"[]")}catch(e){lib=[]};window.lib=lib;window.showLib=showLib;`;
-content = content.replace(libInitOld, libInitNew);
+content = mustReplace(content, libInitOld, libInitNew, 'lib init');
 
 // 7. Connect delete and empty-trash with cloud sync
 const deleteOld = `bt.onclick=e=>{e.stopPropagation();n.del=n.del?0:1;save();showLib()};`;
 const deleteNew = `bt.onclick=e=>{e.stopPropagation();n.del=n.del?0:1;save();showLib();if(n.del&&window.__inkpad_cloud)window.__inkpad_cloud.onDelete(n.id);};`;
-content = content.replace(deleteOld, deleteNew);
+content = mustReplace(content, deleteOld, deleteNew, 'card delete');
 
 const emptyTrashOld = `$("#et").onclick=()=>{lib=lib.filter(n=>!n.del);save();showLib()};`;
 const emptyTrashNew = `$("#et").onclick=()=>{const toDel=lib.filter(n=>n.del);lib=lib.filter(n=>!n.del);save();showLib();if(window.__inkpad_cloud)toDel.forEach(n=>window.__inkpad_cloud.onDelete(n.id));};`;
-content = content.replace(emptyTrashOld, emptyTrashNew);
+content = mustReplace(content, emptyTrashOld, emptyTrashNew, 'empty trash');
+
+// 7b. The engine declares a top-level `function open(n)` to open a notebook.
+// Because it lives in a classic <script>, it replaces the browser's native
+// window.open, which is exactly what Firebase's signInWithPopup needs to show
+// the Google account chooser. Rename it so Google sign-in keeps working.
+const openRename = /(?<![A-Za-z0-9_.$])open(?=\(n\)|\{)/g;
+const openHits = (content.match(openRename) || []).length;
+if (openHits !== 3) {
+  throw new Error(`[injectCloudSync] expected 3 engine "open" references, found ${openHits}`);
+}
+content = content.replace(openRename, 'openNotebook');
+if (!content.includes('function openNotebook(n){nb=n;')) {
+  throw new Error('[injectCloudSync] engine open() rename failed');
+}
 
 // 8. Add client-side script for auth modal interactions
 const authScript = `
@@ -169,7 +198,26 @@ async function authDoSubmit(){
   }
 }
 `;
-content = content.replace('showLib();\n</script>', `${authScript}\nshowLib();\n</script>`);
+content = mustReplace(content, 'showLib();\n</script>', `${authScript}\nshowLib();\n</script>`, 'auth client script');
+
+// Final gate: every auth piece must be present in the generated file.
+const requiredMarkers = [
+  ['auth modal markup', 'id="auth-md"'],
+  ['google button', 'id="auth-google-btn"'],
+  ['email + password inputs', 'id="auth-email"'],
+  ['auth client script', 'function authDoSubmit()'],
+  ['cloud sync bridge', 'window.__inkpad_cloud'],
+  ['cloud sync module', 'src="/src/cloudSync.ts"'],
+  ['notebook save hook', 'window.__inkpad_cloud.onSave(nb)'],
+  ['window.lib exposure', 'window.lib=lib;window.showLib=showLib;'],
+  ['native window.open preserved', 'function openNotebook(n){nb=n;'],
+];
+for (const [label, marker] of requiredMarkers) {
+  if (!content.includes(marker)) {
+    throw new Error(`[injectCloudSync] generated index.html is missing ${label}`);
+  }
+}
 
 fs.writeFileSync(destPath, content, 'utf8');
 console.log('Successfully generated index.html with exact original engine + cloud sync & PWA!');
+console.log('Verified: email sign in/up, password reset, Google sign in and cloud sync hooks are all present.');
