@@ -121,6 +121,32 @@ function relTime(ts: number): string {
 /* Cloud sync controller                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Firebase auth errors are terse codes. Translate the ones a user can act on
+ * into sentences; keep the original code so the UI can still branch on it.
+ */
+function friendlyAuthError(err: any): Error {
+  const code: string = (err && err.code) || 'auth/unknown';
+  const map: Record<string, string> = {
+    'auth/operation-not-allowed':
+      'Email sign-in is switched off for this project. Enable it in Firebase → Authentication → Sign-in method → Email/Password, or use “Continue with Google”.',
+    'auth/email-already-in-use': 'That email already has an account — switch to “Sign In”.',
+    'auth/invalid-email': 'That doesn’t look like a valid email address.',
+    'auth/weak-password': 'Passwords need at least 6 characters.',
+    'auth/wrong-password': 'Wrong email or password.',
+    'auth/user-not-found': 'No account with that email — try “Create Account”.',
+    'auth/invalid-credential': 'Wrong email or password.',
+    'auth/too-many-requests': 'Too many attempts. Wait a minute and try again.',
+    'auth/network-request-failed': 'Network problem — check your connection and retry.',
+    'auth/popup-blocked': 'The browser blocked the Google popup. Allow popups for this site and retry.',
+    'auth/popup-closed-by-user': 'Google sign-in was cancelled.',
+    'auth/cancelled-popup-request': 'Google sign-in was cancelled.',
+    'auth/unauthorized-domain':
+      'This domain is not authorised for Google sign-in. Add it under Firebase → Authentication → Settings → Authorized domains.',
+  };
+  return Object.assign(new Error(map[code] || (err && err.message) || 'Authentication error.'), { code });
+}
+
 export const cloudSync = {
   currentUser: null as User | null,
 
@@ -169,7 +195,11 @@ export const cloudSync = {
   },
 
   async signInWithGoogle() {
-    return await signInWithPopup(auth, googleProvider);
+    try {
+      return await signInWithPopup(auth, googleProvider);
+    } catch (e) {
+      throw friendlyAuthError(e);
+    }
   },
 
   async signInWithEmail(email: string, pass: string) {
@@ -179,7 +209,11 @@ export const cloudSync = {
         { code: 'auth/admin-google-only' }
       );
     }
-    return await signInWithEmailAndPassword(auth, email, pass);
+    try {
+      return await signInWithEmailAndPassword(auth, email, pass);
+    } catch (e) {
+      throw friendlyAuthError(e);
+    }
   },
 
   async signUpWithEmail(email: string, pass: string) {
@@ -193,11 +227,19 @@ export const cloudSync = {
         { code: 'auth/admin-google-only' }
       );
     }
-    return await createUserWithEmailAndPassword(auth, email, pass);
+    try {
+      return await createUserWithEmailAndPassword(auth, email, pass);
+    } catch (e) {
+      throw friendlyAuthError(e);
+    }
   },
 
   async resetPassword(email: string) {
-    return await sendPasswordResetEmail(auth, email);
+    try {
+      return await sendPasswordResetEmail(auth, email);
+    } catch (e) {
+      throw friendlyAuthError(e);
+    }
   },
 
   async signOut() {
