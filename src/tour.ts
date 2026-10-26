@@ -927,7 +927,7 @@ const DEMOS: Record<string, Demo> = {
       let x = (w - total) / 2;
       const y = h * 0.4;
       names.forEach((nm, i) => {
-        const a = hit[i] ? 1 : 1 - filtering * 0.86;
+        const a = hit[i] ? 1 : 1 - filtering * 0.62;
         g.save();
         g.globalAlpha = a;
         g.fillStyle = '#fff';
@@ -936,7 +936,7 @@ const DEMOS: Record<string, Demo> = {
         roundRect(g, x, y, cw, ch, 5);
         g.fill();
         g.shadowBlur = 0;
-        g.fillStyle = i % 2 ? '#2f6df6' : '#e5383b';
+        g.fillStyle = ['#2f6df6', '#22a06b', '#f0a500', '#8b5cf6'][i];
         roundRect(g, x + 4, y + 4, cw - 8, ch * 0.3, 3);
         g.fill();
         g.fillStyle = '#5b6478';
@@ -950,103 +950,170 @@ const DEMOS: Record<string, Demo> = {
 
   /* --- install to home screen --------------------------------------- */
   install: {
-    ms: 3600,
+    ms: 4800,
     draw(g, w, h, p) {
+      // Wide, short canvas → storyboard: home grid, toolbar, share popover,
+      // then the icon lands in the free slot.
       g.fillStyle = '#eef2f9';
       g.fillRect(0, 0, w, h);
-      const pw = Math.min(w * 0.36, h * 0.44);
-      const ph = h * 0.74;
-      const px = (w - pw) / 2;
-      const py = h * 0.05;
-      g.fillStyle = '#0f172a';
-      roundRect(g, px, py, pw, ph, 11);
-      g.fill();
-      g.fillStyle = '#fff';
-      roundRect(g, px + 3.5, py + 7, pw - 7, ph - 14, 7);
-      g.fill();
 
-      // home-screen grid
-      const cols = 3;
-      const cell = (pw - 22) / cols;
-      g.fillStyle = '#dbe4f5';
-      for (let r = 0; r < 3; r++)
+      const tbH = Math.max(22, h * 0.18);
+      const avail = h - tbH - 8;
+      const cols = 4;
+      const rows = 2;
+      const isz = Math.min(w * 0.125, avail / 2.4);
+      const gap = isz * 0.4;
+      const gridW = cols * isz + (cols - 1) * gap;
+      const gridH = rows * isz + (rows - 1) * gap;
+      const gx = (w - gridW) / 2;
+      const gy = 2 + (avail - gridH) / 2;
+      const slotX = (c: number) => gx + c * (isz + gap);
+      const slotY = (r: number) => gy + r * (isz + gap);
+
+      for (let r = 0; r < rows; r++)
         for (let c = 0; c < cols; c++) {
-          roundRect(g, px + 11 + c * cell, py + 20 + r * cell, cell * 0.62, cell * 0.62, 4);
+          if (r === rows - 1 && c === cols - 1) continue; // kept free for Inkpad
+          g.fillStyle = '#dbe4f5';
+          roundRect(g, slotX(c), slotY(r), isz, isz, isz * 0.24);
           g.fill();
         }
 
-      // the Inkpad icon drops onto the last free slot
-      const drop = clamp((p - 0.72) / 0.2, 0, 1);
-      if (drop > 0) {
-        const ix = px + 11 + 2 * cell;
-        const iy = py + 20 + 2 * cell;
-        const sc = 0.6 + 0.4 * drop;
+      // browser toolbar
+      const tbY = h - tbH;
+      g.fillStyle = '#fff';
+      roundRect(g, 0, tbY, w, tbH + 12, 10);
+      g.fill();
+      g.fillStyle = '#eef1f7';
+      roundRect(g, w * 0.28, tbY + tbH * 0.28, w * 0.34, tbH * 0.44, tbH * 0.22);
+      g.fill();
+
+      // share glyph — square with an arrow leaving it
+      const s = tbH * 0.3;
+      const sx = w * 0.9;
+      const sy = tbY + tbH * 0.5;
+      const pulse = 0.5 + 0.5 * Math.sin(p * Math.PI * 5);
+      g.save();
+      g.globalAlpha = 0.5 + pulse * 0.5;
+      g.strokeStyle = ACC;
+      g.lineWidth = Math.max(1.2, s * 0.16);
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.beginPath();
+      g.moveTo(sx - s, sy + s * 0.1);
+      g.lineTo(sx - s, sy + s);
+      g.lineTo(sx + s, sy + s);
+      g.lineTo(sx + s, sy + s * 0.1);
+      g.moveTo(sx, sy + s * 0.25);
+      g.lineTo(sx, sy - s * 1.15);
+      g.moveTo(sx - s * 0.6, sy - s * 0.6);
+      g.lineTo(sx, sy - s * 1.2);
+      g.lineTo(sx + s * 0.6, sy - s * 0.6);
+      g.stroke();
+      g.restore();
+
+      const ring = clamp((p - 0.03) / 0.14, 0, 1);
+      if (ring > 0 && ring < 1) {
         g.save();
-        g.translate(ix + cell * 0.31, iy + cell * 0.31);
-        g.scale(sc, sc);
-        g.fillStyle = '#2f6df6';
-        roundRect(g, -cell * 0.31, -cell * 0.31, cell * 0.62, cell * 0.62, 4);
-        g.fill();
-        g.fillStyle = '#fff';
-        roundRect(g, -cell * 0.19, -cell * 0.22, cell * 0.38, cell * 0.44, 2);
-        g.fill();
-        g.strokeStyle = '#16307a';
-        g.lineWidth = 1.6;
+        g.globalAlpha = (1 - ring) * 0.55;
+        g.strokeStyle = ACC;
+        g.lineWidth = 1.5;
         g.beginPath();
-        g.moveTo(-cell * 0.13, cell * 0.1);
-        g.quadraticCurveTo(0, -cell * 0.12, cell * 0.14, cell * 0.02);
+        g.arc(sx, sy, s * (0.9 + ring * 2.2), 0, 7);
         g.stroke();
         g.restore();
       }
 
-      // share button pulsing in the browser toolbar
-      const pulse = 0.5 + 0.5 * Math.sin(p * Math.PI * 4);
-      g.save();
-      g.globalAlpha = 0.5 + pulse * 0.5;
-      g.strokeStyle = ACC;
-      g.lineWidth = 1.8;
-      const sx = px + pw - 26;
-      const sy = py + ph - 14;
-      g.strokeRect(sx, sy, 9, 9);
-      g.beginPath();
-      g.moveTo(sx + 4.5, sy);
-      g.lineTo(sx + 4.5, sy - 6);
-      g.moveTo(sx + 1.6, sy - 3.4);
-      g.lineTo(sx + 4.5, sy - 6.4);
-      g.lineTo(sx + 7.4, sy - 3.4);
-      g.stroke();
-      g.restore();
-
-      // share sheet
-      const up = clamp((p - 0.22) / 0.26, 0, 1);
-      if (up > 0) {
-        const shH = h * 0.4;
-        const sy2 = h - up * shH;
+      // share popover above the toolbar
+      const pop = clamp((p - 0.18) / 0.12, 0, 1) * (1 - clamp((p - 0.64) / 0.1, 0, 1));
+      if (pop > 0) {
+        const rh = Math.max(15, tbH * 0.74);
+        const pw = Math.min(w * 0.52, 170);
+        const ph = rh * 3 + 10;
+        const px = w * 0.97 - pw;
+        const py = tbY - 5 - ph * pop;
         g.save();
+        g.globalAlpha = clamp(pop * 1.8, 0, 1);
         g.shadowColor = 'rgba(16,32,64,.24)';
-        g.shadowBlur = 14;
-        g.shadowOffsetY = -2;
+        g.shadowBlur = 13;
+        g.shadowOffsetY = 2;
         g.fillStyle = '#fff';
-        roundRect(g, w * 0.06, sy2, w * 0.88, shH + 8, 12);
+        roundRect(g, px, py, pw, ph, 9);
         g.fill();
         g.restore();
-        g.fillStyle = '#e6e9ef';
-        roundRect(g, w * 0.42, sy2 + 5, w * 0.16, 3, 1.5);
-        g.fill();
-        const rows = ['Copy', 'Add to Home Screen', 'Print'];
-        rows.forEach((r, i) => {
-          const ry = sy2 + 18 + i * 22;
-          if (i === 1) {
-            g.fillStyle = 'rgba(47,109,246,.1)';
-            roundRect(g, w * 0.09, ry - 7, w * 0.82, 20, 7);
+        g.save();
+        g.globalAlpha = clamp(pop * 1.8, 0, 1);
+        g.textBaseline = 'middle';
+        const fs = Math.max(7.5, Math.round(rh * 0.46));
+        ['Copy', 'Add to Home Screen', 'Print'].forEach((label, i) => {
+          const ry = py + 5 + i * rh;
+          const on = i === 1 ? clamp((p - 0.4) / 0.08, 0, 1) : 0;
+          if (on > 0) {
+            g.fillStyle = `rgba(47,109,246,${0.15 * on})`;
+            roundRect(g, px + 3, ry + 1, pw - 6, rh - 2, 6);
             g.fill();
           }
-          g.save();
-          g.font = `${i === 1 ? '700' : '500'} 10px system-ui,sans-serif`;
-          g.fillStyle = i === 1 ? ACC : '#5b6478';
-          g.fillText(r, w * 0.14, ry + 7);
-          g.restore();
+          g.font = `${on > 0.5 ? '700' : '500'} ${fs}px system-ui,sans-serif`;
+          g.fillStyle = on > 0.5 ? ACC : '#5b6478';
+          g.fillText(label, px + 9, ry + rh / 2);
         });
+        g.restore();
+      }
+
+      // the Inkpad icon lands in the free slot, with a "done" badge
+      const drop = clamp((p - 0.74) / 0.15, 0, 1);
+      if (drop > 0) {
+        const ix = slotX(cols - 1);
+        const iy = slotY(rows - 1);
+        const sc = 0.5 + 0.5 * drop + Math.sin(drop * Math.PI) * 0.16;
+        g.save();
+        g.translate(ix + isz / 2, iy + isz / 2);
+        g.scale(sc, sc);
+        const tile = g.createLinearGradient(-isz / 2, -isz / 2, isz / 2, isz / 2);
+        tile.addColorStop(0, '#5b93ff');
+        tile.addColorStop(0.55, '#2f6df6');
+        tile.addColorStop(1, '#1b46c2');
+        g.fillStyle = tile;
+        roundRect(g, -isz / 2, -isz / 2, isz, isz, isz * 0.24);
+        g.fill();
+        g.fillStyle = '#fff';
+        roundRect(g, -isz * 0.27, -isz * 0.3, isz * 0.54, isz * 0.6, isz * 0.06);
+        g.fill();
+        g.strokeStyle = '#f4708c';
+        g.lineWidth = Math.max(0.7, isz * 0.026);
+        g.beginPath();
+        g.moveTo(-isz * 0.13, -isz * 0.3);
+        g.lineTo(-isz * 0.13, isz * 0.3);
+        g.stroke();
+        g.strokeStyle = INK;
+        g.lineWidth = Math.max(1.1, isz * 0.07);
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(-isz * 0.2, isz * 0.16);
+        g.quadraticCurveTo(0, -isz * 0.14, isz * 0.2, -isz * 0.02);
+        g.stroke();
+        g.restore();
+
+        if (drop > 0.75) {
+          const b = clamp((drop - 0.75) / 0.25, 0, 1);
+          const bx = ix + isz * 0.86;
+          const by = iy + isz * 0.86;
+          g.save();
+          g.globalAlpha = b;
+          g.fillStyle = '#22a06b';
+          g.beginPath();
+          g.arc(bx, by, isz * 0.2 * (0.6 + 0.4 * b), 0, 7);
+          g.fill();
+          g.strokeStyle = '#fff';
+          g.lineWidth = Math.max(1.1, isz * 0.055);
+          g.lineCap = 'round';
+          g.lineJoin = 'round';
+          g.beginPath();
+          g.moveTo(bx - isz * 0.08, by);
+          g.lineTo(bx - isz * 0.01, by + isz * 0.07);
+          g.lineTo(bx + isz * 0.09, by - isz * 0.07);
+          g.stroke();
+          g.restore();
+        }
       }
     },
   },
