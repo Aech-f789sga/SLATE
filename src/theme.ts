@@ -186,6 +186,12 @@ html[data-bar=full] #tb #bar2{
 #grid.list .card{flex-direction:row;align-items:center;gap:14px;background:#fff;border:1px solid var(--gn-line);border-radius:12px;padding:10px 14px}
 #grid.list .card .cv{width:52px;height:70px;flex:none}
 #grid.list .card .nm{margin:0!important}
+#grid.list > .new{aspect-ratio:auto!important;height:54px;min-height:0;font-size:24px!important}
+/* per-card actions stay out of the way until you reach for them */
+@media(hover:hover) and (pointer:fine){
+  .card .sub button{opacity:0;transition:opacity .14s ease}
+  .card:hover .sub button,.card:focus-within .sub button{opacity:1}
+}
 #grid .new{
   border-radius:11px!important;border:1.5px dashed #cfd6e0!important;background:#fff!important;
   color:#8b95a3!important;font-size:30px!important;font-weight:300!important;
