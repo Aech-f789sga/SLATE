@@ -11,16 +11,18 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'icon-maskable.svg'],
         manifest: {
           id: '/',
           name: 'Inkpad – Handwritten Notes',
           short_name: 'Inkpad',
           description: 'Inkpad is a handwritten notes and multimedia canvas for sketching, documents, and animations with cloud sync and offline PWA support.',
           theme_color: '#2f6df6',
-          background_color: '#1a1a1c',
+          background_color: '#e9eef7',
           display: 'standalone',
+          display_override: ['standalone', 'minimal-ui'],
           orientation: 'any',
+          categories: ['productivity', 'utilities', 'education'],
           start_url: '/',
           scope: '/',
           icons: [
@@ -41,6 +43,12 @@ export default defineConfig(() => {
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
+            },
+            {
+              src: '/icon-1024.png',
+              sizes: '1024x1024',
+              type: 'image/png',
+              purpose: 'any',
             },
           ],
         },

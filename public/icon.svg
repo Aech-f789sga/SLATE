@@ -1,61 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="slateBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e222b"/>
-      <stop offset="100%" stop-color="#0f1115"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b93ff"/>
+      <stop offset=".55" stop-color="#2f6df6"/>
+      <stop offset="1" stop-color="#1b46c2"/>
     </linearGradient>
-    <linearGradient id="coverGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#1d4ed8"/>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eaf1fd"/>
     </linearGradient>
-    <linearGradient id="pageGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#f1f5f9"/>
+    <linearGradient id="ink" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#16307a"/>
     </linearGradient>
-    <linearGradient id="stylusGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#f8fafc"/>
-      <stop offset="50%" stop-color="#94a3b8"/>
-      <stop offset="100%" stop-color="#475569"/>
-    </linearGradient>
-    <filter id="dropShadow" x="-10%" y="-10%" width="130%" height="130%">
-      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#000000" flood-opacity="0.45"/>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#06123a" flood-opacity=".38"/>
     </filter>
   </defs>
 
-  <!-- Background tile -->
-  <rect width="512" height="512" rx="112" fill="url(#slateBg)"/>
+  <rect width="512" height="512" rx="112" fill="url(#tile)"/>
+  <g>
+    <rect x="104" y="92" width="304" height="328" rx="30" fill="url(#page)" filter="url(#soft)"/>
 
-  <!-- Notebook Spine & Base shadow -->
-  <g filter="url(#dropShadow)">
-    <!-- Book Back Cover -->
-    <rect x="86" y="86" width="310" height="340" rx="20" fill="#1e293b"/>
-    <!-- Book Front Cover -->
-    <rect x="94" y="90" width="296" height="332" rx="18" fill="url(#coverGrad)"/>
-    <!-- Page Insert -->
-    <rect x="136" y="112" width="236" height="288" rx="6" fill="url(#pageGrad)"/>
-    <!-- Ruled Lines on Page -->
-    <line x1="156" y1="160" x2="350" y2="160" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round"/>
-    <line x1="156" y1="200" x2="350" y2="200" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round"/>
-    <line x1="156" y1="240" x2="350" y2="240" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round"/>
-    <line x1="156" y1="280" x2="350" y2="280" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round"/>
-    <line x1="156" y1="320" x2="350" y2="320" stroke="#cbd5e1" stroke-width="4" stroke-linecap="round"/>
-    <!-- Margin Line -->
-    <line x1="190" y1="120" x2="190" y2="390" stroke="#fca5a5" stroke-width="3"/>
-    
-    <!-- Smooth Drawn Signature Wave -->
-    <path d="M 205 235 Q 235 180 260 230 T 315 220 T 345 235" fill="none" stroke="#2563eb" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
+    <g stroke="#c6d8f4" stroke-width="8" stroke-linecap="round">
+      <line x1="140" y1="150" x2="372" y2="150"/>
+      <line x1="140" y1="208" x2="372" y2="208"/>
+      <line x1="140" y1="266" x2="372" y2="266"/>
+      <line x1="140" y1="324" x2="372" y2="324"/>
+      <line x1="140" y1="382" x2="372" y2="382"/>
+    </g>
+    <line x1="178" y1="122" x2="178" y2="390" stroke="#f4708c" stroke-width="6" opacity=".72" stroke-linecap="round"/>
 
-  <!-- Precision Stylus Pen laying diagonally across -->
-  <g transform="rotate(28 320 280)" filter="url(#dropShadow)">
-    <!-- Pen Body -->
-    <rect x="306" y="100" width="24" height="260" rx="12" fill="url(#stylusGrad)"/>
-    <rect x="312" y="106" width="12" height="248" rx="6" fill="#f1f5f9" opacity="0.6"/>
-    <!-- Pen Grip Band -->
-    <rect x="306" y="270" width="24" height="40" fill="#334155"/>
-    <!-- Stylus Nib Cone -->
-    <polygon points="306,360 330,360 318,396" fill="#1e293b"/>
-    <!-- Fine Tip -->
-    <circle cx="318" cy="397" r="4" fill="#38bdf8"/>
+    <path d="M 139.2 388.7 L 143.0 384.9 L 146.8 381.1 L 150.4 377.2 L 153.9 373.2 L 157.2 369.1 L 160.4 364.9 L 163.5 360.6 L 166.4 356.3 L 169.3 351.9 L 172.1 347.4 L 174.8 342.9 L 177.4 338.3 L 180.0 333.7 L 182.5 329.1 L 185.0 324.4 L 187.5 319.8 L 190.0 315.1 L 192.4 310.4 L 194.8 305.7 L 197.2 301.1 L 199.7 296.4 L 202.1 291.8 L 204.6 287.2 L 207.1 282.7 L 209.7 278.2 L 212.2 273.8 L 214.9 269.4 L 217.6 265.2 L 220.3 261.0 L 223.1 256.9 L 226.0 252.9 L 229.0 249.0 L 232.1 245.2 L 235.2 241.5 L 238.5 238.0 L 241.9 234.6 L 245.3 231.3 L 248.9 228.2 L 252.7 225.2 L 256.5 222.4 L 260.5 219.7 L 264.7 217.3 L 269.0 215.0 L 273.5 212.8 L 278.2 210.9 L 283.1 209.2 L 288.3 207.6 L 293.6 206.3 L 296.8 205.3 L 299.2 204.4 L 301.6 203.6 L 303.9 202.8 L 306.2 202.0 L 308.4 201.3 L 310.7 200.6 L 312.9 199.9 L 315.0 199.3 L 317.2 198.7 L 319.3 198.1 L 321.4 197.6 L 323.5 197.1 L 325.6 196.6 L 327.6 196.2 L 329.7 195.8 L 331.7 195.5 L 333.7 195.2 L 335.6 195.0 L 337.6 194.8 L 339.5 194.7 L 341.5 194.6 L 343.4 194.6 L 345.3 194.6 L 347.2 194.6 L 349.1 194.8 L 350.9 194.9 L 352.8 195.2 L 354.7 195.5 L 356.5 195.8 L 358.4 196.3 L 360.3 196.8 L 362.1 197.3 L 364.0 198.0 L 365.9 198.7 L 367.7 199.4 L 369.6 200.3 L 371.5 201.2 L 373.4 202.2 L 375.3 203.3 L 377.1 204.5 L 379.0 205.8 L 380.9 207.2 L 382.9 208.6 L 384.8 210.2 L 386.7 211.8 L 388.6 213.5 L 390.5 215.4 L 393.5 212.6 L 391.6 210.6 L 389.8 208.6 L 388.0 206.7 L 386.1 204.9 L 384.3 203.1 L 382.4 201.5 L 380.5 199.9 L 378.7 198.4 L 376.7 197.0 L 374.8 195.6 L 372.9 194.4 L 371.0 193.2 L 369.0 192.1 L 367.0 191.0 L 365.0 190.1 L 363.0 189.2 L 360.9 188.3 L 358.9 187.6 L 356.8 186.9 L 354.7 186.3 L 352.6 185.7 L 350.5 185.2 L 348.4 184.8 L 346.2 184.4 L 344.0 184.1 L 341.9 183.9 L 339.7 183.7 L 337.4 183.6 L 335.2 183.5 L 333.0 183.5 L 330.7 183.5 L 328.4 183.6 L 326.1 183.7 L 323.8 183.8 L 321.5 184.1 L 319.1 184.3 L 316.8 184.6 L 314.4 184.9 L 312.0 185.3 L 309.6 185.7 L 307.1 186.1 L 304.7 186.6 L 302.2 187.1 L 299.7 187.6 L 297.2 188.1 L 294.7 188.7 L 292.1 189.3 L 290.4 189.7 L 284.2 190.9 L 278.2 192.3 L 272.4 194.0 L 266.7 196.0 L 261.3 198.2 L 256.0 200.6 L 250.9 203.2 L 246.0 206.1 L 241.2 209.1 L 236.6 212.3 L 232.2 215.7 L 227.9 219.3 L 223.8 222.9 L 219.8 226.8 L 215.9 230.7 L 212.2 234.8 L 208.5 238.9 L 205.0 243.1 L 201.6 247.5 L 198.3 251.8 L 195.1 256.3 L 192.0 260.7 L 188.9 265.3 L 185.9 269.8 L 182.9 274.4 L 180.0 278.9 L 177.2 283.5 L 174.4 288.0 L 171.6 292.6 L 168.8 297.0 L 166.1 301.5 L 163.3 305.9 L 160.6 310.2 L 157.8 314.4 L 155.1 318.6 L 152.3 322.6 L 149.6 326.5 L 146.8 330.4 L 143.9 334.1 L 141.1 337.6 L 138.2 341.0 L 135.3 344.2 L 132.3 347.3 L 129.4 350.1 L 126.3 352.8 L 123.2 355.2 L 120.1 357.4 L 116.8 359.3 Z" fill="url(#ink)"/>
+    <circle cx="128" cy="374" r="18.5" fill="#0b1220"/>
+    <circle cx="392" cy="214" r="2.6" fill="#16307a"/>
   </g>
 </svg>

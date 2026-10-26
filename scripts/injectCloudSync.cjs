@@ -30,12 +30,16 @@ function mustReplace(source, needle, replacement, label) {
 const pwaHead = `
 <meta name="theme-color" content="#2f6df6">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Inkpad">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="mask-icon" href="/icon.svg" color="#2f6df6">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <script type="module" src="/src/cloudSync.ts"></script>
+<script type="module" src="/src/tour.ts"></script>
 `;
 content = mustReplace(content, '</head>', `${pwaHead}</head>`, '</head>');
 
