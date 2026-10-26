@@ -40,6 +40,7 @@ const pwaHead = `
 <link rel="manifest" href="/manifest.webmanifest">
 <script type="module" src="/src/cloudSync.ts"></script>
 <script type="module" src="/src/tour.ts"></script>
+<script type="module" src="/src/snap.ts"></script>
 `;
 content = mustReplace(content, '</head>', `${pwaHead}</head>`, '</head>');
 
