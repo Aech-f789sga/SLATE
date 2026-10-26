@@ -1,12 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Admin = the reserved address, authenticated through Google only.
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == 'derrickdarrack@gmail.com'
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
 
       match /notebooks/{notebookId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+    }
+
+    // Public-ish user directory used by the admin panel.
+    // A user may only ever touch their own row; the admin may read every row.
+    match /directory/{uid} {
+      allow read:   if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+      allow delete: if isAdmin();
+    }
+
+    // Moderation flags. A signed-in user must be able to read their own flag
+    // so the client can sign them out; only the admin can set or clear it.
+    match /moderation/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
     }
   }
 }

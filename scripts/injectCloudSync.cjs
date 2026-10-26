@@ -205,6 +205,66 @@ const saveCatchOld = `try{localStorage.setItem("inkpad",JSON.stringify(lib))}cat
 const saveCatchNew = `try{localStorage.setItem("inkpad",JSON.stringify(lib))}catch(e){if(window.__inkpad_storageFull)window.__inkpad_storageFull()}if(window.__inkpad_cloud)window.__inkpad_cloud.onSave(nb)`;
 content = mustReplace(content, saveCatchOld, saveCatchNew, 'save() storage hook');
 
+// 7h. Stroke width: give every brush its own pressure peak (like Sketchbook)
+// instead of one shared 1.2 curve, so a pen tip stays finer than a brush at the
+// same slider value. Base .18 keeps the lightest touch hairline-thin.
+const pwOld = `const f=(.3+Math.pow(pr,g)*1.2)*(1+tl*(sh?1.6:.25));`;
+const pwNew = `const PK={ball:.95,fountain:1.05,brush:1.55,pencil:.62,crayon:1.25,marker:1.2}[v]||1;const f=(.18+Math.pow(pr,g)*PK)*(1+tl*(sh?1.4:.22));`;
+content = mustReplace(content, pwOld, pwNew, 'pressure to width curve');
+
+// 7i. varStroke built its ribbon straight from the raw samples, so dense input
+// produced a notched / beaded outline. Smooth positions and widths first.
+const varOld = `function varStroke(c,p,w0,tex){const n=p.length,L=[],R=[];for(let i=0;i<n;i++){const a=p[Math.max(0,i-1)],b=p[Math.min(n-1,i+1)];let dx=b[0]-a[0],dy=b[1]-a[1];const d=Math.hypot(dx,dy)||1;dx/=d;dy/=d;const h=w0*(p[i][2]||1)/2;L.push([p[i][0]-dy*h,p[i][1]+dx*h]);R.push([p[i][0]+dy*h,p[i][1]-dx*h])}
+ c.beginPath();c.moveTo(L[0][0],L[0][1]);for(let i=1;i<n;i++)c.lineTo(L[i][0],L[i][1]);for(let i=n-1;i>=0;i--)c.lineTo(R[i][0],R[i][1]);c.closePath();c.fill();
+ if(c.globalAlpha>=1)[p[0],p[n-1]].forEach(q=>{c.beginPath();c.arc(q[0],q[1],w0*(q[2]||1)/2,0,7);c.fill()});
+ if(tex){c.setLineDash([1,2.5]);c.lineWidth=1.4;c.stroke()}}`;
+const varNew = `function varStroke(c,p,w0,tex){const n0=p.length;if(!n0)return;
+ let p2=p;
+ if(n0>2){p2=[];for(let i=0;i<n0;i++){let sx=0,sy=0,sw=0,k=0;for(let j=Math.max(0,i-1);j<=Math.min(n0-1,i+1);j++){sx+=p[j][0];sy+=p[j][1];sw+=(p[j][2]||1);k++}p2.push([sx/k,sy/k,sw/k])}}
+ const n=p2.length;if(!n)return;
+ let wmax=0,wsum=0;for(let i=0;i<n;i++){const w=w0*(p2[i][2]||1);wsum+=w;if(w>wmax)wmax=w}
+ const L=[],R=[];
+ for(let i=0;i<n;i++){const a=p2[Math.max(0,i-1)],b=p2[Math.min(n-1,i+1)];let dx=b[0]-a[0],dy=b[1]-a[1];const d=Math.hypot(dx,dy)||1;dx/=d;dy/=d;const h=w0*(p2[i][2]||1)/2;L.push([p2[i][0]-dy*h,p2[i][1]+dx*h]);R.push([p2[i][0]+dy*h,p2[i][1]-dx*h])}
+ if(wmax<1.6){c.save();c.lineCap="round";c.lineJoin="round";c.lineWidth=Math.max(.85,wsum/n);c.beginPath();c.moveTo(p2[0][0],p2[0][1]);for(let i=1;i<n-1;i++){const mx=(p2[i][0]+p2[i+1][0])/2,my=(p2[i][1]+p2[i+1][1])/2;c.quadraticCurveTo(p2[i][0],p2[i][1],mx,my)}if(n>1)c.lineTo(p2[n-1][0],p2[n-1][1]);c.stroke();c.restore();return}
+ c.beginPath();c.moveTo(L[0][0],L[0][1]);for(let i=1;i<n;i++)c.lineTo(L[i][0],L[i][1]);for(let i=n-1;i>=0;i--)c.lineTo(R[i][0],R[i][1]);c.closePath();c.fill();
+ if(tex){const ga=c.globalAlpha;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(let i=0;i<n;i++){if(L[i][0]<x0)x0=L[i][0];if(R[i][0]<x0)x0=R[i][0];if(L[i][0]>x1)x1=L[i][0];if(R[i][0]>x1)x1=R[i][0];if(L[i][1]<y0)y0=L[i][1];if(R[i][1]<y0)y0=R[i][1];if(L[i][1]>y1)y1=L[i][1];if(R[i][1]>y1)y1=R[i][1]}
+  const gt=varStroke._gt||(varStroke._gt=(function(){const q=document.createElement("canvas");q.width=q.height=16;const g=q.getContext("2d");let sd=24681357;const rr=()=>{sd=(sd*1103515245+12345)&0x7fffffff;return sd/0x7fffffff};g.fillStyle="#000";for(let y=0;y<16;y++)for(let x=0;x<16;x++){const v=rr();if(v<.72){g.globalAlpha=.3+rr()*.7;g.fillRect(x,y,1,1)}}return q})());
+  c.save();c.clip();c.globalCompositeOperation="destination-out";c.globalAlpha=tex==="crayon"?.4:.3;c.fillStyle=c.createPattern(gt,"repeat");c.fillRect(x0-1,y0-1,x1-x0+2,y1-y0+2);c.restore();c.globalAlpha=ga}
+ if(c.globalAlpha>=1)[p2[0],p2[n-1]].forEach(q=>{c.beginPath();c.arc(q[0],q[1],w0*(q[2]||1)/2,0,7);c.fill()})}`;
+content = mustReplace(content, varOld, varNew, 'varStroke ribbon');
+
+// 7i-2. Hand the brush name to varStroke so the grain pass can pick its own
+// tooth density (crayon is coarser than pencil).
+const varCallOld = `varStroke(c,p,s.w*m,v==="pencil"||v==="crayon")`;
+const varCallNew = `varStroke(c,p,s.w*m,(v==="pencil"||v==="crayon")?v:0)`;
+content = mustReplace(content, varCallOld, varCallNew, 'varStroke texture argument');
+
+// 7j. Pencil / crayon grain pass used round caps, which turned every dash into
+// a bead ("bubbles" along the trail). Flat caps read as paper tooth instead.
+const grainOld = `if(!m){c.setLineDash(cr?[1,2,3,1.5]:[1,3]);c.globalAlpha=cr?.5:.35;c.lineWidth=s.w*(cr?2.8:1.6);c.stroke()}`;
+const grainNew = `if(!m){c.lineCap="butt";c.setLineDash(cr?[1.4,2.2]:[.7,2.1]);c.globalAlpha=cr?.5:.32;c.lineWidth=s.w*(cr?2.2:1.15);c.stroke()}`;
+content = mustReplace(content, grainOld, grainNew, 'pencil grain pass');
+
+// 7k. Thickness: one-decimal steps on the slider AND on the numeric field the
+// engine builds at runtime (#sizen), which is the visible readout.
+const sizeInputOld = `<input type="range" id="size" min="1" max="24" value="3" aria-label="Stroke size">`;
+const sizeInputNew = `<input type="range" id="size" min="1" max="24" step="0.1" value="3" aria-label="Stroke size">`;
+content = mustReplace(content, sizeInputOld, sizeInputNew, 'size slider markup');
+
+const sizeNumOld = `sn.step=.5;sn.title='Brush thickness in px (type any value)';sn.value=size;`;
+const sizeNumNew = `sn.step=.1;sn.title='Brush thickness in px (type any value)';sn.value=(+size).toFixed(1);`;
+content = mustReplace(content, sizeNumOld, sizeNumNew, 'size number field');
+
+const sizeSyncOld = `if(!fromNum&&$('#sizen'))$('#sizen').value=+(+v).toFixed(1);`;
+const sizeSyncNew = `if(!fromNum&&$('#sizen'))$('#sizen').value=(+v).toFixed(1);`;
+content = mustReplace(content, sizeSyncOld, sizeSyncNew, 'size number sync');
+
+// 7l. Tag library cards with their notebook id so the cloud layer can attach a
+// per-notebook sync toggle.
+const cardOld = `const d=document.createElement("div");d.className="card";d.innerHTML=`;
+const cardNew = `const d=document.createElement("div");d.className="card";d.dataset.id=n.id;d.innerHTML=`;
+content = mustReplace(content, cardOld, cardNew, 'library card id');
+
 // 8. Add client-side script for auth modal interactions
 const authScript = `
 let authMode = 'signin';

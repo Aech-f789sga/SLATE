@@ -177,3 +177,83 @@ export async function loadUserDataFromCloud(userId: string): Promise<{ generalLi
   }
   return { generalLib };
 }
+
+/* ------------------------------------------------------------------ */
+/* Admin: user directory, presence and moderation                      */
+/* ------------------------------------------------------------------ */
+
+export const ADMIN_EMAIL = 'derrickdarrack@gmail.com';
+export const CONTACT_EMAIL = 'aechmoose@gmail.com';
+
+export interface DirectoryEntry {
+  uid: string;
+  email: string;
+  provider: string;
+  firstSeen: number;
+  lastSeen: number;
+  seconds: number;
+  blocked?: boolean;
+}
+
+function providerOf(user: User): string {
+  const p = user.providerData?.[0]?.providerId;
+  return p === 'google.com' ? 'google' : p === 'password' ? 'email' : p || 'unknown';
+}
+
+/**
+ * Register / refresh this user in the public directory used by the admin panel.
+ * Writes only the signed-in user's own document.
+ */
+export async function touchDirectory(user: User, deltaSeconds = 0): Promise<void> {
+  if (!user) return;
+  const ref = doc(db, 'directory', user.uid);
+  const snap = await getDoc(ref);
+  const now = Date.now();
+  const base = {
+    email: user.email || '',
+    provider: providerOf(user),
+    lastSeen: now,
+    seconds: (snap.exists() ? Number(snap.data().seconds || 0) : 0) + Math.max(0, deltaSeconds),
+  };
+  if (!snap.exists()) {
+    await setDoc(ref, { ...base, firstSeen: now, lastSeen: now, seconds: Math.max(0, deltaSeconds) });
+  } else {
+    await setDoc(ref, base, { merge: true });
+  }
+}
+
+export async function listDirectory(): Promise<DirectoryEntry[]> {
+  const snap = await getDocs(collection(db, 'directory'));
+  const out: DirectoryEntry[] = [];
+  snap.forEach((d) => {
+    const v = d.data() as any;
+    out.push({
+      uid: d.id,
+      email: v.email || '(no email)',
+      provider: v.provider || 'unknown',
+      firstSeen: Number(v.firstSeen || 0),
+      lastSeen: Number(v.lastSeen || 0),
+      seconds: Number(v.seconds || 0),
+      blocked: Boolean(v.blocked),
+    });
+  });
+  return out.sort((a, b) => b.lastSeen - a.lastSeen);
+}
+
+export async function listModeration(): Promise<Record<string, boolean>> {
+  const snap = await getDocs(collection(db, 'moderation'));
+  const out: Record<string, boolean> = {};
+  snap.forEach((d) => {
+    out[d.id] = Boolean(d.data().blocked);
+  });
+  return out;
+}
+
+export async function setBlocked(uid: string, blocked: boolean): Promise<void> {
+  await setDoc(doc(db, 'moderation', uid), { blocked, at: Date.now() }, { merge: true });
+}
+
+export async function isBlocked(uid: string): Promise<boolean> {
+  const snap = await getDoc(doc(db, 'moderation', uid));
+  return snap.exists() ? Boolean(snap.data().blocked) : false;
+}
