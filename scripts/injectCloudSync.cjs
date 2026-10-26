@@ -48,6 +48,19 @@ const authStyles = `
 `;
 content = mustReplace(content, '</style>', `${authStyles}</style>`, '</style>');
 
+// 2b. Responsive hardening (see also steps 7c/7d for the JS half).
+// In the compact bar the overflow button is `position:sticky` inside the
+// horizontally scrolling tool strip, so it permanently sits on top of the last
+// one or two tools. Reserve a lane for it instead: the strip is inset by the
+// button width and the button is pinned inside that lane, so nothing is ever
+// hidden underneath it.
+const responsiveStyles = `
+html[data-bar=compact] #tb{padding-right:44px}
+html[data-bar=compact] #tb #more{position:absolute;right:0;top:0;bottom:0;order:0;margin:0;width:44px;height:auto;display:flex;align-items:center;justify-content:center;border:0;border-left:1px solid var(--bd);border-radius:0 13px 13px 0;box-shadow:none;background:var(--sf);z-index:3}
+html[data-bar=compact] #bar{padding-right:0}
+`;
+content = mustReplace(content, '</style>', `${responsiveStyles}</style>`, '</style> (responsive)');
+
 // 3. Update #nav with cloud status and login/user controls
 const navOld = `<nav id="nav"><b>Inkpad</b><a data-f="all" data-n="Documents" class="on">📚 Documents</a><a data-f="fav" data-n="Favorites">★ Favorites</a><a data-f="trash" data-n="Trash">🗑 Trash</a></nav>`;
 const navNew = `<nav id="nav">
@@ -131,6 +144,21 @@ content = content.replace(openRename, 'openNotebook');
 if (!content.includes('function openNotebook(n){nb=n;')) {
   throw new Error('[injectCloudSync] engine open() rename failed');
 }
+
+// 7c. Device class: the engine treats any window with a short edge under 820px
+// as a tablet, so a 1366x768 or 1280x800 laptop was laid out like an iPad. Only
+// call something a tablet when the primary pointer is actually coarse.
+const devOld = `DEV=m<600?'phone':((co&&m<1100)||m<820)?'tablet':'desktop';`;
+const devNew = `DEV=m<600?'phone':(co?(m<1100?'tablet':'desktop'):'desktop');`;
+content = mustReplace(content, devOld, devNew, 'device class detection');
+
+// 7d. Page fit: the engine only fitted the page to the available height on
+// desktop or in portrait, so in landscape the paper was ~2.2x taller than the
+// stage and half of every page sat below the fold. Fit the whole page in every
+// orientation; the zoom controls still go up to 3x for close-up writing.
+const fitOld = `let b=aw;if(DEV==='desktop'||document.documentElement.dataset.ori==='portrait')b=Math.min(aw,Math.max(260,ah*W/H));`;
+const fitNew = `let b=Math.min(aw,Math.max(260,ah*W/H));`;
+content = mustReplace(content, fitOld, fitNew, 'page fit rule');
 
 // 8. Add client-side script for auth modal interactions
 const authScript = `
