@@ -702,11 +702,29 @@ function ensureBetaBadge() {
 /* Admin: user directory                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Admin recognition is deliberately *only* the address.
+ *
+ * The Google-only requirement is enforced where it cannot be bypassed:
+ * firestore.rules checks
+ *   request.auth.token.firebase.sign_in_provider == 'google.com'
+ * on every read/write the panel performs. Duplicating that check in the
+ * client gained nothing and cost everything — `providerData` can be empty
+ * or still loading on the first `onAuthStateChanged` tick, which silently
+ * hid the panel from the real admin. So: gate the UI on the address, let
+ * the rules decide who can actually read the data.
+ */
 function isAdminUser(user: User | null): boolean {
   if (!user || !user.email) return false;
-  const google = (user.providerData || []).some((p) => p.providerId === 'google.com');
-  return user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase() && google;
+  return user.email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
 }
+
+/** 'google.com' | 'password' | … — used for the panel's identity line only. */
+function providerOf(user: User | null): string {
+  const ids = (user?.providerData || []).map((p) => p.providerId).filter(Boolean);
+  return ids.length ? ids.join(' + ') : 'unknown';
+}
+
 
 /* ---- presence heartbeat (60 s) ---- */
 
@@ -744,26 +762,82 @@ function stopHeartbeat() {
   window.removeEventListener('beforeunload', flushHeartbeat);
 }
 
-function ensureAdminButton() {
-  const existing = document.getElementById('admin-btn');
-  if (!isAdminUser(auth.currentUser)) {
-    existing?.remove();
-    return;
-  }
-  if (existing) return;
-  const nav = document.getElementById('nav');
-  if (!nav) return;
+function makeAdminButton(): HTMLButtonElement {
   const b = document.createElement('button');
   b.id = 'admin-btn';
   b.type = 'button';
-  b.textContent = '🛡 Admin';
+  b.textContent = '🛡️ Admin';
+  b.title = 'Registered users, usage time, online status, blocking';
   b.style.cssText =
-    'text-align:left;background:transparent;border:0;border-radius:10px;padding:9px 12px;font:inherit;cursor:pointer;color:inherit';
+    'text-align:left;background:transparent;border:0;border-radius:10px;padding:9px 12px;font:inherit;cursor:pointer;color:inherit;white-space:nowrap';
   b.onclick = () => openAdminPanel();
-  const cloud = document.getElementById('cloud-btn');
-  if (cloud && cloud.parentNode) cloud.parentNode.insertBefore(b, cloud.nextSibling);
-  else nav.appendChild(b);
+  return b;
 }
+
+let adminWatch: number | null = null;
+
+function startAdminWatch() {
+  if (adminWatch !== null) return;
+  // The engine rebuilds the sidebar on some navigations, and #nav may not
+  // exist yet when auth resolves. Re-assert the entry instead of hoping.
+  adminWatch = window.setInterval(() => {
+    if (!isAdminUser(auth.currentUser)) {
+      stopAdminWatch();
+      return;
+    }
+    const btn = document.getElementById('admin-btn');
+    if (!btn || !btn.isConnected) ensureAdminButton();
+  }, 2000);
+}
+
+function stopAdminWatch() {
+  if (adminWatch !== null) {
+    clearInterval(adminWatch);
+    adminWatch = null;
+  }
+}
+
+function ensureAdminButton() {
+  const user = auth.currentUser;
+  if (!isAdminUser(user)) {
+    document.getElementById('admin-btn')?.remove();
+    document.getElementById('admin-chip')?.remove();
+    stopAdminWatch();
+    return;
+  }
+
+  if (!document.getElementById('admin-btn')?.isConnected) {
+    const b = makeAdminButton();
+    const cloud = document.getElementById('cloud-btn');
+    if (cloud && cloud.parentNode) cloud.parentNode.insertBefore(b, cloud.nextSibling);
+    else document.getElementById('nav')?.appendChild(b);
+  }
+
+  // Second entry inside the account box, so it is reachable even when the
+  // sidebar is collapsed, scrolled away, or hidden by the editor.
+  const box = document.getElementById('user-info-box');
+  if (box && !document.getElementById('admin-chip')) {
+    const chip = document.createElement('button');
+    chip.id = 'admin-chip';
+    chip.type = 'button';
+    chip.textContent = '🛡️ Admin';
+    chip.style.cssText =
+      'font:inherit;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--bd);' +
+      'background:transparent;color:var(--ac);cursor:pointer;margin-top:2px;align-self:flex-start';
+    chip.onclick = () => openAdminPanel();
+    box.appendChild(chip);
+  }
+
+  startAdminWatch();
+}
+
+/** `#admin` in the URL is an escape hatch if the sidebar entry is ever hidden. */
+function openAdminFromHash() {
+  if (!/^#admin\b/i.test(location.hash)) return;
+  if (!isAdminUser(auth.currentUser)) return;
+  openAdminPanel();
+}
+
 
 function fmtDur(sec: number): string {
   if (!sec || sec < 60) return Math.round(sec || 0) + 's';
@@ -784,9 +858,10 @@ function buildAdminPanel(): HTMLElement {
   md.innerHTML =
     '<div class="box" style="background:var(--sf);border-radius:18px;padding:18px;width:min(96vw,560px);max-height:88vh;overflow:auto;display:flex;flex-direction:column;gap:10px;border:1px solid var(--bd)">' +
     '<div style="display:flex;justify-content:space-between;align-items:center">' +
-    '<b style="font-size:17px">🛡 Admin — users</b>' +
+    '<b style="font-size:17px">🛡️ Admin — users</b>' +
     '<button class="ic" id="admin-close" style="font-size:16px;padding:2px 6px">✕</button>' +
     '</div>' +
+    '<div id="admin-id" style="font-size:11px;color:var(--mu)"></div>' +
     '<div id="admin-summary" style="font-size:12px;color:var(--mu)"></div>' +
     '<div id="admin-list" style="display:flex;flex-direction:column;gap:6px"></div>' +
     '<div style="font-size:11px;color:var(--mu);line-height:1.5">Blocking signs the account out on its next check and the client refuses to sync. Contact address shown to users: ' +
@@ -859,22 +934,33 @@ async function loadAdminList(host: HTMLElement) {
       host.appendChild(row);
     });
   } catch (e: any) {
+    const code: string = e?.code || e?.message || 'permission-denied';
     host.innerHTML = '';
+    host.appendChild(el('div', 'color:#e5383b;font-size:12px;line-height:1.5', 'Could not read the directory — ' + code));
     host.appendChild(
       el(
         'div',
-        'color:#e5383b;font-size:12px;line-height:1.5',
-        'Could not read the directory: ' +
-          (e?.message || 'permission denied') +
-          '. Deploy the updated firestore.rules so the admin can list users.'
+        'color:var(--mu);font-size:11px;line-height:1.55',
+        'The panel reads the /directory and /moderation collections, which only the admin may list. ' +
+          'Deploy firestore.rules to this project’s database (firebase deploy --only firestore:rules), ' +
+          'then press Retry. If you signed in with e-mail instead of Google, sign out and use ' +
+          '“Continue with Google” — the rules require a google.com sign-in for admin reads.'
       )
     );
+    const retry = el('button', 'font-size:12px;padding:6px 10px;align-self:flex-start', 'Retry') as HTMLButtonElement;
+    retry.onclick = () => void loadAdminList(host);
+    host.appendChild(retry);
   }
 }
 
 function openAdminPanel() {
   const md = buildAdminPanel();
   md.style.display = 'flex';
+  const idLine = document.getElementById('admin-id');
+  if (idLine) {
+    const u = auth.currentUser;
+    idLine.textContent = 'Signed in as ' + (u?.email || '—') + ' · ' + providerOf(u);
+  }
   const host = document.getElementById('admin-list');
   if (host) void loadAdminList(host);
 }
@@ -924,6 +1010,12 @@ onAuthStateChanged(auth, async (user) => {
     }
     ensureGuestBanner();
     ensureAdminButton();
+    if (isAdminUser(user)) {
+      console.info('[inkpad] admin session —', user.email, '·', providerOf(user));
+      openAdminFromHash();
+    } else if (user.email) {
+      console.info('[inkpad] signed in as', user.email, '· admin address is', ADMIN_EMAIL);
+    }
     startHeartbeat(user);
     try {
       await mergeCloudIntoLocal(user);
@@ -957,3 +1049,20 @@ ensureBetaBadge();
 ensureAdminButton();
 hookShowLib();
 void refreshSyncedIds();
+
+window.addEventListener('hashchange', openAdminFromHash);
+window.addEventListener('load', openAdminFromHash);
+
+/* Debug bridge — lets the admin confirm recognition from the console. */
+(window as any).__inkpad_admin = {
+  get who() {
+    const u = auth.currentUser;
+    return u ? { email: u.email, provider: providerOf(u), admin: isAdminUser(u) } : null;
+  },
+  get expected() {
+    return ADMIN_EMAIL;
+  },
+  open: openAdminPanel,
+  refresh: ensureAdminButton,
+};
+
