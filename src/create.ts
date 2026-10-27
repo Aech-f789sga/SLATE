@@ -382,6 +382,11 @@ const COVERS: { id: string; label: string }[] = [
   { id: 'marble', label: 'Marble' },
   { id: 'confetti', label: 'Confetti' },
   { id: 'wave', label: 'Wave' },
+  { id: 'spine', label: 'Spine' },
+  { id: 'frame', label: 'Frame' },
+  { id: 'foil', label: 'Foil' },
+  { id: 'deco', label: 'Deco' },
+  { id: 'sunburst', label: 'Sunburst' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -808,11 +813,15 @@ const CSS = `
 }
 .gn-prevcover canvas{border-radius:2px;box-shadow:0 3px 10px rgba(0,0,0,.25);background:#fff}
 .gn-prevcap{font-size:10.5px;color:#8b95a3;text-align:center;line-height:1.4}
-.gn-fields{flex:1;min-width:0;display:flex;flex-direction:column;gap:11px;max-height:min(62vh,470px);overflow:auto;padding-right:4px}
-.gn-field{display:flex;flex-direction:column;gap:6px}
-.gn-label{font-size:11.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#8b95a3}
+.gn-fields{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px;max-height:min(64vh,520px);overflow:auto;padding-right:4px}
+.gn-field{display:flex;flex-direction:column;gap:5px}
+.gn-label{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#8b95a3;line-height:1.25}
 .gn-name{width:100%}
-#gn-covrow{display:flex;gap:7px;flex-wrap:wrap}
+.gn-studio input:focus,.gn-studio select:focus,.gn-studio textarea:focus,
+.gn-studio input:focus-visible,.gn-studio select:focus-visible,.gn-studio textarea:focus-visible{
+  outline:2px solid var(--gn-acc)!important;outline-offset:1px;border-color:var(--gn-acc)!important
+}
+#gn-covrow{display:grid;grid-template-columns:repeat(7,38px);gap:7px;justify-content:start}
 .gn-cov{
   width:38px;height:50px;border-radius:4px 8px 8px 4px;border:2px solid transparent;
   padding:0;cursor:pointer;
@@ -872,44 +881,82 @@ const CSS = `
   .gn-prevwrap{width:auto;flex-direction:row;align-items:center;gap:12px}
   .gn-prevcover{width:84px;height:112px;flex:none}
   .gn-fields{max-height:none;overflow:visible}
+  #gn-covrow{grid-template-columns:repeat(auto-fill,minmax(34px,1fr))}
+  .gn-cov{width:100%;height:auto;aspect-ratio:38/50}
   .gn-st-foot{flex:none;margin-top:0}
 }
 
 /* ---- cover designs: alpha overlays so they tint with the cover colour ---- */
 .card .cv[data-cov=linen],.gn-prevcover[data-cov=linen],.gn-cov[data-cov=linen]{background-image:
-  repeating-linear-gradient(45deg,rgba(255,255,255,.10) 0 1px,transparent 1px 4px),
-  repeating-linear-gradient(-45deg,rgba(0,0,0,.07) 0 1px,transparent 1px 4px),
+  repeating-linear-gradient(45deg,rgba(255,255,255,.13) 0 1px,transparent 1px 4px),
+  repeating-linear-gradient(-45deg,rgba(0,0,0,.10) 0 1px,transparent 1px 4px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 65%,#000))}
 .card .cv[data-cov=dots],.gn-prevcover[data-cov=dots],.gn-cov[data-cov=dots]{background-image:
-  radial-gradient(rgba(255,255,255,.22) 1.4px,transparent 1.5px),
-  radial-gradient(rgba(0,0,0,.10) 1.2px,transparent 1.3px),
+  radial-gradient(rgba(255,255,255,.30) 1.8px,transparent 1.9px),
+  radial-gradient(rgba(0,0,0,.14) 1.5px,transparent 1.6px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 65%,#000));
-  background-size:12px 12px,12px 12px,100% 100%;background-position:0 0,6px 6px,0 0}
+  background-size:11px 11px,11px 11px,100% 100%;background-position:0 0,5.5px 5.5px,0 0}
 .card .cv[data-cov=stripe],.gn-prevcover[data-cov=stripe],.gn-cov[data-cov=stripe]{background-image:
-  repeating-linear-gradient(115deg,rgba(255,255,255,.14) 0 6px,transparent 6px 18px),
+  repeating-linear-gradient(115deg,rgba(255,255,255,.17) 0 7px,transparent 7px 20px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 62%,#000))}
 .card .cv[data-cov=grid],.gn-prevcover[data-cov=grid],.gn-cov[data-cov=grid]{background-image:
-  repeating-linear-gradient(0deg,rgba(255,255,255,.12) 0 1px,transparent 1px 9px),
-  repeating-linear-gradient(90deg,rgba(255,255,255,.12) 0 1px,transparent 1px 9px),
+  repeating-linear-gradient(0deg,rgba(255,255,255,.16) 0 1px,transparent 1px 9px),
+  repeating-linear-gradient(90deg,rgba(255,255,255,.16) 0 1px,transparent 1px 9px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 65%,#000))}
 .card .cv[data-cov=leather],.gn-prevcover[data-cov=leather],.gn-cov[data-cov=leather]{background-image:
-  radial-gradient(circle at 18% 22%,rgba(255,255,255,.16) 0 18%,transparent 40%),
-  radial-gradient(circle at 78% 68%,rgba(0,0,0,.18) 0 22%,transparent 46%),
-  radial-gradient(circle at 52% 88%,rgba(255,255,255,.10) 0 14%,transparent 34%),
+  radial-gradient(circle at 18% 22%,rgba(255,255,255,.18) 0 18%,transparent 40%),
+  radial-gradient(circle at 78% 68%,rgba(0,0,0,.22) 0 22%,transparent 46%),
+  radial-gradient(circle at 52% 88%,rgba(255,255,255,.12) 0 14%,transparent 34%),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 58%,#000))}
 .card .cv[data-cov=marble],.gn-prevcover[data-cov=marble],.gn-cov[data-cov=marble]{background-image:
-  linear-gradient(115deg,transparent 38%,rgba(255,255,255,.26) 44%,transparent 50%),
-  linear-gradient(70deg,transparent 58%,rgba(0,0,0,.14) 64%,transparent 72%),
+  linear-gradient(115deg,transparent 36%,rgba(255,255,255,.34) 43%,transparent 50%),
+  linear-gradient(70deg,transparent 56%,rgba(0,0,0,.18) 63%,transparent 72%),
+  linear-gradient(150deg,transparent 20%,rgba(255,255,255,.16) 26%,transparent 33%),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 55%,#fff 12%))}
 .card .cv[data-cov=confetti],.gn-prevcover[data-cov=confetti],.gn-cov[data-cov=confetti]{background-image:
-  radial-gradient(rgba(255,236,150,.85) 1.6px,transparent 1.8px),
-  radial-gradient(rgba(255,255,255,.75) 1.3px,transparent 1.5px),
-  radial-gradient(rgba(160,230,255,.7) 1.4px,transparent 1.6px),
+  radial-gradient(rgba(255,236,150,.9) 1.8px,transparent 2px),
+  radial-gradient(rgba(255,255,255,.8) 1.4px,transparent 1.6px),
+  radial-gradient(rgba(160,230,255,.75) 1.6px,transparent 1.8px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 62%,#000));
   background-size:26px 22px,17px 19px,31px 27px,100% 100%;
   background-position:0 0,8px 11px,14px 4px,0 0}
 .card .cv[data-cov=wave],.gn-prevcover[data-cov=wave],.gn-cov[data-cov=wave]{background-image:
-  repeating-radial-gradient(circle at 50% 120%,rgba(255,255,255,.10) 0 8px,transparent 8px 18px),
+  repeating-radial-gradient(circle at 50% 120%,rgba(255,255,255,.14) 0 9px,transparent 9px 19px),
+  linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 60%,#000))}
+/* spine: dark bound edge with a gilt rule and a title plate */
+.card .cv[data-cov=spine],.gn-prevcover[data-cov=spine],.gn-cov[data-cov=spine]{background-image:
+  linear-gradient(90deg,transparent 12.5%,rgba(255,255,255,.6) 12.5%,rgba(255,255,255,.6) 14%,transparent 14%),
+  linear-gradient(rgba(255,255,255,.20),rgba(255,255,255,.20)),
+  linear-gradient(90deg,rgba(0,0,0,.34) 0 12.5%,transparent 12.5%),
+  linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 62%,#000));
+  background-size:100% 100%,52% 11%,100% 100%,100% 100%;
+  background-position:0 0,58% 44%,0 0,0 0;background-repeat:no-repeat}
+/* frame: inset double rule */
+.card .cv[data-cov=frame],.gn-prevcover[data-cov=frame],.gn-cov[data-cov=frame]{background-image:
+  linear-gradient(rgba(255,255,255,.75),rgba(255,255,255,.75)),
+  linear-gradient(rgba(255,255,255,.75),rgba(255,255,255,.75)),
+  linear-gradient(rgba(255,255,255,.75),rgba(255,255,255,.75)),
+  linear-gradient(rgba(255,255,255,.75),rgba(255,255,255,.75)),
+  linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 68%,#000));
+  background-size:calc(100% - 14px) 1.5px,calc(100% - 14px) 1.5px,1.5px calc(100% - 14px),1.5px calc(100% - 14px),100% 100%;
+  background-position:7px 7px,7px calc(100% - 7px),7px 7px,calc(100% - 7px) 7px,0 0;
+  background-repeat:no-repeat}
+/* foil: gold corner wedges */
+.card .cv[data-cov=foil],.gn-prevcover[data-cov=foil],.gn-cov[data-cov=foil]{background-image:
+  linear-gradient(135deg,rgba(255,214,122,.92) 0 15%,transparent 15.4%),
+  linear-gradient(135deg,rgba(255,214,122,.42) 0 10%,transparent 10.4%),
+  linear-gradient(315deg,rgba(255,214,122,.75) 0 13%,transparent 13.4%),
+  linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 60%,#000))}
+/* deco: chevron bands along the foot */
+.card .cv[data-cov=deco],.gn-prevcover[data-cov=deco],.gn-cov[data-cov=deco]{background-image:
+  linear-gradient(160deg,rgba(255,255,255,.24) 0 50%,transparent 50.3%),
+  linear-gradient(20deg,rgba(255,255,255,.12) 0 50%,transparent 50.3%),
+  linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 62%,#000));
+  background-size:100% 30%,100% 22%,100% 100%;
+  background-position:0 100%,0 100%,0 0;background-repeat:no-repeat}
+/* sunburst: rays fanning from the foot */
+.card .cv[data-cov=sunburst],.gn-prevcover[data-cov=sunburst],.gn-cov[data-cov=sunburst]{background-image:
+  repeating-conic-gradient(from 200deg at 50% 104%,rgba(255,255,255,.15) 0 6deg,transparent 6deg 16deg),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 60%,#000))}
 `;
 
