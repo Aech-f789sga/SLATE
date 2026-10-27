@@ -422,7 +422,16 @@ function stampStyle() {
   const s = strokes[strokes.length - 1];
   if (!s || s.t !== 'shape') return;
 
-  let changed = false;
+  // a triangle was drawn with the rect tool, so rename it before anything else
+  let renamed = false;
+  if (forced && s.k === 'rect') {
+    s.k = forced;
+    forced = null;
+    paintPicker();
+    renamed = true;
+  }
+
+  let changed = renamed;
   if (style.fill && (s.k === 'rect' || s.k === 'ell' || s.k === 'tri')) {
     s.fc = style.fill;
     s.fop = style.opacity;
@@ -519,7 +528,7 @@ let panel: HTMLElement | null = null;
 let hint: HTMLElement | null = null;
 let hintTimer = 0;
 
-const SHAPE_TOOLS = ['line', 'rect', 'ell', 'arrow', 'hid', 'ax2', 'ax3'];
+const SHAPE_TOOLS = ['line', 'rect', 'ell', 'arrow', 'hid', 'ax2', 'ax3', 'tri'];
 
 function toolIsShape(): boolean {
   const t = ev<string>('tool');
@@ -640,7 +649,7 @@ function repaint() {
 
 function paint() {
   if (!panel) return;
-  const on = editorOpen() && toolIsShape();
+  const on = editorOpen() && toolIsShape() && !picker?.classList.contains('on');
   panel.classList.toggle('on', on);
 
   // the toolbar grows a second row for shape tools, so measure its real bottom
@@ -656,6 +665,170 @@ function paint() {
   const rec = panel.querySelectorAll<HTMLElement>('.sh-tg')[1];
   if (dash) dash.classList.toggle('on', style.dashed);
   if (rec) rec.classList.toggle('on', style.recognise);
+}
+
+/* ------------------------------------------------------------------ */
+/* Shape picker                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The engine's toolbar only surfaces line / rect / oval, but its draw path
+ * already handles `arrow`, `ax2` (elbow connector) and `ax3` (curved
+ * connector) — they are just unreachable. A picker in the primary row exposes
+ * all seven in one popover, which also keeps the choice out of the crowded
+ * secondary row where it used to get clipped.
+ */
+interface ShapeKind {
+  id: string;
+  label: string;
+  svg: string;
+}
+
+const KINDS: ShapeKind[] = [
+  {
+    id: 'line',
+    label: 'Line',
+    svg: '<path d="M4 19 19 5"/>',
+  },
+  {
+    id: 'arrow',
+    label: 'Arrow',
+    svg: '<path d="M4 19 19 5M19 5h-6M19 5v6"/>',
+  },
+  {
+    id: 'ax2',
+    label: 'Axes',
+    svg: '<path d="M4 4v15h16"/><path d="M4 4l-2 3M4 4l3-2M20 19l-3 2M20 19l2-3"/>',
+  },
+  {
+    id: 'ax3',
+    label: '3 Axes',
+    svg: '<path d="M12 20V5M12 20l-8-4M12 20l8-4"/><path d="M12 5l-2 3M12 5l2 3"/>',
+  },
+  {
+    id: 'rect',
+    label: 'Rectangle',
+    svg: '<rect x="3.5" y="6" width="17" height="12" rx="1.6"/>',
+  },
+  {
+    id: 'ell',
+    label: 'Oval',
+    svg: '<ellipse cx="12" cy="12" rx="8.5" ry="6"/>',
+  },
+  {
+    id: 'tri',
+    label: 'Triangle',
+    svg: '<path d="M12 5.5 20 19H4z"/>',
+  },
+];
+
+let picker: HTMLElement | null = null;
+let pickBtn: HTMLButtonElement | null = null;
+
+/**
+ * The engine's draw branch only knows line/rect/ell/arrow/hid/ax2/ax3, so a
+ * triangle has to arrive as a rect and be renamed on release. `forced` carries
+ * that intent for exactly one stroke.
+ */
+let forced: string | null = null;
+
+function setTool(t: string) {
+  forced = t === 'tri' ? 'tri' : null;
+  const real = t === 'tri' ? 'rect' : t;
+  ev(`try{ tool=${JSON.stringify(real)}; sel=[]; draw(); syncTools(); }catch(e){}`);
+  paintPicker();
+  paint();
+}
+
+function buildPicker() {
+  if (picker) return;
+
+  picker = el('div', '');
+  picker.id = 'sh-pick';
+
+  const head = el('div', '', 'Shapes');
+  head.className = 'sh-ph';
+  picker.append(head);
+
+  const grid = el('div', '');
+  grid.className = 'sh-pg';
+
+  for (const k of KINDS) {
+    const b = el('button', '') as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'sh-pb';
+    b.dataset.kind = k.id;
+    b.title = k.label;
+    b.innerHTML =
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ` +
+      `stroke-linecap="round" stroke-linejoin="round">${k.svg}</svg><span>${k.label}</span>`;
+    b.onclick = () => {
+      setTool(k.id);
+      picker?.classList.remove('on');
+    };
+    grid.append(b);
+  }
+
+  picker.append(grid);
+  document.body.append(picker);
+
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest) return;
+      if (t.closest('#sh-pick') || t.closest('#sh-trigger')) return;
+      picker?.classList.remove('on');
+    },
+    true
+  );
+}
+
+function paintPicker() {
+  if (!picker) return;
+  const t = forced || ev<string>('tool');
+  picker.querySelectorAll<HTMLElement>('.sh-pb').forEach((n) => {
+    n.classList.toggle('on', n.dataset.kind === t);
+  });
+  pickBtn?.classList.toggle('on', !!t && SHAPE_TOOLS.includes(t));
+}
+
+function hookToolbar() {
+  if (pickBtn) return;
+  const bar = document.getElementById('bar');
+  if (!bar) return;
+
+  pickBtn = el('button', '') as HTMLButtonElement;
+  pickBtn.id = 'sh-trigger';
+  pickBtn.type = 'button';
+  pickBtn.title = 'Shapes';
+  pickBtn.setAttribute('aria-label', 'Shapes');
+  pickBtn.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12.5" width="8.5" height="8.5" rx="1.4"/>' +
+    '<circle cx="16.5" cy="7.5" r="4.5"/></svg>';
+  pickBtn.onclick = (e) => {
+    e.stopPropagation();
+    if (!picker) return;
+    if (picker.classList.contains('on')) {
+      picker.classList.remove('on');
+      return;
+    }
+    paintPicker();
+    picker.classList.add('on');
+    const r = pickBtn!.getBoundingClientRect();
+    const tb = document.getElementById('tb');
+    const floor = tb ? Math.round(tb.getBoundingClientRect().bottom) : r.bottom;
+    const w = picker.offsetWidth;
+    const left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left - w / 2 + r.width / 2));
+    picker.style.left = Math.round(left) + 'px';
+    picker.style.top = Math.round(Math.max(r.bottom, floor) + 8) + 'px';
+  };
+
+  // sit next to the engine's own shape buttons
+  const anchor = bar.querySelector('[data-t="rect"]') || bar.querySelector('[data-t="ell"]');
+  if (anchor && anchor.parentElement === bar) anchor.after(pickBtn);
+  else bar.append(pickBtn);
 }
 
 /* ------------------------------------------------------------------ */
@@ -709,6 +882,37 @@ const CSS = `
   #ink-shape .sh-op{width:48px}
   #ink-shape .sh-fill{width:18px;height:18px}
 }
+
+#sh-trigger{
+  width:30px;height:30px;border-radius:8px;border:0!important;background:transparent!important;
+  color:#3c4654;cursor:pointer;display:grid;place-items:center;padding:0!important;flex:none;
+}
+#sh-trigger:hover{background:#eef1f6}
+#sh-trigger.on{background:#e3edff!important;color:#1f4fbf}
+#sh-trigger svg{width:18px;height:18px;display:block}
+
+#sh-pick{
+  position:fixed;z-index:42;display:none;width:238px;padding:10px;
+  background:#fff;border:1px solid #eef1f6;border-radius:14px;
+  box-shadow:0 16px 38px rgba(8,20,38,.20),0 2px 6px rgba(8,20,38,.08);
+  font-family:inherit;
+}
+#sh-pick.on{display:block}
+#sh-pick .sh-ph{
+  font:700 9.5px/1 inherit;letter-spacing:.09em;text-transform:uppercase;
+  color:#8b95a3;margin:0 0 8px 3px;
+}
+#sh-pick .sh-pg{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+#sh-pick .sh-pb{
+  border:2px solid transparent!important;background:#f7f9fc!important;border-radius:9px;
+  padding:6px 2px 4px!important;cursor:pointer;display:flex;flex-direction:column;
+  align-items:center;gap:2px;color:#3c4654;
+}
+#sh-pick .sh-pb:hover{background:#eef3fb!important}
+#sh-pick .sh-pb.on{border-color:var(--gn-acc,#2f6df6)!important;background:#eaf1ff!important;color:#1f4fbf}
+#sh-pick .sh-pb svg{width:20px;height:20px;display:block}
+#sh-pick .sh-pb span{font:600 8.5px/1 inherit;color:#77828f;letter-spacing:.01em;white-space:nowrap}
+#sh-pick .sh-pb.on span{color:#1f4fbf}
 `;
 
 function boot() {
@@ -716,6 +920,8 @@ function boot() {
   installShapeEngine();
   hookRecognition();
   buildPanel();
+  buildPicker();
+  hookToolbar();
 
   const s = document.createElement('style');
   s.id = 'gn-shape-style';
@@ -731,7 +937,11 @@ function boot() {
     const t = ev<string>('tool');
     if (t !== lastTool) {
       lastTool = t ?? null;
+      // a tool change from the engine's own row clears any pending triangle
+      if (forced && t !== 'rect') forced = null;
+      hookToolbar();
       hookRecognition();
+      paintPicker();
     }
     paint();
   }, 220);
@@ -742,6 +952,8 @@ function boot() {
     commit,
     paint,
     setFill,
+    setTool,
+    kinds: KINDS,
     metrics: metricsOf,
     last: () => lastRun,
   };
