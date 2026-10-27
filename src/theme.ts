@@ -144,6 +144,24 @@ html[data-bar=compact] #tb #more{
   border-color:var(--gn-acc)!important;box-shadow:0 0 0 3px rgba(47,109,246,.2),0 3px 10px rgba(16,32,64,.16);
 }
 
+/* ---------------- engine drawer (shapes, brushes, paper…) ---------------- */
+/* The engine parks its popover drawer at z-index 9 and anchors it to the
+   button that opened it — which now means the white sub-toolbar paints over
+   the top of it. Lift it above the bar and push it clear of the bar's bottom. */
+#gn-drw{
+  z-index:30!important;border-radius:16px!important;
+  border:1px solid #eaeef5!important;padding:12px!important;
+  box-shadow:0 18px 46px rgba(8,20,38,.26)!important;
+  background:#fff!important;color:#1c2430!important;
+}
+#gn-drw button{
+  border:1px solid transparent!important;border-radius:10px!important;background:#f7f8fa!important;
+  color:#2b3542!important;font-size:12px!important;transition:background .12s ease,border-color .12s ease;
+}
+#gn-drw button:hover{background:#eef2f8!important;border-color:#dbe3ee!important}
+#gn-drw button.on{background:#e8f0ff!important;border-color:var(--gn-acc)!important;color:#1f4fbf!important}
+#gn-drw canvas{border-radius:7px!important;background:#fff}
+
 /* ---------------- editor: page footer ---------------- */
 #gn-foot{
   position:fixed;left:14px;bottom:12px;display:flex;gap:8px;align-items:center;z-index:6;
@@ -250,12 +268,6 @@ html[data-bar=compact] #tb #more{
 #cvs .sw.on{outline:2.5px solid var(--gn-acc);outline-offset:2px}
 #cvs .sw.on::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:15px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.4)}
 #np{display:none!important}
-#gn-tpl{display:flex;gap:6px;flex-wrap:wrap}
-#gn-tpl button{
-  border:1px solid var(--gn-line)!important;background:#fff!important;border-radius:9px!important;
-  padding:7px 12px!important;font-size:12.5px!important;cursor:pointer;color:#3b4654;
-}
-#gn-tpl button.on{background:#e8f0ff!important;border-color:var(--gn-acc)!important;color:#1f4fbf!important;font-weight:600}
 #nc,#ok,#auth-submit-btn{border-radius:10px!important;padding:9px 18px!important;font-weight:600!important}
 #ok,#auth-submit-btn{background:var(--gn-acc)!important;border-color:var(--gn-acc)!important}
 
@@ -557,49 +569,6 @@ function ensureTabs() {
 }
 
 /* ------------------------------------------------------------------ */
-/* New-notebook sheet: template chips + cover grid                     */
-/* ------------------------------------------------------------------ */
-
-const TPLS: [string, string][] = [
-  ['lined', 'Lined'],
-  ['grid', 'Grid'],
-  ['dot', 'Dotted'],
-  ['blank', 'Blank'],
-  ['cornell', 'Cornell'],
-];
-
-function ensureSheet() {
-  const box = document.querySelector('#md .box') as HTMLElement | null;
-  if (!box || document.getElementById('gn-tpl')) return;
-  const sel = document.getElementById('np') as HTMLSelectElement | null;
-  if (!sel) return;
-
-  const wrap = el('div', '');
-  wrap.id = 'gn-tpl';
-  TPLS.forEach(([v, label]) => {
-    const b = el('button', '', label) as HTMLButtonElement;
-    b.type = 'button';
-    if (sel.value === v) b.classList.add('on');
-    b.onclick = () => {
-      sel.value = v;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-      wrap.querySelectorAll('button').forEach((n) => n.classList.remove('on'));
-      b.classList.add('on');
-    };
-    wrap.appendChild(b);
-  });
-  sel.parentElement?.insertBefore(wrap, sel);
-
-  // label the cover row like GoodNotes' "Cover"
-  const cvs = document.getElementById('cvs');
-  if (cvs && !document.getElementById('gn-cover-label')) {
-    const l = el('div', 'font-size:12px;font-weight:600;color:#6b7684;margin-top:2px', 'Cover');
-    l.id = 'gn-cover-label';
-    cvs.parentElement?.insertBefore(l, cvs);
-  }
-}
-
-/* ------------------------------------------------------------------ */
 /* Footer: page counter + zoom                                         */
 /* ------------------------------------------------------------------ */
 
@@ -633,6 +602,45 @@ function ensureFooter() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Engine drawer: lift it above the bar and keep it clear of it        */
+/* ------------------------------------------------------------------ */
+
+function bindDrawer() {
+  const drw = Array.from(document.body.children).find((n) => {
+    const e = n as HTMLElement;
+    return (
+      n.tagName === 'DIV' &&
+      !n.id &&
+      e.style.position === 'fixed' &&
+      e.style.zIndex === '9'
+    );
+  }) as HTMLElement | undefined;
+  if (!drw || drw.dataset.gnDrw) return;
+
+  drw.id = 'gn-drw';
+  drw.dataset.gnDrw = '1';
+
+  const fit = () => {
+    if (drw.style.display !== 'block') return;
+    const tb = document.getElementById('tb');
+    if (!tb) return;
+    const floor = tb.getBoundingClientRect().bottom + 8;
+    const cur = parseFloat(drw.style.top) || 0;
+    const next = Math.max(cur, floor);
+    if (Math.abs(next - cur) > 0.5) drw.style.top = next + 'px';
+    const room = Math.round(window.innerHeight - next - 12);
+    const max = Math.max(160, Math.min(room, window.innerHeight * 0.62));
+    if (Math.abs((parseFloat(drw.style.maxHeight) || 0) - max) > 1) {
+      drw.style.maxHeight = max + 'px';
+    }
+  };
+
+  new MutationObserver(fit).observe(drw, { attributes: true, attributeFilter: ['style'] });
+  window.addEventListener('resize', fit);
+  (window as any).__inkpad_drawer = drw;
+}
+
+/* ------------------------------------------------------------------ */
 /* Boot                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -644,8 +652,8 @@ function boot() {
 
   ensureTopBar();
   ensureTabs();
-  ensureSheet();
   ensureFooter();
+  bindDrawer();
 
   // the grid is rebuilt on every shelf change — re-attach the body wrapper
   const main = document.getElementById('libm');
@@ -660,24 +668,13 @@ function boot() {
     }).observe(main, { childList: true, subtree: false });
   }
 
-  // re-skin the sheet whenever it opens (the engine rewrites #cvs on edit)
-  document.addEventListener(
-    'click',
-    (e) => {
-      const t = e.target as HTMLElement;
-      if (t.closest('.new') || t.closest('#gn-new')) setTimeout(ensureSheet, 40);
-    },
-    true
-  );
-
   (window as any).__inkpad_theme = {
     tabs: () => tabs,
     open: openById,
     refresh: () => {
       ensureTopBar();
       ensureTabs();
-      ensureSheet();
-      ensureHead();
+          ensureHead();
       renderTabs();
     },
   };
