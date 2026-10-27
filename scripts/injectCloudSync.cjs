@@ -43,6 +43,7 @@ const pwaHead = `
 <script type="module" src="/src/snap.ts"></script>
 <script type="module" src="/src/theme.ts"></script>
 <script type="module" src="/src/ink.ts"></script>
+<script type="module" src="/src/shapes.ts"></script>
 <script type="module" src="/src/create.ts"></script>
 <script type="module" src="/src/stickers.ts"></script>
 <script type="module" src="/src/scribble.ts"></script>
@@ -485,6 +486,7 @@ const requiredMarkers = [
   ['sticker library module', 'src="/src/stickers.ts"'],
   ['scribble to erase module', 'src="/src/scribble.ts"'],
   ['ink panel module', 'src="/src/ink.ts"'],
+  ['shape module', 'src="/src/shapes.ts"'],
   ['notebook save hook', 'window.__inkpad_cloud.onSave(nb)'],
   ['window.lib exposure', 'window.lib=lib;window.showLib=showLib;'],
   ['native window.open preserved', 'function openNotebook(n){nb=n;'],
