@@ -47,6 +47,8 @@ interface Paper {
   lw?: number;
   mg?: string;
   mx?: number;
+  /** data URL painted edge to edge before the ruling goes on top */
+  img?: string;
 }
 
 /**
@@ -287,10 +289,34 @@ function gridLike(c: CanvasRenderingContext2D, p: Paper, W: number, H: number, h
   }
 }
 
+/** Decoded template images, keyed by data URL. */
+const IMGS = new Map<string, HTMLImageElement>();
+
+/**
+ * Decode a template image once. Returns null the first time, and fires a repaint
+ * when it lands so the page (and any open preview) picks it up.
+ */
+function imgOf(src: string): HTMLImageElement | null {
+  const hit = IMGS.get(src);
+  if (hit) return hit.complete && hit.naturalWidth ? hit : null;
+  const im = new Image();
+  im.onload = () => {
+    window.dispatchEvent(new CustomEvent('inkpad-paper-loaded'));
+  };
+  im.src = src;
+  IMGS.set(src, im);
+  return null;
+}
+
 /** Paint a page background, margin rule included. */
 function paintPaper(c: CanvasRenderingContext2D, p: Paper, W: number, H: number) {
-  c.fillStyle = p.bg || '#ffffff';
-  c.fillRect(0, 0, W, H);
+  const im = p.img ? imgOf(p.img) : null;
+  if (im) {
+    c.drawImage(im, 0, 0, W, H);
+  } else {
+    c.fillStyle = p.bg || '#ffffff';
+    c.fillRect(0, 0, W, H);
+  }
   (PAINT[p.k] || PAINT.blank)(c, p, W, H);
   if (p.mg) {
     c.strokeStyle = p.mg;
@@ -343,6 +369,21 @@ const SIZES: { id: string; label: string; w: number; h: number }[] = [
   { id: 'a3', label: 'A3', w: 1131, h: 1600 },
   { id: 'square', label: 'Square', w: 900, h: 900 },
   { id: 'wide', label: '16:9', w: 1280, h: 720 },
+  { id: 'custom', label: 'Custom…', w: 800, h: 1131 },
+];
+
+/**
+ * Paper colour is a *pair*: the sheet tint and the ink of the ruling. GoodNotes
+ * lets you name and reuse these; here the presets are fixed and the custom
+ * background is free-form, which is what the studio can persist in `pp`.
+ */
+const TINTS: { id: string; label: string; bg: string; ln: string }[] = [
+  { id: 'white', label: 'White', bg: '#ffffff', ln: 'rgba(120,150,190,.55)' },
+  { id: 'cream', label: 'Cream', bg: '#fdf6e3', ln: 'rgba(150,120,70,.45)' },
+  { id: 'mint', label: 'Mint', bg: '#eefaf3', ln: 'rgba(60,140,110,.45)' },
+  { id: 'rose', label: 'Rose', bg: '#fdf0f4', ln: 'rgba(170,90,120,.42)' },
+  { id: 'slate', label: 'Slate', bg: '#eef2f8', ln: 'rgba(80,105,145,.5)' },
+  { id: 'night', label: 'Night', bg: '#1d2430', ln: 'rgba(255,255,255,.24)' },
 ];
 
 const WRITING: { id: string; label: string; tpl: string; pp?: Paper }[] = [
@@ -352,6 +393,70 @@ const WRITING: { id: string; label: string; tpl: string; pp?: Paper }[] = [
   { id: 'blank', label: 'Blank', tpl: 'blank' },
   { id: 'cornell', label: 'Cornell', tpl: 'lined', pp: { k: 'cornell', bg: '#ffffff', ln: 'rgba(120,150,190,.55)', gap: 30, lw: 1 } },
 ];
+
+/** A user-imported template, shown as one more writing paper. */
+let imported: { id: string; label: string; tpl: string; pp: Paper } | null = null;
+
+/** Writing papers, plus the imported one once it exists. */
+function writingList() {
+  return imported ? [...WRITING, imported] : WRITING;
+}
+
+let fileIn: HTMLInputElement | null = null;
+
+function pickImport() {
+  if (!fileIn) {
+    const i = document.createElement('input');
+    i.type = 'file';
+    i.accept = 'image/*';
+    i.style.display = 'none';
+    i.onchange = () => {
+      const f = i.files && i.files[0];
+      if (f) importPaper(f);
+      i.value = '';
+    };
+    document.body.append(i);
+    fileIn = i;
+  }
+  fileIn.click();
+}
+
+function importPaper(file: File) {
+  if (!/^image\//.test(file.type)) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const raw = String(reader.result || '');
+    const im = new Image();
+    im.onload = () => {
+      // The data URL rides inside the page's `pp`, which the engine persists to
+      // localStorage, so it has to be downscaled to stay inside that budget.
+      const max = 1100;
+      const k = Math.min(1, max / Math.max(im.width, im.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(im.width * k));
+      cv.height = Math.max(1, Math.round(im.height * k));
+      const g = cv.getContext('2d');
+      if (!g) return;
+      g.drawImage(im, 0, 0, cv.width, cv.height);
+      const url = cv.toDataURL('image/jpeg', 0.7);
+
+      imported = {
+        id: 'imported',
+        label: file.name.replace(/\.[^.]+$/, '').slice(0, 12) || 'Imported',
+        tpl: 'blank',
+        pp: { k: 'blank', bg: '#ffffff', img: url },
+      };
+      IMGS.set(url, im);
+      state.cat = 'writing';
+      state.paper = 'imported';
+      tintByPaper.imported = 'white';
+      state.tint = 'white';
+      (window as any).__inkpad_studio?.repaint?.();
+    };
+    im.src = raw;
+  };
+  reader.readAsDataURL(file);
+}
 
 const PLANNER: { id: string; label: string; pp: Paper }[] = [
   { id: 'week', label: 'Weekly', pp: { k: 'week', bg: '#ffffff', ln: 'rgba(90,110,145,.55)', gap: 30, lw: 1 } },
@@ -387,6 +492,10 @@ const COVERS: { id: string; label: string }[] = [
   { id: 'foil', label: 'Foil' },
   { id: 'deco', label: 'Deco' },
   { id: 'sunburst', label: 'Sunburst' },
+  { id: 'aurora', label: 'Aurora' },
+  { id: 'terrazzo', label: 'Terrazzo' },
+  { id: 'ombre', label: 'Ombré' },
+  { id: 'collage', label: 'Collage' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -399,24 +508,83 @@ const state = {
   ori: 'portrait' as 'portrait' | 'landscape',
   paper: 'lined',
   cat: 'writing' as 'writing' | 'planner' | 'styles',
+  tint: 'white',
+  customBg: '#ffffff',
+  customW: 800,
+  customH: 1131,
+  /** edit mode only: which half of the sheet is showing */
+  tab: 'cover' as 'cover' | 'paper',
+  /** edit mode only: recolour the whole notebook or just its first page */
+  scope: 'all' as 'all' | 'first',
 };
 
+/** Each template remembers the colour variant last picked for it. */
+const tintByPaper: Record<string, string> = {};
+
+/** Relative luminance of a hex colour, 0 (black) … 1 (white). */
+function lum(hex: string): number {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex).trim());
+  if (!m) return 1;
+  const ch = [1, 2, 3].map((i) => {
+    const v = parseInt(m[i], 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+
+/** Ruling ink that stays legible on whatever background it lands on. */
+function inkFor(bg: string): string {
+  return lum(bg) < 0.35 ? 'rgba(255,255,255,.26)' : 'rgba(110,135,175,.5)';
+}
+
+function tintOf(): { bg: string; ln: string } {
+  if (state.tint === 'custom') return { bg: state.customBg, ln: inkFor(state.customBg) };
+  const t = TINTS.find((x) => x.id === state.tint);
+  return t ? { bg: t.bg, ln: t.ln } : { bg: '#ffffff', ln: 'rgba(120,150,190,.55)' };
+}
+
+/** The tint a given template should use — its own last choice, else the sheet's. */
+function tintFor(paperId: string): string {
+  return tintByPaper[paperId] || state.tint;
+}
+
 function paperOf(): { tpl: string; pp?: Paper } {
+  let base: { tpl: string; pp?: Paper };
   if (state.cat === 'planner') {
     const p = PLANNER.find((x) => x.id === state.paper) || PLANNER[0];
-    return { tpl: 'blank', pp: p.pp };
-  }
-  if (state.cat === 'styles') {
+    base = { tpl: 'blank', pp: p.pp };
+  } else if (state.cat === 'styles') {
     const p = STYLES.find((x) => x.id === state.paper) || STYLES[0];
-    return { tpl: 'blank', pp: p.pp };
+    base = { tpl: 'blank', pp: p.pp };
+  } else {
+    const p = writingList().find((x) => x.id === state.paper) || WRITING[0];
+    base = { tpl: p.tpl, pp: p.pp };
   }
-  const p = WRITING.find((x) => x.id === state.paper) || WRITING[0];
-  return { tpl: p.tpl, pp: p.pp };
+  // Paper styles carry their own colours on purpose; everything else takes the
+  // chosen tint so one control recolours every writing and planner page.
+  if (state.cat !== 'styles' && base.pp) {
+    const id = tintFor(state.paper);
+    const t =
+      id === 'custom'
+        ? { bg: state.customBg, ln: inkFor(state.customBg) }
+        : TINTS.find((x) => x.id === id) || TINTS[0];
+    base = { ...base, pp: { ...base.pp, bg: t.bg, ln: t.ln } };
+  }
+  return base;
 }
 
 function dims(): { w: number; h: number } {
-  const s = SIZES.find((x) => x.id === state.size) || SIZES[0];
-  return state.ori === 'landscape' ? { w: s.h, h: s.w } : { w: s.w, h: s.h };
+  let w: number;
+  let h: number;
+  if (state.size === 'custom') {
+    w = Math.max(240, Math.min(4000, state.customW));
+    h = Math.max(240, Math.min(4000, state.customH));
+  } else {
+    const s = SIZES.find((x) => x.id === state.size) || SIZES[0];
+    w = s.w;
+    h = s.h;
+  }
+  return state.ori === 'landscape' ? { w: h, h: w } : { w, h };
 }
 
 /* ------------------------------------------------------------------ */
@@ -463,10 +631,38 @@ function paintPreview(cv: HTMLCanvasElement) {
 
 let bound = false;
 
-function buildSheet() {
+/** Non-null while the sheet is editing an existing notebook instead of creating one. */
+let editing: any = null;
+
+/** Templates whose colour row has been expanded past the first three dots. */
+const expanded: Record<string, boolean> = {};
+
+/** Colour pair for one template, honouring its remembered variant. */
+function tintOfFor(paperId: string): { bg: string; ln: string } {
+  const id = tintFor(paperId);
+  if (id === 'custom') return { bg: state.customBg, ln: inkFor(state.customBg) };
+  const t = TINTS.find((x) => x.id === id) || TINTS[0];
+  return { bg: t.bg, ln: t.ln };
+}
+
+function paperLabel(): string {
+  const list = state.cat === 'planner' ? PLANNER : state.cat === 'styles' ? STYLES : writingList();
+  return (list.find((x) => x.id === state.paper) || list[0]).label;
+}
+
+function closeSheet() {
+  editing = null;
+  document.getElementById('md')?.classList.remove('on');
   const box = document.querySelector('#md .box') as HTMLElement | null;
-  if (!box || box.dataset.gnStudio) return;
-  box.dataset.gnStudio = '1';
+  if (box) delete box.dataset.gnStudio;
+}
+
+function buildSheet(force = false) {
+  const box = document.querySelector('#md .box') as HTMLElement | null;
+  if (!box) return;
+  const mode: 'new' | 'edit' = editing ? 'edit' : 'new';
+  if (!force && box.dataset.gnStudio === mode) return;
+  box.dataset.gnStudio = mode;
 
   const nn = document.getElementById('nn') as HTMLInputElement | null;
   const cvs = document.getElementById('cvs');
@@ -488,7 +684,7 @@ function buildSheet() {
 
   /* header */
   const head = el('div', 'display:flex;align-items:center;justify-content:space-between;gap:10px');
-  const title = el('div', '', 'New notebook');
+  const title = el('div', '', mode === 'edit' ? 'Notebook settings' : 'New notebook');
   title.style.cssText = 'font-size:20px;font-weight:800;letter-spacing:-.02em;color:#141c26';
   const close = el('button', '', '✕') as HTMLButtonElement;
   close.type = 'button';
@@ -497,6 +693,29 @@ function buildSheet() {
     'border:0;background:transparent;font-size:17px;color:#8b95a3;cursor:pointer;padding:2px 6px;border-radius:8px';
   close.onclick = () => cancelBtn.click();
   head.append(title, close);
+
+  /* cover / paper tabs — only useful when editing an existing notebook */
+  let tabbar: HTMLElement | null = null;
+  if (mode === 'edit') {
+    tabbar = el('div', '');
+    tabbar.className = 'gn-tabbar';
+    (
+      [
+        ['cover', 'Cover'],
+        ['paper', 'Paper'],
+      ] as const
+    ).forEach(([k, label]) => {
+      const b = el('button', '', label) as HTMLButtonElement;
+      b.type = 'button';
+      b.dataset.tab = k;
+      if (k === state.tab) b.classList.add('on');
+      b.onclick = () => {
+        state.tab = k;
+        refresh();
+      };
+      tabbar!.append(b);
+    });
+  }
 
   /* body: preview on the left, fields on the right */
   const body = el('div', '');
@@ -531,10 +750,14 @@ function buildSheet() {
   const fTitle = field('Title');
   nameInput.classList.add('gn-name');
   nameInput.placeholder = 'Untitled notebook';
+  if (mode === 'edit' && editing) nameInput.value = editing.name || '';
   fTitle.append(nameInput);
 
-  /* cover designs */
+  /* ---- cover group ---------------------------------------------- */
+  const coverGroup: HTMLElement[] = [];
+
   const fCover = field('Cover design');
+  coverGroup.push(fCover);
   const covRow = el('div', '');
   covRow.id = 'gn-covrow';
   COVERS.forEach((c) => {
@@ -554,15 +777,50 @@ function buildSheet() {
   });
   fCover.append(covRow);
 
-  /* colour — the engine's own swatch row, reused */
-  const fCol = field('Colour');
+  const fCol = field('Cover colour');
+  coverGroup.push(fCol);
   const colRow = el('div', '');
   colRow.id = 'gn-colrow';
   colRow.append(swatchRow);
   fCol.append(colRow);
 
+  /* ---- paper group ---------------------------------------------- */
+  const paperGroup: HTMLElement[] = [];
+
+  /* paper colour — the sheet tint, independent of the cover colour */
+  const fTint = field('Paper colour');
+  paperGroup.push(fTint);
+  const tintRow = el('div', '');
+  tintRow.id = 'gn-tintrow';
+  TINTS.forEach((t) => {
+    const b = el('button', '') as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'gn-tint';
+    b.dataset.tint = t.id;
+    b.title = t.label;
+    b.style.setProperty('--swc', t.bg);
+    b.style.setProperty('--swc-ink', lum(t.bg) < 0.4 ? '#ffffff' : '#1c2430');
+    b.onclick = () => pickTint(t.id);
+    tintRow.append(b);
+  });
+  const customWrap = el('label', '');
+  customWrap.className = 'gn-customwrap';
+  customWrap.title = 'Custom paper colour';
+  const customChip = el('input', '') as HTMLInputElement;
+  customChip.type = 'color';
+  customChip.className = 'gn-custombg';
+  customChip.value = state.customBg;
+  customChip.oninput = () => {
+    state.customBg = customChip.value;
+    pickTint('custom');
+  };
+  customWrap.append(customChip);
+  tintRow.append(customWrap);
+  fTint.append(tintRow);
+
   /* size + orientation */
   const fSize = field('Page size');
+  paperGroup.push(fSize);
   const sizeRow = el('div', '');
   sizeRow.className = 'gn-row';
   const sizeSel = document.createElement('select');
@@ -596,8 +854,49 @@ function buildSheet() {
   sizeRow.append(sizeSel, oriWrap);
   fSize.append(sizeRow);
 
-  /* paper */
+  /* custom size entry — only when "Custom…" is chosen */
+  const fCustom = field('Custom size');
+  paperGroup.push(fCustom);
+  const customRow = el('div', '');
+  customRow.className = 'gn-row';
+  customRow.id = 'gn-customsize';
+  const mkNum = (val: number, label: string) => {
+    const i = el('input', '') as HTMLInputElement;
+    i.type = 'number';
+    i.className = 'gn-num';
+    i.min = '240';
+    i.max = '4000';
+    i.step = '10';
+    i.value = String(val);
+    i.setAttribute('aria-label', label);
+    return i;
+  };
+  const wIn = mkNum(state.customW, 'Custom width');
+  const hIn = mkNum(state.customH, 'Custom height');
+  wIn.oninput = () => {
+    const v = Number(wIn.value);
+    if (v >= 240 && v <= 4000) {
+      state.customW = v;
+      refresh();
+    }
+  };
+  hIn.oninput = () => {
+    const v = Number(hIn.value);
+    if (v >= 240 && v <= 4000) {
+      state.customH = v;
+      refresh();
+    }
+  };
+  const times = el('span', '', '×');
+  times.className = 'gn-num-lbl';
+  const px = el('span', '', 'px');
+  px.className = 'gn-num-lbl';
+  customRow.append(wIn, times, hIn, px);
+  fCustom.append(customRow);
+
+  /* paper catalogue */
   const fPaper = field('Paper');
+  paperGroup.push(fPaper);
   const tabs = el('div', '');
   tabs.className = 'gn-tabs2';
   (
@@ -613,7 +912,8 @@ function buildSheet() {
     if (k === state.cat) b.classList.add('on');
     b.onclick = () => {
       state.cat = k;
-      state.paper = (k === 'planner' ? PLANNER : k === 'styles' ? STYLES : WRITING)[0].id;
+      state.paper = (k === 'planner' ? PLANNER : k === 'styles' ? STYLES : writingList())[0].id;
+      state.tint = tintFor(state.paper);
       tabs.querySelectorAll('button').forEach((n) => n.classList.remove('on'));
       b.classList.add('on');
       renderPapers();
@@ -625,12 +925,39 @@ function buildSheet() {
   paperRow.id = 'gn-paperrow';
   fPaper.append(tabs, paperRow);
 
+  /* scope — edit mode can recolour one page or the whole notebook */
+  if (mode === 'edit') {
+    const fScope = field('Apply to');
+    paperGroup.push(fScope);
+    const scopeWrap = el('div', '');
+    scopeWrap.className = 'gn-seg';
+    (
+      [
+        ['all', 'All pages'],
+        ['first', 'First page'],
+      ] as const
+    ).forEach(([k, label]) => {
+      const b = el('button', '', label) as HTMLButtonElement;
+      b.type = 'button';
+      b.dataset.scope = k;
+      if (k === state.scope) b.classList.add('on');
+      b.onclick = () => {
+        state.scope = k;
+        scopeWrap.querySelectorAll('button').forEach((n) => n.classList.remove('on'));
+        b.classList.add('on');
+      };
+      scopeWrap.append(b);
+    });
+    fScope.append(scopeWrap);
+  }
+
   /* keep the engine's template select in sync, hidden */
   tplSel.style.display = 'none';
   fields.append(tplSel);
 
   body.append(prevWrap, fields);
-  box.append(head, body);
+  if (tabbar) box.append(head, tabbar, body);
+  else box.append(head, body);
 
   /* footer */
   const foot = el('div', '');
@@ -639,11 +966,33 @@ function buildSheet() {
   cancelBtn.classList.add('gn-cancel');
   createBtn.textContent = 'Create';
   createBtn.classList.add('gn-create');
-  foot.append(cancelBtn, createBtn);
+  const applyBtn = el('button', '', 'Apply') as HTMLButtonElement;
+  applyBtn.type = 'button';
+  applyBtn.className = 'gn-create gn-apply';
+  applyBtn.onclick = () => applySettings();
+  foot.append(cancelBtn, createBtn, applyBtn);
   box.append(foot);
 
+  cancelBtn.style.display = '';
+  createBtn.style.display = mode === 'edit' ? 'none' : '';
+  applyBtn.style.display = mode === 'edit' ? '' : 'none';
+
+  function pickTint(id: string) {
+    state.tint = id;
+    tintByPaper[state.paper] = id;
+    renderPapers();
+    refresh();
+  }
+
+  function pickPaper(id: string) {
+    state.paper = id;
+    state.tint = tintFor(id);
+    renderPapers();
+    refresh();
+  }
+
   function renderPapers() {
-    const list = state.cat === 'planner' ? PLANNER : state.cat === 'styles' ? STYLES : WRITING;
+    const list = state.cat === 'planner' ? PLANNER : state.cat === 'styles' ? STYLES : writingList();
     paperRow.innerHTML = '';
     list.forEach((p) => {
       const b = el('button', '') as HTMLButtonElement;
@@ -651,29 +1000,80 @@ function buildSheet() {
       b.className = 'gn-paper';
       b.dataset.paper = p.id;
       if (p.id === state.paper) b.classList.add('on');
+
       const sw = document.createElement('canvas');
       sw.width = 54;
       sw.height = 42;
       const g = sw.getContext('2d');
       if (g) {
-        const pp = (p as any).pp as Paper | undefined;
-        if (pp) {
+        const base = (p as any).pp as Paper | undefined;
+        if (base) {
+          const pp = state.cat === 'styles' ? base : { ...base, ...tintOfFor(p.id) };
           paintPaper(g, scaled(pp, 0.3, 1.2), 54, 42);
         } else {
           g.fillStyle = '#fff';
           g.fillRect(0, 0, 54, 42);
+          g.strokeStyle = 'rgba(120,150,190,.6)';
+          g.lineWidth = 1;
+          for (let y = 8; y < 42; y += 8) line(g, 0, y, 54, y);
         }
       }
       const t = el('span', '', p.label);
       b.append(sw, t);
-      b.onclick = () => {
-        state.paper = p.id;
-        paperRow.querySelectorAll('.gn-paper').forEach((n) => n.classList.remove('on'));
-        b.classList.add('on');
-        refresh();
-      };
+
+      // colour variants — only templates that take a tint have them
+      if (state.cat !== 'styles') {
+        const dots = el('div', '');
+        dots.className = 'gn-dots';
+        const cur = tintFor(p.id);
+        const shown = expanded[p.id] ? TINTS.length : 3;
+        TINTS.slice(0, shown).forEach((tt) => {
+          const d = el('button', '') as HTMLButtonElement;
+          d.type = 'button';
+          d.className = 'gn-dot' + (cur === tt.id ? ' on' : '');
+          d.title = tt.label;
+          d.style.setProperty('--swc', tt.bg);
+          d.onclick = (e) => {
+            e.stopPropagation();
+            tintByPaper[p.id] = tt.id;
+            state.paper = p.id;
+            state.tint = tt.id;
+            renderPapers();
+            refresh();
+          };
+          dots.append(d);
+        });
+        if (TINTS.length > shown) {
+          const more = el('button', '', `+${TINTS.length - shown}`) as HTMLButtonElement;
+          more.type = 'button';
+          more.className = 'gn-more';
+          more.title = 'More colours';
+          more.onclick = (e) => {
+            e.stopPropagation();
+            expanded[p.id] = true;
+            renderPapers();
+          };
+          dots.append(more);
+        }
+        b.append(dots);
+      }
+
+      b.onclick = () => pickPaper(p.id);
       paperRow.append(b);
     });
+
+    // dashed import tile — GoodNotes ends every template grid with one
+    if (state.cat !== 'planner') {
+      const imp = el('button', '') as HTMLButtonElement;
+      imp.type = 'button';
+      imp.className = 'gn-paper gn-import';
+      imp.title = 'Import a paper template';
+      const plus = el('span', '', '+');
+      plus.className = 'gn-plus';
+      imp.append(plus, el('span', '', 'Import'));
+      imp.onclick = () => pickImport();
+      paperRow.append(imp);
+    }
   }
 
   function refresh() {
@@ -681,21 +1081,196 @@ function buildSheet() {
     tplSel.value = tpl;
     paintPreview(prevCv);
     prevCover.dataset.cov = state.cover;
-    // the preview frame takes the currently selected cover colour
+
+    // the preview frame and the design tiles take the selected cover colour
     const on = swatchRow.querySelector('.sw.on') as HTMLElement | null;
     const col = on ? getComputedStyle(on).backgroundColor : '#2f6df6';
     prevCover.style.setProperty('--c', col);
+    covRow.style.setProperty('--c', col);
+
+    // paper colour row
+    tintRow.querySelectorAll('.gn-tint').forEach((n) => {
+      n.classList.toggle('on', (n as HTMLElement).dataset.tint === state.tint);
+    });
+    customWrap.classList.toggle('on', state.tint === 'custom');
+
+    // custom size inputs
+    if (document.activeElement !== wIn) wIn.value = String(state.customW);
+    if (document.activeElement !== hIn) hIn.value = String(state.customH);
+
+    // cover / paper tabs
+    if (tabbar) {
+      tabbar.querySelectorAll('button').forEach((n) => {
+        n.classList.toggle('on', (n as HTMLElement).dataset.tab === state.tab);
+      });
+      coverGroup.forEach((n) => (n.style.display = state.tab === 'cover' ? 'flex' : 'none'));
+      paperGroup.forEach((n) => (n.style.display = state.tab === 'paper' ? 'flex' : 'none'));
+    }
+
+    // the custom-size field is only meaningful for the Custom page size, and
+    // only inside the paper group — it has to be settled after the tab pass,
+    // which owns the whole group
+    const paperVisible = !tabbar || state.tab === 'paper';
+    fCustom.style.display = paperVisible && state.size === 'custom' ? 'flex' : 'none';
+
     const { w, h } = dims();
-    prevCap.textContent = `${SIZES.find((s) => s.id === state.size)?.label} · ${
-      state.ori === 'portrait' ? 'Portrait' : 'Landscape'
-    } · ${w}×${h}`;
-    if (pp) prevCap.textContent += ` · ${pp.k}`;
+    const sizeLabel = state.size === 'custom' ? 'Custom' : SIZES.find((s) => s.id === state.size)?.label || '';
+    prevCap.textContent = `${sizeLabel} · ${state.ori === 'portrait' ? 'Portrait' : 'Landscape'} · ${w}×${h}`;
+    if (pp) prevCap.textContent += ` · ${paperLabel()}`;
   }
 
   renderPapers();
   refresh();
-  (window as any).__inkpad_studio = { state, refresh, dims, paperOf };
+  (window as any).__inkpad_studio = {
+    state,
+    refresh,
+    dims,
+    paperOf,
+    openSettings,
+    applySettings,
+    repaint: () => {
+      renderPapers();
+      refresh();
+    },
+  };
   return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* Edit an existing notebook                                           */
+/* ------------------------------------------------------------------ */
+
+/** Read a notebook's first page back into the sheet's state. */
+function syncFrom(n: any) {
+  state.cover = n.cov || 'plain';
+  const p = (n.pages && n.pages[0]) || {};
+  const w = p.pw || 800;
+  const h = p.ph || 1100;
+
+  const hit = SIZES.find((s) => s.id !== 'custom' && ((s.w === w && s.h === h) || (s.w === h && s.h === w)));
+  if (hit) {
+    state.size = hit.id;
+    state.ori = hit.w !== hit.h && hit.w === h ? 'landscape' : 'portrait';
+  } else {
+    state.size = 'custom';
+    state.ori = w > h ? 'landscape' : 'portrait';
+    state.customW = w;
+    state.customH = h;
+  }
+
+  readPaper(p.pp, p.tpl || 'lined');
+  state.tab = 'cover';
+  state.scope = 'all';
+}
+
+function readPaper(pp: any, tpl: string) {
+  if (!pp) {
+    state.cat = 'writing';
+    state.paper = writingList().some((x) => x.id === tpl) ? tpl : tpl === 'blank' ? 'blank' : 'lined';
+    state.tint = 'white';
+    return;
+  }
+  const k = String(pp.k || '');
+  const bg = String(pp.bg || '#ffffff');
+
+  const st = STYLES.find((x) => x.pp.k === k && String(x.pp.bg || '').toLowerCase() === bg.toLowerCase());
+  if (st) {
+    state.cat = 'styles';
+    state.paper = st.id;
+    return;
+  }
+
+  const pl = PLANNER.find((x) => x.pp.k === k);
+  if (pl) {
+    state.cat = 'planner';
+    state.paper = pl.id;
+  } else {
+    const wr = writingList().find((x) => x.pp?.k === k);
+    state.cat = 'writing';
+    state.paper = wr ? wr.id : 'blank';
+  }
+
+  const t = TINTS.find((x) => x.bg.toLowerCase() === bg.toLowerCase());
+  if (t) {
+    state.tint = t.id;
+    tintByPaper[state.paper] = t.id;
+  } else {
+    state.tint = 'custom';
+    state.customBg = bg;
+    tintByPaper[state.paper] = 'custom';
+  }
+}
+
+/** Open the studio bound to an existing notebook. */
+function openSettings(id: number | string) {
+  const lib = ev<any[]>('lib') || [];
+  const n = lib.find((x) => String(x.id) === String(id));
+  if (!n) return;
+  editing = n;
+  syncFrom(n);
+
+  const md = document.getElementById('md');
+  const box = md?.querySelector('.box') as HTMLElement | null;
+  if (box) delete box.dataset.gnStudio;
+  md?.classList.add('on');
+
+  // preselect the swatch that matches the notebook's current cover colour
+  const cvs = document.getElementById('cvs');
+  if (cvs && n.cover) {
+    const want = toRgb(String(n.cover));
+    cvs.querySelectorAll('.sw').forEach((sw) => {
+      const hit = getComputedStyle(sw).backgroundColor === want;
+      sw.classList.toggle('on', hit);
+    });
+  }
+
+  buildSheet(true);
+}
+
+function toRgb(c: string): string {
+  const d = document.createElement('div');
+  d.style.color = c;
+  document.body.append(d);
+  const v = getComputedStyle(d).color;
+  d.remove();
+  return v;
+}
+
+/** Commit the sheet's choices back onto the notebook being edited. */
+function applySettings() {
+  const n = editing;
+  if (!n) return;
+  const { w, h } = dims();
+  const { pp, tpl } = paperOf();
+
+  n.cov = state.cover;
+  const on = document.querySelector('#cvs .sw.on') as HTMLElement | null;
+  if (on) n.cover = getComputedStyle(on).backgroundColor;
+
+  const nm = (document.getElementById('nn') as HTMLInputElement | null)?.value.trim();
+  if (nm) n.name = nm;
+
+  const pages = state.scope === 'all' ? n.pages : n.pages.slice(0, 1);
+  pages.forEach((p: any) => {
+    p.pw = w;
+    p.ph = h;
+    p.tpl = tpl;
+    if (pp) p.pp = { ...pp };
+    else delete p.pp;
+  });
+  n.upd = Date.now();
+
+  ev('try{ save(); }catch(e){}');
+
+  const live = ev<any>('nb');
+  if (live && String(live.id) === String(n.id)) {
+    ev(`(function(){ W = ${w}; H = ${h}; })()`);
+    ev('try{ fit(); load(); }catch(e){}');
+  }
+
+  closeSheet();
+  ev('try{ showLib(); }catch(e){}');
+  paintCoverCards();
 }
 
 /* ------------------------------------------------------------------ */
@@ -714,6 +1289,7 @@ function hookCreate() {
       const t = e.target as HTMLElement;
       if (!t.closest || !t.closest('#ok')) return;
       if (!document.querySelector('#md.on')) return;
+      if (editing) return;
       const { w, h } = dims();
       const { pp, tpl } = paperOf();
       pending = { cover: state.cover, w, h, pp: pp ? { ...pp } : undefined, tpl };
@@ -731,6 +1307,19 @@ function hookCreate() {
       window.setTimeout(applyPending, 0);
     },
     false
+  );
+
+  // closing the sheet by any route drops the edit target
+  document.addEventListener(
+    'click',
+    (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest || !t.closest('#nc')) return;
+      editing = null;
+      const box = document.querySelector('#md .box') as HTMLElement | null;
+      if (box) delete box.dataset.gnStudio;
+    },
+    true
   );
 }
 
@@ -758,14 +1347,53 @@ function applyPending() {
 /* Library: paint the chosen cover design on each card                 */
 /* ------------------------------------------------------------------ */
 
-function paintCoverCards() {
+/**
+ * The shelf the engine actually rendered, in DOM order. `showLib` filters by the
+ * search box and the active tab, then sorts by last-updated, so replaying the
+ * same pipeline is the only reliable way to line cards up with notebooks —
+ * the engine never stamps an id on the card itself.
+ */
+function shelfList(): any[] {
   const lib = ev<any[]>('lib') || [];
-  document.querySelectorAll('#grid .card[data-id]').forEach((card) => {
-    const id = Number(card.getAttribute('data-id'));
-    const n = lib.find((x) => Number(x.id) === id);
+  const flt = ev<string>('flt') || 'all';
+  const q = ((document.getElementById('find') as HTMLInputElement | null)?.value || '').toLowerCase();
+  return lib
+    .filter(
+      (n) =>
+        (n.name || '').toLowerCase().includes(q) &&
+        (flt === 'trash' ? n.del : !n.del && (flt !== 'fav' || n.fav))
+    )
+    .sort((a, b) => (b.upd || 0) - (a.upd || 0));
+}
+
+function paintCoverCards() {
+  const list = shelfList();
+  const cards = Array.from(document.querySelectorAll('#grid .card'));
+  cards.forEach((card, i) => {
+    const n = list[i];
+    if (!n) return;
+    card.setAttribute('data-id', String(n.id));
+
     const cv = card.querySelector('.cv') as HTMLElement | null;
-    if (!cv) return;
-    cv.dataset.cov = (n && n.cov) || 'plain';
+    if (cv) {
+      cv.dataset.cov = n.cov || 'plain';
+      if (n.cover) cv.style.setProperty('--c', n.cover);
+    }
+
+    // per-notebook settings entry point, next to the favourite / delete buttons
+    const sub = card.querySelector('.sub span:last-child') as HTMLElement | null;
+    if (sub && !sub.querySelector('.gn-cfg')) {
+      const b = el('button', '', '⚙') as HTMLButtonElement;
+      b.type = 'button';
+      b.className = 'gn-cfg';
+      b.title = 'Cover & paper';
+      b.setAttribute('aria-label', 'Cover and paper settings');
+      b.onclick = (e) => {
+        e.stopPropagation();
+        openSettings(n.id);
+      };
+      sub.prepend(b);
+    }
   });
 }
 
@@ -794,9 +1422,19 @@ function boot() {
 
   paintCoverCards();
 
+  // a freshly decoded template image needs the open page repainted
+  window.addEventListener('inkpad-paper-loaded', () => {
+    ev('try{ if (nb) { draw(); thumbs(); } }catch(e){}');
+  });
+
   document.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
-    if (t.closest('.new') || t.closest('#gn-new')) window.setTimeout(buildSheet, 30);
+    if (!t.closest || !(t.closest('.new') || t.closest('#gn-new'))) return;
+    // a fresh notebook always starts from the create flow, never a stale edit
+    editing = null;
+    const box = document.querySelector('#md .box') as HTMLElement | null;
+    if (box) delete box.dataset.gnStudio;
+    window.setTimeout(() => buildSheet(true), 30);
   });
 }
 
@@ -821,9 +1459,9 @@ const CSS = `
 .gn-studio input:focus-visible,.gn-studio select:focus-visible,.gn-studio textarea:focus-visible{
   outline:2px solid var(--gn-acc)!important;outline-offset:1px;border-color:var(--gn-acc)!important
 }
-#gn-covrow{display:grid;grid-template-columns:repeat(7,38px);gap:7px;justify-content:start}
+#gn-covrow{display:grid;grid-template-columns:repeat(9,36px);gap:6px;justify-content:start}
 .gn-cov{
-  width:38px;height:50px;border-radius:4px 8px 8px 4px;border:2px solid transparent;
+  width:36px;height:47px;border-radius:4px 8px 8px 4px;border:2px solid transparent;
   padding:0;cursor:pointer;
   background-color:#3a63a8;
   background-image:linear-gradient(135deg,var(--c,#4b78c4),color-mix(in srgb,var(--c,#4b78c4) 65%,#000));
@@ -847,21 +1485,94 @@ const CSS = `
   padding:8px 12px!important;font-size:12.5px!important;color:#5b6673!important;cursor:pointer;font-weight:600;
 }
 .gn-seg button.on{background:#fff!important;color:#1f3a63!important;box-shadow:0 1px 3px rgba(16,32,64,.16)}
+
+/* ---- cover / paper tabs (edit mode) ---- */
+.gn-tabbar{display:flex;gap:4px;background:#eceae6;border-radius:11px;padding:3px;margin:0 22px 10px}
+.gn-tabbar button{
+  flex:1;border:0!important;background:transparent!important;border-radius:9px!important;
+  padding:7px 10px!important;font-size:12.5px!important;font-weight:600;color:#5b6673!important;cursor:pointer;
+}
+.gn-tabbar button.on{background:#fff!important;color:#1f3a63!important;box-shadow:0 1px 3px rgba(16,32,64,.16)}
+
+/* ---- paper colour ---- */
+#gn-tintrow{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.gn-tint{
+  width:30px;height:30px;border-radius:9px;border:2px solid transparent;padding:0;cursor:pointer;
+  background:var(--swc,#fff)!important;box-shadow:inset 0 0 0 1px rgba(16,32,64,.16);position:relative;
+  transition:transform .12s ease;
+}
+.gn-tint:hover{transform:translateY(-1px)}
+.gn-tint.on{
+  border-color:var(--gn-acc);
+  box-shadow:inset 0 0 0 1px rgba(16,32,64,.16),0 0 0 2px rgba(47,109,246,.24);
+}
+.gn-tint.on::after{
+  content:"✓";position:absolute;inset:0;display:grid;place-items:center;
+  font-size:12px;font-weight:800;color:var(--swc-ink,#1c2430);
+}
+.gn-customwrap{
+  width:30px;height:30px;border-radius:9px;flex:none;cursor:pointer;position:relative;
+  display:grid;place-items:center;
+  background:conic-gradient(from 210deg,#ff6b6b,#ffd166,#8ce99a,#66d9e8,#748ffc,#e599f7,#ff6b6b);
+  box-shadow:inset 0 0 0 1px rgba(16,32,64,.16);
+}
+.gn-customwrap.on{box-shadow:inset 0 0 0 1px rgba(16,32,64,.16),0 0 0 2px rgba(47,109,246,.24)}
+.gn-custombg{
+  width:20px;height:20px;padding:0;border:2px solid #fff;border-radius:6px;
+  background:#fff;cursor:pointer;
+}
+.gn-custombg::-webkit-color-swatch-wrapper{padding:0}
+.gn-custombg::-webkit-color-swatch{border:0;border-radius:3px}
+
+/* ---- custom size ---- */
+.gn-num{
+  width:78px;border:1px solid var(--gn-line)!important;border-radius:9px!important;background:#f7f8fa!important;
+  padding:8px 9px!important;font-size:13px!important;color:#1c2430!important;
+}
+.gn-num-lbl{font-size:12px;color:#8b95a3;font-weight:600}
+
+/* ---- per-template colour variants ---- */
+.gn-dots{display:flex;gap:2px;align-items:center;justify-content:center;margin-top:1px;min-height:8px}
+.gn-dot{
+  width:7px;height:7px;border-radius:50%;padding:0;cursor:pointer;flex:none;
+  border:1px solid rgba(16,32,64,.2);background:var(--swc,#fff)!important;
+}
+.gn-dot.on{box-shadow:0 0 0 1.5px #fff,0 0 0 3px var(--gn-acc)}
+.gn-more{
+  border:0!important;background:transparent!important;padding:0 1px 0 2px!important;
+  font-size:9.5px!important;font-weight:800;color:#9aa4b0!important;cursor:pointer;line-height:1;
+  letter-spacing:-.02em;
+}
+.gn-more:hover{color:var(--gn-acc)!important}
+
+/* ---- library card settings button ---- */
+.gn-cfg{
+  border:0!important;background:transparent!important;padding:0 3px!important;
+  font-size:12px!important;color:#a3adb9!important;cursor:pointer;line-height:1;vertical-align:middle;
+}
+.gn-cfg:hover{color:var(--gn-acc)!important}
 .gn-tabs2{display:flex;gap:5px;flex-wrap:wrap}
 .gn-tabs2 button{
   border:1px solid var(--gn-line)!important;background:#fff!important;border-radius:999px!important;
   padding:6px 12px!important;font-size:12px!important;color:#4a5568!important;cursor:pointer;font-weight:600;
 }
 .gn-tabs2 button.on{background:#e8f0ff!important;border-color:var(--gn-acc)!important;color:#1f4fbf!important}
-#gn-paperrow{display:flex;gap:7px;flex-wrap:wrap;margin-top:2px}
+#gn-paperrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
 .gn-paper{
   border:2px solid transparent!important;background:#fff!important;border-radius:10px!important;
-  padding:5px!important;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;
-  box-shadow:0 1px 3px rgba(16,32,64,.12);width:62px;
+  padding:4px 3px 3px!important;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;
+  box-shadow:0 1px 3px rgba(16,32,64,.12);width:64px;
 }
 .gn-paper canvas{border-radius:5px;display:block;border:1px solid #e6e2dc}
 .gn-paper span{font-size:10px;color:#5b6673;font-weight:600;white-space:nowrap}
 .gn-paper.on{border-color:var(--gn-acc)!important;box-shadow:0 0 0 2px rgba(47,109,246,.18)}
+/* import tile — dashed, at the end of the writing / styles grids */
+.gn-paper.gn-import{
+  border:2px dashed #d5dbe3!important;background:transparent!important;
+  justify-content:center;min-height:76px;color:#8b95a3!important;
+}
+.gn-paper.gn-import:hover{border-color:var(--gn-acc)!important;color:var(--gn-acc)!important}
+.gn-paper.gn-import .gn-plus{font-size:17px;font-weight:400;line-height:1;display:block;margin-bottom:1px}
 .gn-st-foot{
   display:flex;justify-content:flex-end;gap:9px;padding:14px 22px 18px;
   border-top:1px solid #efece7;background:#fafafa;margin-top:6px;
@@ -881,15 +1592,18 @@ const CSS = `
   .gn-prevwrap{width:auto;flex-direction:row;align-items:center;gap:12px}
   .gn-prevcover{width:84px;height:112px;flex:none}
   .gn-fields{max-height:none;overflow:visible}
-  #gn-covrow{grid-template-columns:repeat(auto-fill,minmax(34px,1fr))}
-  .gn-cov{width:100%;height:auto;aspect-ratio:38/50}
+  .gn-tabbar{margin:0 16px 10px}
+  #gn-covrow{grid-template-columns:repeat(auto-fill,minmax(32px,1fr))}
+  .gn-cov{width:100%;height:auto;aspect-ratio:36/47}
+  #gn-paperrow{gap:5px}
+  .gn-paper{width:62px}
   .gn-st-foot{flex:none;margin-top:0}
 }
 
 /* ---- cover designs: alpha overlays so they tint with the cover colour ---- */
 .card .cv[data-cov=linen],.gn-prevcover[data-cov=linen],.gn-cov[data-cov=linen]{background-image:
-  repeating-linear-gradient(45deg,rgba(255,255,255,.13) 0 1px,transparent 1px 4px),
-  repeating-linear-gradient(-45deg,rgba(0,0,0,.10) 0 1px,transparent 1px 4px),
+  repeating-linear-gradient(45deg,rgba(255,255,255,.22) 0 1px,transparent 1px 4px),
+  repeating-linear-gradient(-45deg,rgba(0,0,0,.16) 0 1px,transparent 1px 4px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 65%,#000))}
 .card .cv[data-cov=dots],.gn-prevcover[data-cov=dots],.gn-cov[data-cov=dots]{background-image:
   radial-gradient(rgba(255,255,255,.30) 1.8px,transparent 1.9px),
@@ -897,11 +1611,11 @@ const CSS = `
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 65%,#000));
   background-size:11px 11px,11px 11px,100% 100%;background-position:0 0,5.5px 5.5px,0 0}
 .card .cv[data-cov=stripe],.gn-prevcover[data-cov=stripe],.gn-cov[data-cov=stripe]{background-image:
-  repeating-linear-gradient(115deg,rgba(255,255,255,.17) 0 7px,transparent 7px 20px),
+  repeating-linear-gradient(115deg,rgba(255,255,255,.26) 0 7px,transparent 7px 20px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 62%,#000))}
 .card .cv[data-cov=grid],.gn-prevcover[data-cov=grid],.gn-cov[data-cov=grid]{background-image:
-  repeating-linear-gradient(0deg,rgba(255,255,255,.16) 0 1px,transparent 1px 9px),
-  repeating-linear-gradient(90deg,rgba(255,255,255,.16) 0 1px,transparent 1px 9px),
+  repeating-linear-gradient(0deg,rgba(255,255,255,.26) 0 1px,transparent 1px 9px),
+  repeating-linear-gradient(90deg,rgba(255,255,255,.26) 0 1px,transparent 1px 9px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 65%,#000))}
 .card .cv[data-cov=leather],.gn-prevcover[data-cov=leather],.gn-cov[data-cov=leather]{background-image:
   radial-gradient(circle at 18% 22%,rgba(255,255,255,.18) 0 18%,transparent 40%),
@@ -921,7 +1635,7 @@ const CSS = `
   background-size:26px 22px,17px 19px,31px 27px,100% 100%;
   background-position:0 0,8px 11px,14px 4px,0 0}
 .card .cv[data-cov=wave],.gn-prevcover[data-cov=wave],.gn-cov[data-cov=wave]{background-image:
-  repeating-radial-gradient(circle at 50% 120%,rgba(255,255,255,.14) 0 9px,transparent 9px 19px),
+  repeating-radial-gradient(circle at 50% 120%,rgba(255,255,255,.22) 0 9px,transparent 9px 19px),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 60%,#000))}
 /* spine: dark bound edge with a gilt rule and a title plate */
 .card .cv[data-cov=spine],.gn-prevcover[data-cov=spine],.gn-cov[data-cov=spine]{background-image:
@@ -958,6 +1672,37 @@ const CSS = `
 .card .cv[data-cov=sunburst],.gn-prevcover[data-cov=sunburst],.gn-cov[data-cov=sunburst]{background-image:
   repeating-conic-gradient(from 200deg at 50% 104%,rgba(255,255,255,.15) 0 6deg,transparent 6deg 16deg),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 60%,#000))}
+
+/* ---- illustrated covers ---------------------------------------- */
+/* aurora: ribboned light drifting across a deep field */
+.card .cv[data-cov=aurora],.gn-prevcover[data-cov=aurora],.gn-cov[data-cov=aurora]{background-image:
+  radial-gradient(ellipse at 18% 12%,rgba(120,255,220,.58),transparent 52%),
+  radial-gradient(ellipse at 88% 28%,rgba(178,148,255,.52),transparent 54%),
+  radial-gradient(ellipse at 54% 92%,rgba(255,186,120,.44),transparent 58%),
+  linear-gradient(165deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 42%,#050a14))}
+/* terrazzo: scattered stone chips over a flat ground */
+.card .cv[data-cov=terrazzo],.gn-prevcover[data-cov=terrazzo],.gn-cov[data-cov=terrazzo]{background-image:
+  radial-gradient(circle at 14% 16%,rgba(255,255,255,.88) 0 3px,transparent 3.6px),
+  radial-gradient(circle at 40% 11%,rgba(255,214,150,.82) 0 2.4px,transparent 3px),
+  radial-gradient(circle at 74% 20%,rgba(150,220,255,.82) 0 3px,transparent 3.6px),
+  radial-gradient(circle at 22% 48%,rgba(255,170,200,.78) 0 2px,transparent 2.6px),
+  radial-gradient(circle at 60% 58%,rgba(255,255,255,.72) 0 3.4px,transparent 4px),
+  radial-gradient(circle at 88% 74%,rgba(198,255,200,.74) 0 2.4px,transparent 3px),
+  radial-gradient(circle at 36% 86%,rgba(255,240,170,.78) 0 2px,transparent 2.6px),
+  radial-gradient(circle at 8% 72%,rgba(200,230,255,.7) 0 2.2px,transparent 2.8px),
+  linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 72%,#000))}
+/* ombré: one long value ramp, light at the head to deep at the foot */
+.card .cv[data-cov=ombre],.gn-prevcover[data-cov=ombre],.gn-cov[data-cov=ombre]{background-image:
+  linear-gradient(178deg,
+    color-mix(in srgb,var(--c,#2f6df6) 34%,#fff) 0%,
+    var(--c,#2f6df6) 44%,
+    color-mix(in srgb,var(--c,#2f6df6) 52%,#000) 100%)}
+/* collage: overlapping torn-paper planes */
+.card .cv[data-cov=collage],.gn-prevcover[data-cov=collage],.gn-cov[data-cov=collage]{background-image:
+  linear-gradient(114deg,rgba(255,255,255,.24) 0 34%,transparent 34.4%),
+  linear-gradient(64deg,rgba(0,0,0,.20) 0 24%,transparent 24.4%),
+  linear-gradient(-18deg,rgba(255,255,255,.13) 0 16%,transparent 16.4%),
+  linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 58%,#000))}
 `;
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
