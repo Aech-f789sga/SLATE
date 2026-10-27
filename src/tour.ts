@@ -1766,12 +1766,11 @@ const EDITOR_STEPS: Step[] = [
     demo: 'pen',
   },
   {
-    target: () => document.getElementById('pt'),
+    // the nib list lives in the pen's own panel, so the pen button is the target
+    target: () => document.querySelector('[data-t="pen"]') as HTMLElement | null,
     title: 'Pen nib',
     body:
-      'Six nibs: ballpoint, fountain, brush, pencil, crayon and marker. Each has its own taper and texture — switch whenever a page calls for a different feel.',
-    before: ensureOverflow,
-    after: closeOverflow,
+      'Tap the pen again to open its panel: six nibs — ballpoint, fountain, brush, pencil, crayon and marker. Each has its own taper and texture, so a page can switch feel halfway through.',
   },
   {
     target: () => document.querySelector('[data-t="hl"]') as HTMLElement | null,
@@ -1788,10 +1787,11 @@ const EDITOR_STEPS: Step[] = [
     demo: 'er',
   },
   {
-    target: () => document.querySelector('[data-t="pe"]') as HTMLElement | null,
+    // both eraser modes sit behind the eraser button
+    target: () => document.querySelector('[data-t="er"]') as HTMLElement | null,
     title: 'Whole-stroke eraser',
     body:
-      'The second eraser removes an entire stroke with one touch instead of rubbing through it — much faster when you want a line gone completely.',
+      'The eraser panel holds two modes: rub through a stroke like a real eraser, or remove the <b>entire stroke</b> with one touch. The second is much faster when you want a line gone completely.',
     demo: 'er',
   },
 
@@ -1814,17 +1814,11 @@ const EDITOR_STEPS: Step[] = [
 
   /* ---- shapes ----------------------------------------------------- */
   {
-    target: () => document.querySelector('[data-t="rect"]') as HTMLElement | null,
-    title: 'Rectangle & oval',
-    body:
-      'Drag to size a box or an ellipse — the preview follows your finger. Great for diagrams and for drawing a frame around an answer.',
-    demo: 'shape',
-  },
-  {
+    // rectangle, oval, arrow, hidden line and axes all live in this one panel
     target: () => document.querySelector('[data-t="line"]') as HTMLElement | null,
-    title: 'Lines, arrows and axes',
+    title: 'Shapes, arrows & axes',
     body:
-      'The line tool opens a set: straight <b>line</b>, <b>arrow</b>, <b>hidden line</b> (dashed), and 2D / 3D <b>axes</b> for graphs.',
+      'One panel holds a straight <b>line</b>, an <b>arrow</b>, a dashed <b>hidden line</b>, <b>rectangles</b>, <b>ovals</b>, and 2D / 3D <b>axes</b> for graphs. Drag to size — the preview follows your finger.',
     demo: 'shape',
   },
   {
