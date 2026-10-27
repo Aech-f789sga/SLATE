@@ -867,10 +867,12 @@ const CSS = `
   cursor:pointer;box-shadow:0 4px 12px rgba(47,109,246,.32);
 }
 @media(max-width:620px){
-  .gn-st-body{flex-direction:column;align-items:stretch;gap:12px}
+  #md .box.gn-studio{max-height:92vh;display:flex;flex-direction:column}
+  .gn-st-body{flex-direction:column;align-items:stretch;gap:12px;overflow:auto;min-height:0;flex:1}
   .gn-prevwrap{width:auto;flex-direction:row;align-items:center;gap:12px}
   .gn-prevcover{width:84px;height:112px;flex:none}
-  .gn-fields{max-height:none}
+  .gn-fields{max-height:none;overflow:visible}
+  .gn-st-foot{flex:none;margin-top:0}
 }
 
 /* ---- cover designs: alpha overlays so they tint with the cover colour ---- */

@@ -43,6 +43,8 @@ const pwaHead = `
 <script type="module" src="/src/snap.ts"></script>
 <script type="module" src="/src/theme.ts"></script>
 <script type="module" src="/src/create.ts"></script>
+<script type="module" src="/src/stickers.ts"></script>
+<script type="module" src="/src/scribble.ts"></script>
 `;
 content = mustReplace(content, '</head>', `${pwaHead}</head>`, '</head>');
 
@@ -479,6 +481,8 @@ const requiredMarkers = [
   ['cloud sync module', 'src="/src/cloudSync.ts"'],
   ['goodnotes shell module', 'src="/src/theme.ts"'],
   ['notebook studio module', 'src="/src/create.ts"'],
+  ['sticker library module', 'src="/src/stickers.ts"'],
+  ['scribble to erase module', 'src="/src/scribble.ts"'],
   ['notebook save hook', 'window.__inkpad_cloud.onSave(nb)'],
   ['window.lib exposure', 'window.lib=lib;window.showLib=showLib;'],
   ['native window.open preserved', 'function openNotebook(n){nb=n;'],

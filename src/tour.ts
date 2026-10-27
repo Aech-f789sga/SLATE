@@ -1794,6 +1794,12 @@ const EDITOR_STEPS: Step[] = [
       'The eraser panel holds two modes: rub through a stroke like a real eraser, or remove the <b>entire stroke</b> with one touch. The second is much faster when you want a line gone completely.',
     demo: 'er',
   },
+  {
+    title: 'Scribble to erase',
+    body:
+      'Scratch back and forth over a word, a doodle or a shape and it disappears — no need to switch tools. Only a dense scratch triggers it, so ordinary writing is never touched. Turn it off under <b>Settings → Scribble to erase</b>.',
+    demo: 'er',
+  },
 
   /* ---- selecting -------------------------------------------------- */
   {
@@ -1863,6 +1869,15 @@ const EDITOR_STEPS: Step[] = [
     title: 'Figure library',
     body:
       'Ready-made shapes for science and maths — circuits, arrows, containers and more — so you can assemble a diagram without drawing every part by hand.',
+  },
+  {
+    target: () => document.getElementById('gn-stk-btn'),
+    title: 'Stickers',
+    body:
+      'Stars, arrows, ticks, leaves and more. Tap one to drop it on the page, then drag or resize it like any picture. Stickers export with the page and sync with the notebook.',
+    pad: 10,
+    before: ensureOverflow,
+    after: closeOverflow,
   },
   {
     target: byTitle('Engineering symbols'),
