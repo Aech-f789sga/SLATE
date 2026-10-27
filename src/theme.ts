@@ -29,15 +29,15 @@ const CSS = `
 #tb{
   background:#2a4d80!important;
   border:0!important;border-radius:0!important;margin:0!important;max-width:100%!important;
-  box-shadow:0 2px 12px rgba(8,20,38,.28);padding:6px 10px 8px!important;
-  gap:4px!important;z-index:20;position:relative;
+  box-shadow:0 2px 12px rgba(8,20,38,.28);padding:5px 8px 6px!important;
+  gap:3px!important;z-index:20;position:relative;
 }
-html[data-bar=compact] #tb{margin:0!important;border-radius:0!important;max-width:100%!important;padding:5px 6px 7px!important}
+html[data-bar=compact] #tb{margin:0!important;border-radius:0!important;max-width:100%!important;padding:4px 5px 6px!important}
 /* :not(.sw) matters — the colour dots carry their paint in an inline style, so
    a blanket background:transparent!important would erase every swatch. */
 #tb button:not(.sw),#tb select,#tb label,#tb input{
   background:transparent!important;border:0!important;color:#e9f0fb!important;
-  border-radius:9px!important;font-size:13.5px!important;padding:7px 8px!important;
+  border-radius:9px!important;font-size:13.5px!important;padding:6px 6px!important;
   box-shadow:none!important;cursor:pointer;
 }
 #tb button:not(.sw):hover{background:rgba(255,255,255,.16)!important}
@@ -80,19 +80,30 @@ html[data-bar=compact] #tb{margin:0!important;border-radius:0!important;max-widt
 #tb #bar2 button.on{background:var(--gn-acc)!important;color:#fff!important}
 #tb #bar2 .sep{background:#e3e7ee}
 
-/* desktop: tools on row one, the white pill centred underneath */
-html[data-bar=full] #tb{flex-direction:column;align-items:stretch}
-html[data-bar=full] #tb #bar{display:flex;flex-wrap:wrap;justify-content:center}
-html[data-bar=full] #tb #bar2{
-  display:flex;position:static;transform:none;margin:6px auto 0!important;
-  width:max-content;max-width:calc(100% - 12px);max-height:none;overflow:visible;
-  justify-content:center;flex-wrap:wrap;
+/* desktop: tools on row one, the white pill centred underneath.
+   Gated on size — on a landscape tablet the second row would eat a quarter of
+   the screen, so those keep the engine's compact one-row bar. */
+@media (min-width:1280px) and (min-height:820px){
+  html[data-bar=full] #tb{flex-direction:column;align-items:stretch}
+  html[data-bar=full] #tb #bar{display:flex;flex-wrap:wrap;justify-content:center}
+  html[data-bar=full] #tb #bar2{
+    display:flex;position:static;transform:none;margin:6px auto 0!important;
+    width:max-content;max-width:calc(100% - 12px);max-height:none;overflow:visible;
+    justify-content:center;flex-wrap:wrap;
+  }
 }
 
 /* compact: #bar2 stays a dropdown, but centred and white */
 #tb.more #bar2{
   left:50%;right:auto;transform:translateX(-50%);top:calc(100% + 6px);margin-top:0;
   max-height:56vh;
+}
+
+/* the overflow button floats over a scrolling tool row — it needs the bar's
+   own colour behind it, or the engine's light shadow smears on the navy */
+html[data-bar=compact] #tb #more{
+  background:#2a4d80!important;box-shadow:-12px 0 10px #2a4d80!important;
+  margin-left:2px;border-radius:9px;
 }
 
 /* ---------------- editor: tabs ---------------- */
