@@ -112,6 +112,27 @@ html[data-bar=full] #tb #bar2{
 #gn-tabs .gn-tab .x:hover{opacity:1;background:rgba(255,255,255,.16)}
 #gn-tab-home{color:rgba(233,240,251,.8)}
 
+/* ---------------- editor: page thumbnails ---------------- */
+/* The engine already renders real page miniatures into #side; it only needs
+   the GoodNotes paper-card treatment. */
+#side{
+  width:140px!important;background:#f2f0ec!important;border-right:1px solid var(--gn-line)!important;
+  padding:12px 11px 20px!important;box-shadow:6px 0 20px rgba(16,32,64,.1)!important;
+}
+#side::before{
+  content:"Pages";display:block;font-size:11px;font-weight:700;letter-spacing:.05em;
+  text-transform:uppercase;color:#8b95a3;margin:0 0 9px 2px;
+}
+#side canvas{
+  border-radius:8px!important;border:2px solid transparent!important;
+  box-shadow:0 2px 9px rgba(16,32,64,.16);background:#fff;
+  margin-bottom:11px!important;transition:transform .14s ease,box-shadow .14s ease;
+}
+#side canvas:hover{transform:translateY(-1px);box-shadow:0 5px 15px rgba(16,32,64,.22)}
+#side canvas.on{
+  border-color:var(--gn-acc)!important;box-shadow:0 0 0 3px rgba(47,109,246,.2),0 3px 10px rgba(16,32,64,.16);
+}
+
 /* ---------------- editor: page footer ---------------- */
 #gn-foot{
   position:fixed;left:14px;bottom:12px;display:flex;gap:8px;align-items:center;z-index:6;
@@ -226,6 +247,30 @@ html[data-bar=full] #tb #bar2{
 #gn-tpl button.on{background:#e8f0ff!important;border-color:var(--gn-acc)!important;color:#1f4fbf!important;font-weight:600}
 #nc,#ok,#auth-submit-btn{border-radius:10px!important;padding:9px 18px!important;font-weight:600!important}
 #ok,#auth-submit-btn{background:var(--gn-acc)!important;border-color:var(--gn-acc)!important}
+
+/* ---------------- sign in, GoodNotes style ---------------- */
+#auth-md .box{width:min(92vw,392px)!important;border-radius:20px!important;padding:26px!important;gap:13px!important}
+#auth-title{font-size:21px!important;font-weight:800!important;letter-spacing:-.02em;color:#141c26}
+#auth-google-btn{
+  border:1px solid var(--gn-line)!important;background:#fff!important;color:#1c2430!important;
+  border-radius:12px!important;padding:11px!important;font-size:14px!important;font-weight:600!important;
+  box-shadow:0 1px 2px rgba(16,32,64,.06);
+}
+#auth-google-btn:hover{background:#f8f9fb!important;border-color:#cfd6e0!important}
+#auth-divider{color:#98a2b0!important;font-size:11.5px!important}
+#auth-divider span{background:#e6e2dc!important}
+#auth-submit-btn{
+  border-radius:11px!important;padding:11px 24px!important;font-size:14px!important;
+  background:var(--gn-acc)!important;color:#fff!important;border:0!important;
+  box-shadow:0 4px 12px rgba(47,109,246,.3);
+}
+#auth-md .box > div:last-child button{color:#6b7684!important;font-size:12px!important}
+#auth-login-btn{
+  border:1px solid var(--gn-line)!important;background:#fff!important;border-radius:10px!important;
+  padding:9px 10px!important;font-weight:600!important;color:#2b3542!important;
+  box-shadow:0 1px 2px rgba(16,32,64,.05);
+}
+#auth-login-btn:hover{background:#fafbfc!important;border-color:#cfd6e0!important}
 
 @media(max-width:760px){
   #gn-tabs{padding:0 4px}
