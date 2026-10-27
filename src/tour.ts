@@ -535,6 +535,117 @@ const DEMOS: Record<string, Demo> = {
     },
   },
 
+  /* --- snap: the pen is pulled onto an existing corner -------------- */
+  snap: {
+    ms: 3400,
+    draw(g, w, h, p) {
+      paper(g, w, h);
+      const ax = w * 0.14;
+      const ay = h * 0.74;
+      const bx = w * 0.44;
+      const by = h * 0.34;
+      const dx = w * 0.72;
+      const dy = h * 0.76;
+
+      // two strokes already on the page, meeting at (bx, by)
+      g.save();
+      g.strokeStyle = INK;
+      g.lineWidth = 2.6;
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(ax, ay);
+      g.lineTo(bx, by);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(bx, by);
+      g.lineTo(dx, dy);
+      g.stroke();
+      g.restore();
+
+      // an incoming stroke that stops just short, then jumps onto the corner
+      const travel = clamp(p / 0.66, 0, 1);
+      const eased = 1 - Math.pow(1 - travel, 3);
+      const sx = w * 0.92;
+      const sy = h * 0.88;
+      const gapX = bx + (sx - bx) * 0.2;
+      const gapY = by + (sy - by) * 0.2;
+      const snapped = p > 0.7;
+      const ex = snapped ? bx : sx + (gapX - sx) * eased;
+      const ey = snapped ? by : sy + (gapY - sy) * eased;
+
+      const pts: number[][] = [];
+      for (let i = 0; i <= 22; i++) {
+        const t = i / 22;
+        pts.push([sx + (ex - sx) * t, sy + (ey - sy) * t + Math.sin(t * Math.PI) * h * 0.05]);
+      }
+      ribbon(g, pts, () => 5.2, INK);
+
+      // the magnet marker sitting on the target
+      if (p > 0.36) {
+        const pulse = snapped ? 1 + 0.16 * Math.sin((p - 0.7) * 42) : 1;
+        g.save();
+        g.strokeStyle = ACC;
+        g.lineWidth = 2;
+        g.globalAlpha = snapped ? 0.95 : 0.55;
+        g.beginPath();
+        g.arc(bx, by, 9 * pulse, 0, 7);
+        g.stroke();
+        g.fillStyle = ACC;
+        g.beginPath();
+        g.arc(bx, by, 2.4, 0, 7);
+        g.fill();
+        g.restore();
+      }
+      if (snapped) chip(g, w * 0.5, h * 0.07, 'snapped', ACC, '#fff', 9);
+    },
+  },
+
+  /* --- paint bucket: pour colour into a closed shape ---------------- */
+  fill: {
+    ms: 2800,
+    draw(g, w, h, p) {
+      paper(g, w, h);
+      const x = w * 0.24;
+      const y = h * 0.26;
+      const bw = w * 0.52;
+      const bh = h * 0.5;
+
+      g.save();
+      roundRect(g, x, y, bw, bh, 10);
+      g.strokeStyle = INK;
+      g.lineWidth = 2.6;
+      g.stroke();
+      g.restore();
+
+      const t = clamp((p - 0.12) / 0.6, 0, 1);
+      if (t > 0) {
+        g.save();
+        roundRect(g, x, y, bw, bh, 10);
+        g.clip();
+        g.fillStyle = 'rgba(47,109,246,.34)';
+        g.fillRect(x, y + bh * (1 - t), bw, bh * t);
+        g.restore();
+      }
+
+      // the bucket tip rides the surface as it rises
+      const tipY = t > 0 && t < 1 ? y + bh * (1 - t) : y + bh * 0.44;
+      g.save();
+      g.translate(x + bw * 0.5, tipY);
+      g.fillStyle = '#f4a300';
+      g.beginPath();
+      g.moveTo(-7, 0);
+      g.lineTo(7, 0);
+      g.lineTo(0, 9);
+      g.closePath();
+      g.fill();
+      g.fillStyle = INK;
+      g.fillRect(-1.3, -9, 2.6, 9);
+      g.restore();
+
+      if (p > 0.82) chip(g, w * 0.5, h * 0.07, 'filled', ACC, '#fff', 9);
+    },
+  },
+
   /* --- thickness / pressure ---------------------------------------- */
   pressure: {
     ms: 3000,
@@ -1244,7 +1355,7 @@ interface Step {
   after?: () => void;
 }
 
-const TOUR_VER = 'v1';
+const TOUR_VER = 'v2';
 const HOME_FLAG = `inkpad-tour-home-${TOUR_VER}`;
 const EDITOR_FLAG = `inkpad-tour-editor-${TOUR_VER}`;
 
@@ -1538,6 +1649,30 @@ function closeOverflow() {
   document.getElementById('tb')?.classList.remove('more');
 }
 
+/** Open the overflow panel only where the sub-toolbar is actually hidden. */
+function ensureOverflow() {
+  const b2 = document.getElementById('bar2');
+  const tb = document.getElementById('tb');
+  if (b2 && tb && !isVisible(b2)) tb.classList.add('more');
+}
+
+/**
+ * Find a control by its tooltip. Many engine buttons carry no id, so the title
+ * is the only stable handle; `prefix` copes with labels that change state
+ * ("Animate next drawing: off" / "… on").
+ */
+function byTitle(title: string, prefix = false) {
+  return () => {
+    const all = Array.from(document.querySelectorAll<HTMLElement>('#bar [title], #bar2 [title]'));
+    return (
+      all.find((n) => {
+        const t = n.getAttribute('title') || '';
+        return prefix ? t.startsWith(title) : t === title;
+      }) || null
+    );
+  };
+}
+
 const HOME_STEPS: Step[] = [
   {
     title: 'Welcome to Inkpad 👋',
@@ -1621,12 +1756,22 @@ const EDITOR_STEPS: Step[] = [
       'Every tool is shown with a looping animation so you can see it working. Move with <b>Next</b>, or press <b>Esc</b> to leave.',
     demo: 'pen',
   },
+
+  /* ---- writing ---------------------------------------------------- */
   {
     target: () => document.querySelector('[data-t="pen"]') as HTMLElement | null,
     title: '✎ Pen',
     body:
-      'Your main writing tool. <b>Pressure changes the line width</b> — press lightly for hairlines, harder for bold strokes. Pick the nib (ballpoint, fountain, brush, pencil, crayon, marker) in the ⋯ menu.',
+      'Your main writing tool. <b>Pressure changes the line width</b> — press lightly for hairlines, harder for bold strokes.',
     demo: 'pen',
+  },
+  {
+    target: () => document.getElementById('pt'),
+    title: 'Pen nib',
+    body:
+      'Six nibs: ballpoint, fountain, brush, pencil, crayon and marker. Each has its own taper and texture — switch whenever a page calls for a different feel.',
+    before: ensureOverflow,
+    after: closeOverflow,
   },
   {
     target: () => document.querySelector('[data-t="hl"]') as HTMLElement | null,
@@ -1639,29 +1784,72 @@ const EDITOR_STEPS: Step[] = [
     target: () => document.querySelector('[data-t="er"]') as HTMLElement | null,
     title: 'Eraser',
     body:
-      'Wipes strokes back to blank paper. If your stylus has an <b>eraser end</b>, flipping the pen switches to the eraser automatically — set that up in <b>Stylus & pen</b> on the Home screen.',
+      'Wipes strokes back to blank paper. If your stylus has an <b>eraser end</b>, flipping the pen switches to the eraser automatically — set that up in <b>Stylus &amp; pen</b>.',
     demo: 'er',
   },
+  {
+    target: () => document.querySelector('[data-t="pe"]') as HTMLElement | null,
+    title: 'Whole-stroke eraser',
+    body:
+      'The second eraser removes an entire stroke with one touch instead of rubbing through it — much faster when you want a line gone completely.',
+    demo: 'er',
+  },
+
+  /* ---- selecting -------------------------------------------------- */
   {
     target: () => document.querySelector('[data-t="sel"]') as HTMLElement | null,
     title: 'Lasso select',
     body:
-      'Circle anything to select it, then <b>drag to move</b>. Use ⤢ / ⤡ to enlarge or shrink the selection, and <b>Duplicate</b> to copy it.',
+      'Circle anything to select it, then <b>drag to move</b>. The selection controls in the toolbar let you enlarge ⤢, shrink ⤡ or delete it.',
     demo: 'sel',
   },
   {
-    target: () => document.querySelector('[data-t="rect"]') as HTMLElement | null,
-    title: 'Shapes',
+    target: () => document.getElementById('sg'),
+    title: 'Resize or delete a selection',
     body:
-      'Line, rectangle and oval. Drag to size them — hold while you drag and the preview follows your finger. Great for diagrams and boxes around answers.',
+      'With something selected, ⤢ enlarges it, ⤡ shrinks it and the bin removes it. Scaling works on handwriting, shapes and images alike.',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+
+  /* ---- shapes ----------------------------------------------------- */
+  {
+    target: () => document.querySelector('[data-t="rect"]') as HTMLElement | null,
+    title: 'Rectangle & oval',
+    body:
+      'Drag to size a box or an ellipse — the preview follows your finger. Great for diagrams and for drawing a frame around an answer.',
     demo: 'shape',
   },
+  {
+    target: () => document.querySelector('[data-t="line"]') as HTMLElement | null,
+    title: 'Lines, arrows and axes',
+    body:
+      'The line tool opens a set: straight <b>line</b>, <b>arrow</b>, <b>hidden line</b> (dashed), and 2D / 3D <b>axes</b> for graphs.',
+    demo: 'shape',
+  },
+  {
+    target: () => document.querySelector('[data-t="bk"]') as HTMLElement | null,
+    title: 'Paint bucket',
+    body:
+      'Tap inside a closed shape to fill it, or tap a line to recolour it. Fill a rough circle you drew by hand and it behaves like a real shape.',
+    demo: 'fill',
+  },
+
+  /* ---- text and media --------------------------------------------- */
   {
     target: () => document.querySelector('[data-t="text"]') as HTMLElement | null,
     title: 'Text',
     body:
-      'Tap anywhere to type. Text stays editable (unlike handwriting), and you can change the font from the dropdown that appears next to the tool.',
+      'Tap anywhere to type. Text stays editable, unlike handwriting, and it can be moved or restyled later.',
     demo: 'text',
+  },
+  {
+    target: () => document.getElementById('fnt'),
+    title: 'Fonts',
+    body:
+      'Pick the typeface for new text — Arnie, Georgia, Courier and more. Existing text keeps the font it was written in.',
+    before: ensureOverflow,
+    after: closeOverflow,
   },
   {
     target: () => document.getElementById('img'),
@@ -1671,6 +1859,26 @@ const EDITOR_STEPS: Step[] = [
     demo: 'image',
   },
   {
+    target: byTitle('Insert video'),
+    title: 'Insert a video',
+    body:
+      'Embed a clip on the page and play it right there — useful for lectures, recorded experiments or a worked example you want to keep beside your notes.',
+  },
+  {
+    target: byTitle('Figure library'),
+    title: 'Figure library',
+    body:
+      'Ready-made shapes for science and maths — circuits, arrows, containers and more — so you can assemble a diagram without drawing every part by hand.',
+  },
+  {
+    target: byTitle('Engineering symbols'),
+    title: 'Engineering symbols',
+    body:
+      'A palette of symbols you can stamp straight onto the page: resistors, capacitors, valves, flow arrows and the rest of the usual notation.',
+  },
+
+  /* ---- drawing aids ----------------------------------------------- */
+  {
     target: () => document.querySelector('[data-t="laser"]') as HTMLElement | null,
     title: 'Laser pointer',
     body:
@@ -1678,32 +1886,125 @@ const EDITOR_STEPS: Step[] = [
     demo: 'laser',
   },
   {
+    target: byTitle('Guides, symmetry and perspective'),
+    title: 'Guides & symmetry',
+    body:
+      'Overlay ruled guides, mirror everything you draw across an axis, or snap to a perspective grid — the fastest way to keep a sketch in proportion.',
+  },
+  {
+    target: byTitle('Layers (per page)'),
+    title: 'Layers',
+    body:
+      'Each page can hold several layers. Keep annotations on one and artwork on another, then hide or reorder them without touching the ink itself.',
+  },
+  {
+    target: byTitle('Animate next drawing', true),
+    title: 'Animate a drawing',
+    body:
+      'Turn animation on, draw, and Inkpad records the stroke. Press ▶ to play it back — handy for showing how a diagram was built up.',
+  },
+
+  /* ---- colour and thickness --------------------------------------- */
+  {
     target: () => document.getElementById('sws'),
     title: 'Colour',
     body:
-      'Pick one of the swatches, or tap the colour square for any shade. The chosen colour applies to pens, shapes and text.',
+      'Five ready swatches, plus the round picker for any shade you like. The choice applies to pens, highlighter, shapes and text.',
     demo: 'colors',
   },
   {
     target: () => document.getElementById('size'),
     title: 'Thickness & pressure',
     body:
-      'The slider sets the base thickness (0.1 steps). The number beside it accepts exact values, and the pressure response scales it while you draw.',
+      'The slider sets the base thickness in 0.1 steps, and the number beside it accepts an exact value. Pressure response scales it while you draw.',
     demo: 'pressure',
     pad: 12,
     place: 'dock',
-    before: () => openOverflowIfNeeded('#size'),
+    before: ensureOverflow,
     after: closeOverflow,
   },
   {
-    target: () => document.getElementById('bar2'),
-    title: 'Page & view options',
+    target: () => document.getElementById('prs'),
+    title: 'Pressure response',
     body:
-      'The same menu holds <b>zoom</b>, page <b>thumbnails</b>, <b>Pen only</b> (palm rejection), sound, the paper <b>template</b> and the paper <b>colour</b>.',
-    pad: 10,
-    before: () => openOverflowIfNeeded('#size'),
+      'How strongly the line reacts to how hard you press. Turn it down for a flatter, more technical line; up for expressive calligraphy.',
+    before: ensureOverflow,
     after: closeOverflow,
   },
+
+  /* ---- snap -------------------------------------------------------- */
+  {
+    target: () => document.getElementById('snap-btn'),
+    title: '🧲 Snap',
+    body:
+      'Toggle this on and the pen <b>magnetises</b> to the tip or corner of an existing object, and to the point where two lines cross. Close a shape exactly, join a stroke to the end of another, or land on an intersection — the marker shows the target before you commit.',
+    demo: 'snap',
+    pad: 10,
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+
+  /* ---- view -------------------------------------------------------- */
+  {
+    target: () => document.getElementById('zi'),
+    title: 'Zoom',
+    body:
+      'Zoom in and out, or pinch on a touchscreen. Pan with two fingers, or hold <b>Space</b> and drag on a computer.',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+  {
+    target: () => document.getElementById('side-t'),
+    title: 'Page thumbnails',
+    body:
+      'Opens a strip of live page previews down the left. Tap any page to jump straight to it — the quickest way around a long notebook.',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+  {
+    target: () => document.getElementById('fs'),
+    title: 'Full screen',
+    body:
+      'Hides every panel so only paper is left. Tap again, or press <b>Esc</b>, to bring the tools back.',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+
+  /* ---- paper ------------------------------------------------------- */
+  {
+    target: () => document.getElementById('tpl'),
+    title: 'Paper template',
+    body:
+      'Blank, lined, grid, dotted or Cornell — change it per page at any time. Your ink stays exactly where it is.',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+  {
+    target: () => document.getElementById('pc'),
+    title: 'Paper colour',
+    body:
+      'White, cream, and darker shades for low light. Handy for matching a real notebook, or for a page you plan to print.',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+  {
+    target: () => document.querySelector('#bar2 [title="Page resolution"]') as HTMLElement | null,
+    title: 'Export resolution',
+    body:
+      'How many dots per inch the page is rendered at when you export. Higher is sharper and heavier — 300 dpi is a good print default.',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+  {
+    target: () => document.getElementById('clr'),
+    title: 'Clear page',
+    body:
+      'Empties the current page in one go. Other pages are untouched, and <b>undo</b> still brings the ink back if you change your mind.',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+
+  /* ---- history and pages ------------------------------------------ */
   {
     target: () => document.getElementById('undo'),
     title: 'Undo & redo',
@@ -1715,15 +2016,25 @@ const EDITOR_STEPS: Step[] = [
     target: () => document.getElementById('pg'),
     title: 'Pages',
     body:
-      'Add, duplicate, reorder and delete pages. Each page keeps its own paper style and background colour.',
+      'Add, duplicate and delete pages, and step through them with ‹ ›. Each page keeps its own paper style and background colour.',
     demo: 'pages',
   },
+
+  /* ---- output ------------------------------------------------------ */
   {
     target: () => document.getElementById('share'),
     title: 'Export & share',
     body:
       'Send the notebook out as <b>PDF</b> (all pages) or <b>PNG</b>, ready for GoodNotes, Notability, OneNote, Samsung Notes or Apple Notes.',
     demo: 'share',
+    before: ensureOverflow,
+    after: closeOverflow,
+  },
+  {
+    target: () => document.getElementById('back'),
+    title: 'Back to the library',
+    body:
+      'Everything saves automatically as you write. ‹ <b>Library</b> returns to your shelves, and the notebook is right where you left it.',
   },
   {
     title: 'You’re ready to write ✍️',
