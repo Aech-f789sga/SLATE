@@ -77,7 +77,7 @@ const TO_ROW2 = [
 ];
 
 /** Buttons our own modules create; they are insert tools, so row 1. */
-const TO_ROW1 = ['#gn-stk-btn', '#snap-btn'];
+const TO_ROW1 = ['#gn-stk-btn', '#gn-note-btn', '#snap-btn'];
 
 /* ------------------------------------------------------------------ */
 /* Layout                                                              */
@@ -89,7 +89,7 @@ const ROW1: string[][] = [
   ['[data-t="pen"]', '[data-t="hl"]', '[data-t="er"]'],
   ['#sh-trigger', '[data-t="text"]'],
   ['[data-t="sel"]', '[data-t="laser"]', '[data-t="bk"]'],
-  ['#img', '#gn-stk-btn', '#snap-btn'],
+  ['#img', '#gn-stk-btn', '#gn-note-btn', '#snap-btn'],
   ['#undo', '#redo'],
   ['#acc-trigger', '#more'],
 ];
@@ -217,6 +217,125 @@ function paintContext() {
 }
 
 /* ------------------------------------------------------------------ */
+/* The overflow button                                                 */
+/* ------------------------------------------------------------------ */
+
+const BAR_MIN_KEY = 'inkpad-bar-min';
+
+/**
+ * The engine's `⋯` only toggles `#tb.more`, which turns `#bar2` into a dropdown.
+ * On the wide layout `#bar2` is a permanent second row, so the button looked
+ * dead. Give it the job its icon promises: fold the page-control row away so
+ * the page can use the full height, and bring it back on a second press.
+ */
+function hookMore() {
+  const mb = document.getElementById('more');
+  if (!mb) return;
+  const root = document.documentElement;
+
+  const paint = () => {
+    const min = root.dataset.barMin === '1';
+    mb.classList.toggle('on', min);
+    mb.title = min ? 'Show page controls' : 'Hide page controls';
+    mb.setAttribute('aria-expanded', min ? 'false' : 'true');
+  };
+
+  if (root.dataset.barMin === undefined) {
+    root.dataset.barMin = localStorage.getItem(BAR_MIN_KEY) === '1' ? '1' : '';
+  }
+  paint();
+
+  if (mb.dataset.gnmore === '1') return;
+  mb.dataset.gnmore = '1';
+  mb.addEventListener('click', () => {
+    // where #bar2 is a dropdown the engine's own toggle already does the job
+    const b2 = document.getElementById('bar2');
+    if (b2 && getComputedStyle(b2).position === 'absolute') return;
+    const next = root.dataset.barMin === '1' ? '' : '1';
+    root.dataset.barMin = next;
+    try {
+      localStorage.setItem(BAR_MIN_KEY, next === '1' ? '1' : '0');
+    } catch {
+      /* private mode */
+    }
+    paint();
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Clear page                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The engine's Clear button wipes the page the instant it is pressed — one
+ * mis-tap and the page is gone. Intercept in the capture phase (which runs
+ * before the button's own `onclick`) and ask first; on a yes, re-dispatch the
+ * click through the engine's handler so its own snap/undo bookkeeping still
+ * runs and Ctrl+Z keeps working.
+ */
+let clearing = false;
+let confirmEl: HTMLElement | null = null;
+
+function buildConfirm(): HTMLElement {
+  if (confirmEl) return confirmEl;
+  const wrap = document.createElement('div');
+  wrap.id = 'gn-confirm';
+  wrap.innerHTML =
+    '<div class="gn-cf-box" role="dialog" aria-modal="true" aria-labelledby="gn-cf-t">' +
+    '<b id="gn-cf-t">Clear this page?</b>' +
+    '<p>Every stroke, shape and note on this page will be removed. You can bring it back with <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</p>' +
+    '<div class="gn-cf-row">' +
+    '<button class="gn-cf-no" type="button">Cancel</button>' +
+    '<button class="gn-cf-yes" type="button">Clear page</button>' +
+    '</div></div>';
+  document.body.append(wrap);
+  confirmEl = wrap;
+
+  const close = () => wrap.classList.remove('on');
+  (wrap.querySelector('.gn-cf-no') as HTMLElement).onclick = close;
+  (wrap.querySelector('.gn-cf-yes') as HTMLElement).onclick = () => {
+    close();
+    const clr = document.getElementById('clr');
+    if (!clr) return;
+    clearing = true;
+    clr.click();
+    clearing = false;
+  };
+  wrap.addEventListener('pointerdown', (e) => {
+    if (e.target === wrap) close();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && wrap.classList.contains('on')) close();
+  });
+
+  return wrap;
+}
+
+function askClear() {
+  const wrap = buildConfirm();
+  wrap.classList.add('on');
+  window.setTimeout(() => {
+    (wrap.querySelector('.gn-cf-yes') as HTMLElement | null)?.focus();
+  }, 30);
+}
+
+function hookClear() {
+  document.addEventListener(
+    'click',
+    (e) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || !t.closest) return;
+      if (!t.closest('#clr')) return;
+      if (clearing) return;
+      e.preventDefault();
+      e.stopPropagation();
+      askClear();
+    },
+    true,
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* The pass                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -261,6 +380,8 @@ function reorg() {
   paintContext();
   fixSeps(bar);
   fixSeps(bar2);
+  // 5. the overflow button folds the second row away on the wide layout
+  hookMore();
 
   if (!booted) {
     booted = true;
@@ -286,6 +407,35 @@ html[data-gnrail="1"] #tb [data-gnhide]{display:none!important}
 #tb #bar2 button{color:#41505f!important}
 #tb #bar2 button.on{background:var(--gn-acc,#2f6df6)!important;color:#fff!important}
 
+/* the overflow button folds the page-control row away on the wide layout */
+html[data-bar-min="1"] #tb #bar2{display:none!important}
+#tb #more.on{background:rgba(255,255,255,.18)!important;color:#fff!important}
+
+/* clear-page confirmation */
+#gn-confirm{
+  position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;
+  background:rgba(14,24,40,.42);backdrop-filter:blur(4px);padding:16px;font-family:inherit;
+}
+#gn-confirm.on{display:flex}
+#gn-confirm .gn-cf-box{
+  width:min(94vw,360px);background:#fff;border-radius:18px;padding:20px 20px 16px;
+  box-shadow:0 26px 64px rgba(8,20,38,.34);color:#1c2430;
+}
+#gn-confirm b{display:block;font-size:16.5px;font-weight:800;letter-spacing:-.02em;margin-bottom:7px}
+#gn-confirm p{margin:0 0 16px;font-size:12.8px;line-height:1.55;color:#5b6673}
+#gn-confirm kbd{
+  font:600 11px ui-monospace,Menlo,monospace;background:#f1f3f7;border-radius:4px;
+  padding:1px 4px;color:#41505f;
+}
+#gn-confirm .gn-cf-row{display:flex;gap:8px}
+#gn-confirm button{
+  flex:1;border:0;border-radius:11px;padding:11px 14px;font:700 13px/1 inherit;cursor:pointer;
+}
+#gn-confirm .gn-cf-no{background:#f1f3f7;color:#3c4654}
+#gn-confirm .gn-cf-no:hover{background:#e7ebf2}
+#gn-confirm .gn-cf-yes{background:#e5383b;color:#fff}
+#gn-confirm .gn-cf-yes:hover{background:#cf2b2e}
+
 @media(max-width:760px){
   #tb .sep{display:none}
 }
@@ -300,6 +450,8 @@ function boot() {
   style.id = 'gn-rail-style';
   style.textContent = CSS;
   document.head.append(style);
+
+  hookClear();
 
   // the other modules create their buttons on their own timers, so settle a few
   // times on the way up and then keep an eye on it

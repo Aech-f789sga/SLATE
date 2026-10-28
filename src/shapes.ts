@@ -197,11 +197,15 @@ function recognise(raw: Pt[]): ShapeOut | null {
 
 const FILLS = ['#f5c542', '#7bd88f', '#7cc4ff', '#f28ab2', '#c3a6ff', '#d9dde3'];
 
+/** Solid, ruled dash, or dotted — the three a GoodNotes line offers. */
+type Dash = 'solid' | 'dash' | 'dot';
+
 const style = {
   fill: null as string | null,
   opacity: 0.35,
-  dashed: false,
+  dash: 'solid' as Dash,
   recognise: true,
+  axis: ['#e5383b', '#2a9d4f', '#2f6df6'] as string[],
 };
 
 function lsGet(k: string): string | null {
@@ -227,8 +231,15 @@ function loadStyle() {
     if (s && typeof s === 'object') {
       if (s.fill === null || typeof s.fill === 'string') style.fill = s.fill;
       if (typeof s.opacity === 'number') style.opacity = Math.max(0.05, Math.min(1, s.opacity));
-      if (typeof s.dashed === 'boolean') style.dashed = s.dashed;
+      // `dashed` is the older boolean; keep reading it so a saved toolbar keeps working
+      if (s.dash === 'dash' || s.dash === 'dot' || s.dash === 'solid') style.dash = s.dash;
+      else if (s.dashed === true) style.dash = 'dash';
       if (typeof s.recognise === 'boolean') style.recognise = s.recognise;
+      if (Array.isArray(s.axis) && s.axis.length === 3) {
+        style.axis = s.axis.map((c: unknown, i: number) =>
+          typeof c === 'string' ? c : ['#e5383b', '#2a9d4f', '#2f6df6'][i]
+        );
+      }
     }
   } catch {
     /* ignore */
@@ -238,8 +249,57 @@ function loadStyle() {
 function saveStyle() {
   lsSet(
     'inkpad-shape-style',
-    JSON.stringify({ fill: style.fill, opacity: style.opacity, dashed: style.dashed, recognise: style.recognise })
+    JSON.stringify({
+      fill: style.fill,
+      opacity: style.opacity,
+      dash: style.dash,
+      recognise: style.recognise,
+      axis: style.axis,
+    })
   );
+}
+
+/** Read the engine's live axis palette (it owns the default and the rendering). */
+function engineAxes(): string[] {
+  const a = ev<string[]>('axc');
+  return Array.isArray(a) && a.length === 3 ? a.slice() : ['#e5383b', '#2a9d4f', '#2f6df6'];
+}
+
+/** Push our saved palette into the engine, which is what new axes read from. */
+function pushAxes() {
+  const a = style.axis;
+  ev(
+    `(function(){ try{ axc[0]=${JSON.stringify(a[0])}; axc[1]=${JSON.stringify(a[1])}; axc[2]=${JSON.stringify(a[2])}; }catch(e){} })()`
+  );
+}
+
+function setAxis(i: number, hex: string) {
+  style.axis[i] = hex;
+  saveStyle();
+  ev(`(function(){ try{ axc[${i}] = ${JSON.stringify(hex)}; }catch(e){} })()`);
+  const sel = (ev<any[]>('sel') || []).filter(
+    (s) => s && s.t === 'shape' && (s.k === 'ax2' || s.k === 'ax3')
+  );
+  if (sel.length) {
+    sel.forEach((s) => {
+      const base = Array.isArray(s.ac) && s.ac.length === 3 ? s.ac.slice() : engineAxes();
+      base[i] = hex;
+      s.ac = base;
+    });
+    repaint();
+  }
+  paint();
+}
+
+/** Put the dash mode onto a shape stroke in the form the renderer reads. */
+function applyDash(s: any) {
+  if (style.dash === 'solid') {
+    delete s.ds;
+    delete s.dm;
+    return;
+  }
+  s.ds = true;
+  s.dm = style.dash;
 }
 
 /**
@@ -289,7 +349,15 @@ function installShapeEngine() {
         }
         c.strokeStyle = s.c;
         c.lineWidth = s.w;
-        if (s.ds) c.setLineDash([s.w * 3 + 6, s.w * 2 + 4]);
+        if (s.ds) {
+          if (s.dm === 'dot') {
+            c.lineCap = 'round';
+            c.setLineDash([0.1, Math.max(5, s.w * 2.8)]);
+          } else {
+            c.lineCap = 'butt';
+            c.setLineDash([Math.max(7, s.w * 4), Math.max(6, s.w * 3)]);
+          }
+        }
         c.beginPath();
         c.moveTo(P[0][0], P[0][1]);
         c.lineTo(P[1][0], P[1][1]);
@@ -437,8 +505,8 @@ function stampStyle() {
     s.fop = style.opacity;
     changed = true;
   }
-  if (style.dashed && !s.ds) {
-    s.ds = true;
+  if (style.dash !== 'solid' && (s.dm !== style.dash || !s.ds)) {
+    applyDash(s);
     changed = true;
   }
   if (changed) ev('try{ draw(); save(); }catch(e){}');
@@ -505,7 +573,10 @@ function commit(raw: Pt[]) {
     made.b = shape.b;
     made.w = Math.max(2, Math.min(8, s.w || 3));
     made.c = s.c;
-    if (style.dashed) made.ds = true;
+    if (style.dash !== 'solid') {
+      made.ds = true;
+      made.dm = style.dash;
+    }
     if (style.fill && shape.k !== 'line') {
       made.fc = style.fill;
       made.fop = style.opacity;
@@ -585,22 +656,44 @@ function buildPanel() {
     repaint();
   };
 
-  const dash = el('button', '', '⋯') as HTMLButtonElement;
-  dash.type = 'button';
-  dash.className = 'sh-tg';
-  dash.title = 'Dashed outline';
-  dash.onclick = () => {
-    style.dashed = !style.dashed;
-    saveStyle();
-    // keep the engine's own dashed flag in step so its drawer agrees
-    ev(`(function(){ try{ dashOn = ${style.dashed}; }catch(e){} })()`);
-    const sel = (ev<any[]>('sel') || []).filter((s) => s && s.t === 'shape');
-    if (sel.length) {
-      sel.forEach((s) => (s.ds = style.dashed));
-      repaint();
-    }
-    paint();
-  };
+  // ---- dash: solid / ruled dash / dotted ----------------------------------
+  const dashGroup = el('div', '');
+  dashGroup.className = 'sh-dash';
+
+  const DASHES: { id: Dash; label: string; tip: string; svg: string }[] = [
+    {
+      id: 'solid',
+      label: 'Solid',
+      tip: 'Solid line',
+      svg: '<path d="M3 12h18"/>',
+    },
+    {
+      id: 'dash',
+      label: 'Dashed',
+      tip: 'Clean, evenly ruled dash',
+      svg: '<path d="M3 12h4M9.5 12h4M16 12h5"/>',
+    },
+    {
+      id: 'dot',
+      label: 'Dotted',
+      tip: 'Evenly spaced dots',
+      svg: '<path d="M4 12h.01M8.7 12h.01M13.3 12h.01M18 12h.01" stroke-width="3"/>',
+    },
+  ];
+
+  DASHES.forEach((d) => {
+    const b = el('button', '') as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'sh-dashb';
+    b.dataset.dash = d.id;
+    b.title = d.tip;
+    b.setAttribute('aria-label', d.label);
+    b.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      `stroke-linecap="round">${d.svg}</svg>`;
+    b.onclick = () => setDash(d.id);
+    dashGroup.append(b);
+  });
 
   const rec = el('button', '', '✨') as HTMLButtonElement;
   rec.type = 'button';
@@ -612,13 +705,43 @@ function buildPanel() {
     paint();
   };
 
-  panel.append(fills, op, dash, rec);
+  // ---- axis colours (xy / xyz only) ---------------------------------------
+  const axis = el('div', '');
+  axis.className = 'sh-axis';
+  axis.title = 'Axis colours';
+  ['X', 'Y', 'Z'].forEach((label, i) => {
+    const wrap = el('label', '');
+    wrap.className = 'sh-ax';
+    const sw = el('input') as HTMLInputElement;
+    sw.type = 'color';
+    sw.value = style.axis[i];
+    sw.title = `${label} axis colour`;
+    sw.oninput = () => setAxis(i, sw.value);
+    const tag = el('i', '', label);
+    wrap.append(sw, tag);
+    axis.append(wrap);
+  });
+
+  panel.append(fills, op, dashGroup, axis, rec);
   document.body.append(panel);
 
   hint = el('div', '');
   hint.id = 'ink-shape-hint';
   document.body.append(hint);
 
+  paint();
+}
+
+function setDash(mode: Dash) {
+  style.dash = mode;
+  saveStyle();
+  // keep the engine's own dashed flag in step so its drawer agrees
+  ev(`(function(){ try{ dashOn = ${mode !== 'solid'}; }catch(e){} })()`);
+  const sel = (ev<any[]>('sel') || []).filter((s) => s && s.t === 'shape');
+  if (sel.length) {
+    sel.forEach((s) => applyDash(s));
+    repaint();
+  }
   paint();
 }
 
@@ -658,13 +781,41 @@ function paint() {
   panel.style.top = `${top}px`;
   if (hint) hint.style.top = `${top + 46}px`;
 
+  const kind = forced || ev<string>('tool') || '';
+  const isAxis = kind === 'ax2' || kind === 'ax3';
+  const canFill = kind === 'rect' || kind === 'ell' || kind === 'tri';
+
   panel.querySelectorAll<HTMLElement>('.sh-fill').forEach((n) => {
     n.classList.toggle('on', (n.dataset.fill ?? null) === style.fill);
   });
-  const dash = panel.querySelectorAll<HTMLElement>('.sh-tg')[0];
-  const rec = panel.querySelectorAll<HTMLElement>('.sh-tg')[1];
-  if (dash) dash.classList.toggle('on', style.dashed);
+
+  const fills = panel.querySelector<HTMLElement>('.sh-fills');
+  const op = panel.querySelector<HTMLElement>('.sh-op');
+  if (fills) fills.style.display = canFill ? '' : 'none';
+  if (op) op.style.display = canFill ? '' : 'none';
+
+  panel.querySelectorAll<HTMLElement>('.sh-dashb').forEach((n) => {
+    n.classList.toggle('on', n.dataset.dash === style.dash);
+  });
+
+  const rec = panel.querySelector<HTMLElement>('.sh-tg');
   if (rec) rec.classList.toggle('on', style.recognise);
+
+  const axis = panel.querySelector<HTMLElement>('.sh-axis');
+  if (axis) {
+    axis.style.display = isAxis ? '' : 'none';
+    // a selected axis shape carries its own palette, so show that one
+    const picked = (ev<any[]>('sel') || []).filter(
+      (s) => s && s.t === 'shape' && (s.k === 'ax2' || s.k === 'ax3')
+    );
+    const cols =
+      picked.length && Array.isArray(picked[0].ac) && picked[0].ac.length === 3
+        ? picked[0].ac
+        : style.axis;
+    axis.querySelectorAll<HTMLInputElement>('input[type=color]').forEach((n, i) => {
+      if (n.value !== cols[i]) n.value = cols[i];
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -840,6 +991,7 @@ const CSS = `
   position:fixed;left:50%;transform:translateX(-50%) translateY(8px);
   top:128px;
   display:none;align-items:center;gap:9px;
+  flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 16px);
   background:#fff;border:1px solid #e3e7ee;border-radius:14px;
   padding:7px 10px;box-shadow:0 8px 22px rgba(16,32,64,.16);
   z-index:40;font-family:inherit;opacity:0;transition:opacity .14s ease,transform .14s ease;
@@ -869,6 +1021,32 @@ const CSS = `
   color:#5b6673;font-size:13px;cursor:pointer;line-height:1;flex:none;
 }
 #ink-shape .sh-tg.on{background:#e8f0ff;border-color:var(--gn-acc,#2f6df6);color:#1f4fbf}
+
+/* dash: a three-way segmented control, not a toggle */
+#ink-shape .sh-dash{display:flex;gap:2px;background:#f1f3f7;border-radius:9px;padding:2px}
+#ink-shape .sh-dashb{
+  width:28px;height:22px;border:0;border-radius:7px;background:transparent;padding:0;
+  color:#5b6673;cursor:pointer;display:grid;place-items:center;
+}
+#ink-shape .sh-dashb svg{width:17px;height:17px;display:block}
+#ink-shape .sh-dashb:hover{background:#e7ebf2}
+#ink-shape .sh-dashb.on{background:#fff;color:#1f4fbf;box-shadow:0 1px 3px rgba(16,32,64,.18)}
+
+/* per-axis colours for the xy / xyz shapes */
+#ink-shape .sh-axis{display:flex;gap:5px;align-items:center}
+#ink-shape .sh-ax{
+  position:relative;width:24px;height:24px;border-radius:7px;overflow:hidden;
+  box-shadow:inset 0 0 0 1px rgba(16,32,64,.18);cursor:pointer;flex:none;
+}
+#ink-shape .sh-ax input{
+  position:absolute;inset:-6px;width:calc(100% + 12px);height:calc(100% + 12px);
+  border:0;padding:0;background:none;cursor:pointer;
+}
+#ink-shape .sh-ax i{
+  position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;
+  font:700 10px/1 ui-monospace,Menlo,monospace;color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.45);
+}
 #ink-shape-hint{
   position:fixed;left:50%;transform:translateX(-50%);
   top:180px;
@@ -917,6 +1095,7 @@ const CSS = `
 
 function boot() {
   loadStyle();
+  pushAxes();
   installShapeEngine();
   hookRecognition();
   buildPanel();
@@ -953,6 +1132,8 @@ function boot() {
     paint,
     setFill,
     setTool,
+    setDash,
+    setAxis,
     kinds: KINDS,
     metrics: metricsOf,
     last: () => lastRun,

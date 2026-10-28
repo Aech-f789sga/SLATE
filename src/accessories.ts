@@ -1,15 +1,18 @@
 /**
  * Accessories — the GoodNotes floating tools.
  *
- *   • Ruler        a draggable, rotatable straightedge; strokes drawn while it
- *                  is up are projected onto its edge, keeping their pressure
- *   • Zoom Window  a lens that magnifies the page under the pen
- *   • Time Keeper  a session timer for the open notebook
- *   • Toolbar      show/hide individual tools in the engine's own rows
+ *   • Ruler & Guides   the engine's own straightedge, circle, grids and thirds,
+ *                      with stroke snapping — surfaced here instead of being
+ *                      buried behind an icon in the secondary row
+ *   • Symmetry         vertical / horizontal / quad / radial / kaleidoscope
+ *   • Perspective      1-, 2- and 3-point guides with stroke snapping
+ *   • Zoom Window      a lens that magnifies the page under the pen
+ *   • Time Keeper      a session timer for the open notebook
+ *   • Toolbar          show/hide individual tools in the engine's own rows
  *
- * All four are additive: nothing here replaces an engine routine except the
- * ruler, which rewrites `cur.p` mid-gesture (the stroke object the engine is
- * already drawing), so undo, layers and export see an ordinary pen stroke.
+ * Everything is additive. The guides are the engine's own (`GD`), so strokes
+ * snap in `pos()` and symmetry copies are written by `symAdd()` — this module
+ * only puts a menu in front of them.
  */
 
 /* ------------------------------------------------------------------ */
@@ -82,7 +85,6 @@ function pageToClient(): { left: number; top: number; sx: number; sy: number } |
 /* ------------------------------------------------------------------ */
 
 const state = {
-  ruler: false,
   zoom: false,
   timer: false,
   hidden: [] as string[],
@@ -100,205 +102,63 @@ function loadState() {
   // older builds stored tools that no longer exist as separate buttons
   const known = new Set([...Object.keys(TOOL_LABELS), ...Object.keys(EXTRA)]);
   state.hidden = state.hidden.filter((k) => known.has(k));
-  state.ruler = lsGet('inkpad-ruler', '0') === '1';
   state.zoom = lsGet('inkpad-zoomwin', '0') === '1';
   state.timer = lsGet('inkpad-timekeeper', '0') === '1';
 }
 
 function saveState() {
-  lsSet('inkpad-ruler', state.ruler ? '1' : '0');
   lsSet('inkpad-zoomwin', state.zoom ? '1' : '0');
   lsSet('inkpad-timekeeper', state.timer ? '1' : '0');
   lsSet(HIDDEN_KEY, JSON.stringify(state.hidden));
 }
 
 /* ------------------------------------------------------------------ */
-/* Ruler                                                               */
+/* Guides, symmetry and perspective (the engine's own)                 */
 /* ------------------------------------------------------------------ */
 
-interface Ruler {
-  cx: number;
-  cy: number;
-  len: number;
-  ang: number;
+type GuideKind = 'g' | 's' | 'p';
+
+interface GuideState {
+  g: string;
+  s: string;
+  p: string;
+  sn: number;
 }
 
-const ruler: Ruler = { cx: 400, cy: 620, len: 700, ang: 0 };
-const RULER_H = 46; // on-screen px
-
-let rulerEl: HTMLElement | null = null;
-
-function clampRuler() {
-  const W = ev<number>('W') || 800;
-  const H = ev<number>('H') || 1100;
-  ruler.len = Math.max(120, Math.min(ruler.len, Math.hypot(W, H)));
-  ruler.cx = Math.max(-80, Math.min(W + 80, ruler.cx));
-  ruler.cy = Math.max(-80, Math.min(H + 80, ruler.cy));
+function guideState(): GuideState {
+  const g = ev<GuideState>('GD');
+  return g && typeof g === 'object' ? g : { g: 'none', s: 'none', p: 'none', sn: 6 };
 }
 
-function placeRuler() {
-  if (!rulerEl) return;
-  const m = pageToClient();
-  if (!m) return;
-  const x = m.left + ruler.cx * m.sx;
-  const y = m.top + ruler.cy * m.sy;
-  const w = ruler.len * m.sx;
-  rulerEl.style.width = Math.round(w) + 'px';
-  rulerEl.style.left = Math.round(x) + 'px';
-  rulerEl.style.top = Math.round(y) + 'px';
-  rulerEl.style.transform = `translate(-50%,-50%) rotate(${ruler.ang}rad)`;
+function guideOn(kind: GuideKind): boolean {
+  return guideState()[kind] !== 'none';
 }
 
-function buildRuler() {
-  if (rulerEl) return;
-  rulerEl = div('rl');
-  rulerEl.id = 'gn-ruler';
-  rulerEl.innerHTML =
-    '<div class="rl-glass"></div>' +
-    '<div class="rl-grip rl-move" title="Drag the ruler"></div>' +
-    '<div class="rl-grip rl-rot" title="Rotate"></div>';
-  document.body.append(rulerEl);
+/** The value each mode falls back to when you switch it on. */
+const GUIDE_ON: Record<GuideKind, string> = { g: 'ruler', s: 'v', p: '2' };
 
-  const move = rulerEl.querySelector('.rl-move') as HTMLElement;
-  const rot = rulerEl.querySelector('.rl-rot') as HTMLElement;
-
-  move.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    move.setPointerCapture(e.pointerId);
-    const m = pageToClient();
-    if (!m) return;
-    const x0 = e.clientX;
-    const y0 = e.clientY;
-    const cx0 = ruler.cx;
-    const cy0 = ruler.cy;
-    const onMove = (ev2: PointerEvent) => {
-      ruler.cx = cx0 + (ev2.clientX - x0) / m.sx;
-      ruler.cy = cy0 + (ev2.clientY - y0) / m.sy;
-      clampRuler();
-      placeRuler();
-    };
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  });
-
-  rot.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    rot.setPointerCapture(e.pointerId);
-    const m = pageToClient();
-    if (!m) return;
-    const cx = m.left + ruler.cx * m.sx;
-    const cy = m.top + ruler.cy * m.sy;
-    const a0 = Math.atan2(e.clientY - cy, e.clientX - cx);
-    const base = ruler.ang;
-    const onMove = (ev2: PointerEvent) => {
-      const a = Math.atan2(ev2.clientY - cy, ev2.clientX - cx);
-      ruler.ang = base + (a - a0);
-      placeRuler();
-    };
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  });
-}
-
-function paintRuler() {
-  if (!rulerEl) return;
-  const on = editorOpen() && state.ruler;
-  rulerEl.classList.toggle('on', on);
-  if (on) placeRuler();
-}
-
-/**
- * Snap a page-space point onto the ruler edge nearest the stroke's origin.
- * Pressure (the third tuple slot) is preserved so the line still tapers.
- */
-function project(pts: number[][], side: number): number[][] {
-  const u = [Math.cos(ruler.ang), Math.sin(ruler.ang)];
-  const n = [-u[1], u[0]];
-  // place the line just outside the ruler's edge: the ruler is a fixed pixel
-  // height, so the page-space offset has to go back through the canvas scale
-  const scale = pageToClient()?.sy || 1;
-  const half = (RULER_H / 2 + 4) / scale;
-  const out: number[][] = [];
-  for (const p of pts) {
-    const dx = p[0] - ruler.cx;
-    const dy = p[1] - ruler.cy;
-    let t = dx * u[0] + dy * u[1];
-    t = Math.max(-ruler.len / 2, Math.min(ruler.len / 2, t));
-    const x = ruler.cx + u[0] * t + n[0] * half * side;
-    const y = ruler.cy + u[1] * t + n[1] * half * side;
-    out.push(p.length > 2 ? [x, y, p[2]] : [x, y]);
-  }
-  return out;
-}
-
-/** Which side of the ruler the pen started on. */
-function sideOf(pts: number[][]): number {
-  if (!pts.length) return -1;
-  const n = [-Math.sin(ruler.ang), Math.cos(ruler.ang)];
-  const dx = pts[0][0] - ruler.cx;
-  const dy = pts[0][1] - ruler.cy;
-  return dx * n[0] + dy * n[1] >= 0 ? 1 : -1;
-}
-
-let rulerLoop = 0;
-
-function hookRuler() {
-  const cv = document.getElementById('cv');
-  if (!cv) return;
-
-  cv.addEventListener(
-    'pointerdown',
-    (e) => {
-      if (!state.ruler || !editorOpen()) return;
-      const tool = ev<string>('tool');
-      if (tool !== 'pen' && tool !== 'hl') return;
-      if ((e.target as HTMLElement)?.closest?.('#gn-ruler')) return;
-
-      let side = 0;
-      const tick = () => {
-        const cur = ev<any>('cur');
-        if (!cur || !cur.p || !cur.p.length) {
-          rulerLoop = 0;
-          return;
-        }
-        if (!side) side = sideOf(cur.p);
-        cur.p = project(cur.p, side);
-        rulerLoop = window.requestAnimationFrame(tick);
-      };
-      rulerLoop = window.requestAnimationFrame(tick);
-    },
-    true
-  );
-
-  window.addEventListener(
-    'pointerup',
-    () => {
-      if (rulerLoop) {
-        window.cancelAnimationFrame(rulerLoop);
-        rulerLoop = 0;
+function setGuide(kind: GuideKind, on: boolean) {
+  const val = on ? GUIDE_ON[kind] : 'none';
+  ev(`(function(){
+    try{
+      gdInit();
+      GD.${kind} = ${JSON.stringify(val)};
+      if(${JSON.stringify(kind)} === 'p'){
+        const hy = H * 0.35;
+        GD.vp = GD.p === '1' ? [[W/2,hy]] : GD.p === '2' ? [[W*0.08,hy],[W*0.92,hy]] : [[W*0.08,hy],[W*0.92,hy],[W/2,H*0.98]];
       }
-      // one last pass, after the engine has appended its final samples
-      window.setTimeout(() => {
-        if (!state.ruler) return;
-        const S = ev<any[]>('pg().strokes') || [];
-        const last = S[S.length - 1];
-        if (!last || (last.t !== 'pen' && last.t !== 'hl') || !last.p) return;
-        last.p = project(last.p, sideOf(last.p));
-        ev('try{ draw(); }catch(e){}');
-      }, 0);
-    },
-    false
-  );
+      gdSave();
+      draw();
+    }catch(e){}
+  })()`);
+  paintMenu();
+}
+
+/** Open the engine's own guides drawer — it holds every option for all three. */
+function openGuidePanel() {
+  ev(`(function(){
+    try{ openDr(document.getElementById('acc-trigger'), fillGuides); }catch(e){}
+  })()`);
 }
 
 /* ------------------------------------------------------------------ */
@@ -495,6 +355,7 @@ const EXTRA: Record<string, string> = {
   shapes: '#sh-trigger',
   img: '#img',
   stickers: '#gn-stk-btn',
+  notes: '#gn-note-btn',
   snap: '#snap-btn',
   undo: '#undo',
   redo: '#redo',
@@ -505,6 +366,7 @@ const EXTRA_LABELS: Record<string, string> = {
   shapes: 'Shapes',
   img: 'Image',
   stickers: 'Stickers',
+  notes: 'Sticky notes',
   snap: 'Snap',
   undo: 'Undo',
   redo: 'Redo',
@@ -555,14 +417,16 @@ function buildToolSheet(): HTMLElement {
   node.append(list);
 
   const foot = div('acc-foot');
+  const hint = div('acc-hint', 'All tools shown');
   const reset = btn('acc-reset', 'Show all');
   reset.onclick = () => {
+    if (!state.hidden.length) return;
     state.hidden = [];
     saveState();
     applyHidden();
     paintTools();
   };
-  foot.append(reset);
+  foot.append(hint, reset);
   node.append(foot);
   return node;
 }
@@ -577,6 +441,18 @@ function paintTools() {
   toolSheet
     .querySelectorAll<HTMLElement>('.acc-row')
     .forEach((r) => r.classList.toggle('off', state.hidden.includes(r.dataset.tool || '')));
+
+  // the footer used to look dead: it did the same nothing whether or not a tool
+  // was hidden. Say how many are hidden and disable the button at zero.
+  const n = state.hidden.length;
+  const hint = toolSheet.querySelector<HTMLElement>('.acc-hint');
+  const reset = toolSheet.querySelector<HTMLButtonElement>('.acc-reset');
+  if (hint) hint.textContent = n ? `${n} hidden` : 'All tools shown';
+  if (reset) {
+    reset.disabled = n === 0;
+    reset.classList.toggle('idle', n === 0);
+    reset.textContent = n ? 'Show all' : 'Reset';
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -586,11 +462,32 @@ function paintTools() {
 let accBtn: HTMLElement | null = null;
 let accPop: HTMLElement | null = null;
 
-const MENU: { id: string; label: string; icon: string }[] = [
+interface MenuItem {
+  id: string;
+  label: string;
+  icon: string;
+  /** present for the three guide rows — these read their state from the engine */
+  kind?: GuideKind;
+}
+
+const MENU: MenuItem[] = [
   {
-    id: 'ruler',
-    label: 'Ruler',
+    id: 'guides',
+    label: 'Ruler & Guides',
+    kind: 'g',
     icon: '<path d="M3 9h18v6H3z"/><path d="M7 9v3M11 9v3M15 9v3M19 9v3"/>',
+  },
+  {
+    id: 'symmetry',
+    label: 'Symmetry',
+    kind: 's',
+    icon: '<path d="M12 3v18"/><path d="M8.5 7.5 4.5 12l4 4.5M15.5 7.5l4 4.5-4 4.5"/>',
+  },
+  {
+    id: 'perspective',
+    label: 'Perspective',
+    kind: 'p',
+    icon: '<path d="M3 20 12 6.5 21 20"/><path d="M7.2 13.4h9.6"/>',
   },
   {
     id: 'zoom',
@@ -609,6 +506,15 @@ const MENU: { id: string; label: string; icon: string }[] = [
   },
 ];
 
+const ICON_MORE =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"/>' +
+  '<circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/></svg>';
+
+const ICON_GO =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 6 6 6-6 6"/></svg>';
+
 function buildMenu() {
   if (accPop) return;
   accPop = div('acc-pop');
@@ -622,7 +528,32 @@ function buildMenu() {
     row.innerHTML =
       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ` +
       `stroke-linecap="round" stroke-linejoin="round">${item.icon}</svg>` +
-      `<span>${item.label}</span><i class="acc-sw"></i>`;
+      `<span>${item.label}</span>`;
+
+    if (item.kind) {
+      // a second, smaller control: open the engine's drawer for the full set of
+      // options (which ruler, which symmetry, how many segments, …)
+      const more = btn('acc-more');
+      more.title = 'More options';
+      more.setAttribute('aria-label', item.label + ' options');
+      more.innerHTML = ICON_MORE;
+      more.onclick = (e) => {
+        e.stopPropagation();
+        openGuidePanel();
+      };
+      row.append(more);
+    } else if (item.id === 'tools') {
+      const go = el('i', '') as HTMLElement;
+      go.className = 'acc-go';
+      go.innerHTML = ICON_GO;
+      row.append(go);
+    }
+
+    if (item.id !== 'tools') {
+      const sw = div('acc-sw');
+      row.append(sw);
+    }
+
     row.onclick = () => {
       if (item.id === 'tools') {
         toolSheet?.classList.toggle('on');
@@ -632,7 +563,7 @@ function buildMenu() {
         if (toolSheet?.classList.contains('on')) placeUnder(toolSheet, accPop || row);
         return;
       }
-      toggle(item.id as 'ruler' | 'zoom' | 'timer');
+      toggle(item.id);
       paintMenu();
     };
     accPop.append(row);
@@ -656,12 +587,19 @@ function buildMenu() {
   );
 }
 
-function toggle(id: 'ruler' | 'zoom' | 'timer') {
-  state[id] = !state[id];
-  saveState();
-  if (id === 'ruler') paintRuler();
-  if (id === 'zoom') paintZoom();
-  if (id === 'timer') {
+function toggle(id: string) {
+  const item = MENU.find((m) => m.id === id);
+  if (item && item.kind) {
+    setGuide(item.kind, !guideOn(item.kind));
+    return;
+  }
+  if (id === 'zoom') {
+    state.zoom = !state.zoom;
+    saveState();
+    paintZoom();
+  } else if (id === 'timer') {
+    state.timer = !state.timer;
+    saveState();
     loadTimer();
     paintTimer();
   }
@@ -669,12 +607,19 @@ function toggle(id: 'ruler' | 'zoom' | 'timer') {
 
 function paintMenu() {
   if (!accPop) return;
+  const g = guideState();
+  let any = false;
   accPop.querySelectorAll<HTMLElement>('.acc-item').forEach((n) => {
     const id = n.dataset.acc || '';
-    if (id === 'tools') return;
-    n.classList.toggle('on', !!(state as any)[id]);
+    const item = MENU.find((m) => m.id === id);
+    let on = false;
+    if (item && item.kind) on = g[item.kind] !== 'none';
+    else if (id === 'zoom') on = state.zoom;
+    else if (id === 'timer') on = state.timer;
+    n.classList.toggle('on', on);
+    if (on) any = true;
   });
-  accBtn?.classList.toggle('on', state.ruler || state.zoom || state.timer);
+  accBtn?.classList.toggle('on', any);
 }
 
 function placeUnder(node: HTMLElement, anchor: HTMLElement) {
@@ -709,8 +654,11 @@ function hookTrigger() {
     if (!accPop) return;
     if (accPop.classList.contains('on')) {
       accPop.classList.remove('on');
+      toolSheet?.classList.remove('on');
       return;
     }
+    // the customization sheet is anchored to this menu; it must not outlive it
+    toolSheet?.classList.remove('on');
     paintMenu();
     placeUnder(accPop, accBtn!);
   };
@@ -760,6 +708,15 @@ const CSS = `
 }
 .acc-item.on .acc-sw{background:#2f6df6!important}
 .acc-item.on .acc-sw::after{transform:translateX(14px)}
+.acc-more{
+  width:22px;height:22px;border-radius:6px;border:0!important;background:transparent!important;
+  color:#9aa5b4;display:grid;place-items:center;padding:0!important;flex:none;cursor:pointer;
+}
+.acc-more:hover{background:#e9eff9!important;color:#2f6df6}
+.acc-more svg{width:15px;height:15px;display:block}
+.acc-item.on .acc-more{color:#7f9ee0}
+.acc-go{width:22px;height:22px;display:grid;place-items:center;flex:none;color:#b3bcc8}
+.acc-go svg{width:14px;height:14px;display:block}
 
 #acc-tools{
   position:fixed;z-index:45;display:none;width:228px;padding:10px 10px 0;
@@ -786,47 +743,16 @@ const CSS = `
 .acc-tg.on{background:#2f6df6!important}
 .acc-tg.on::after{transform:translateX(14px)}
 .acc-foot{
-  display:flex;justify-content:stretch;flex:none;margin:0 -10px;padding:8px 10px 9px;
-  border-top:1px solid #eef1f6;background:#fff;
+  display:flex;justify-content:stretch;align-items:center;gap:8px;flex:none;margin:0 -10px;
+  padding:8px 10px 9px;border-top:1px solid #eef1f6;background:#fff;
 }
+.acc-hint{flex:1;font:600 10.5px/1 inherit;color:#9aa5b4;letter-spacing:.02em}
 .acc-reset{
-  flex:1;border:0!important;background:#eef4ff!important;color:#2f6df6!important;
-  font:700 12px/1 inherit;cursor:pointer;padding:9px 12px!important;border-radius:9px;
+  flex:none;border:0!important;background:#eef4ff!important;color:#2f6df6!important;
+  font:700 12px/1 inherit;cursor:pointer;padding:9px 14px!important;border-radius:9px;
 }
 .acc-reset:hover{background:#e2ecff!important}
-
-#gn-ruler{
-  position:fixed;z-index:27;display:none;height:46px;
-  transform-origin:center center;pointer-events:none;
-  filter:drop-shadow(0 6px 14px rgba(16,32,64,.22));
-}
-#gn-ruler.on{display:block}
-#gn-ruler .rl-glass{
-  position:absolute;inset:0;border-radius:6px;
-  background:
-    repeating-linear-gradient(90deg,rgba(40,60,90,.55) 0 1px,transparent 1px 10px),
-    repeating-linear-gradient(90deg,rgba(40,60,90,.9) 0 1px,transparent 1px 50px),
-    linear-gradient(180deg,rgba(255,248,220,.72),rgba(255,240,196,.62));
-  border:1px solid rgba(120,140,170,.55);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.85),inset 0 -1px 0 rgba(120,140,170,.35);
-}
-#gn-ruler .rl-grip{
-  position:absolute;pointer-events:auto;cursor:grab;
-  background:rgba(255,255,255,.9);border:1px solid rgba(120,140,170,.6);
-  border-radius:999px;
-}
-#gn-ruler .rl-move{
-  left:50%;top:50%;width:46px;height:16px;margin:-8px 0 0 -23px;
-  background:
-    repeating-linear-gradient(90deg,rgba(120,140,170,.7) 0 1px,transparent 1px 5px),
-    rgba(255,255,255,.92);
-}
-#gn-ruler .rl-rot{
-  right:-11px;top:50%;width:22px;height:22px;margin-top:-11px;cursor:ew-resize;
-  background:
-    radial-gradient(circle at 50% 50%,#2f6df6 0 3px,transparent 3px),
-    rgba(255,255,255,.95);
-}
+.acc-reset.idle{background:#f4f6f9!important;color:#aab3bf!important;cursor:default}
 
 #gn-zoomwin{
   position:fixed;z-index:29;display:none;width:190px;height:190px;border-radius:50%;
@@ -879,12 +805,10 @@ function boot() {
   document.head.append(style);
 
   loadState();
-  buildRuler();
   buildZoom();
   buildTimer();
   buildMenu();
   hookTrigger();
-  hookRuler();
   applyHidden();
 
   let lastOpen = false;
@@ -893,31 +817,27 @@ function boot() {
     if (open !== lastOpen) {
       lastOpen = open;
       if (!open) {
-        rulerEl?.classList.remove('on');
         zoomEl?.classList.remove('on');
         timerEl?.classList.remove('on');
       }
-      paintRuler();
       paintZoom();
       paintTimer();
       paintMenu();
     }
-    if (open && state.ruler) placeRuler();
   }, 250);
 
   window.addEventListener('resize', () => {
-    paintRuler();
     paintTimer();
   });
 
   (window as any).__inkpad_acc = {
     state,
-    ruler,
     timer,
     toggle,
-    project,
+    guideState,
+    setGuide,
+    openGuidePanel,
     paint: () => {
-      paintRuler();
       paintZoom();
       paintTimer();
       paintMenu();

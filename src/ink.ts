@@ -226,6 +226,8 @@ const CSS = `
   position:fixed;z-index:34;display:none;background:#fff;border-radius:16px;
   border:1px solid #eaeef5;box-shadow:0 18px 46px rgba(8,20,38,.26);
   padding:12px;color:#1c2430;
+  /* 9 swatches + 8 gaps + padding, but never wider than the screen */
+  width:270px;max-width:calc(100vw - 16px);box-sizing:border-box;
 }
 #ink-pop.on{display:block}
 #ink-pop .ttl{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
@@ -237,9 +239,10 @@ const CSS = `
   font-weight:600;color:#66707d;cursor:pointer;flex:1;
 }
 #ink-pop .tabs button.on{background:#fff;color:#1f3a63;box-shadow:0 1px 3px rgba(16,32,64,.16)}
-#ink-pop .grid{display:grid;grid-template-columns:repeat(9,22px);gap:6px}
+/* fluid columns: the swatches shrink with the box instead of spilling out of it */
+#ink-pop .grid{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:6px}
 #ink-pop .grid button{
-  width:22px;height:22px;border-radius:50%;border:0;padding:0;cursor:pointer;
+  width:100%;aspect-ratio:1;height:auto;border-radius:50%;border:0;padding:0;cursor:pointer;
   box-shadow:inset 0 0 0 1px rgba(0,0,0,.10);
 }
 #ink-pop .grid button.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.10),0 0 0 2px #fff,0 0 0 3.5px #2f6df6}
@@ -317,13 +320,14 @@ html[data-inkpen="1"] [data-inkhide]{display:none!important}
 html[data-inkpen="1"] #bar2{min-height:34px}
 
 @media(max-width:620px){
-  #ink-pop .grid{grid-template-columns:repeat(9,20px)}
-  #ink-pop .grid button{width:20px;height:20px}
+  #ink-pop{width:min(270px,calc(100vw - 16px))}
   /* the pill is wider than a phone, so let it scroll instead of running off */
   #ink-pen{max-width:calc(100vw - 12px);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
   #ink-pen::-webkit-scrollbar{display:none}
   .ink-sheet{width:min(92vw,300px)}
 }
+/* pre-empt the engine's brush drawer for the ink tools so it never flashes */
+body.ink-nodrw #gn-drw{display:none!important}
 `;
 
 /* ------------------------------------------------------------------ */
@@ -409,6 +413,134 @@ function setColor(hex: string) {
 
 function setPredictive(v: number) {
   ev(`(function(){ try { SMO = Math.max(0, Math.min(100, ${v})); localStorage.setItem('inkpad-smo', SMO); } catch(e){} })()`);
+}
+
+/* ------------------------------------------------------------------ */
+/* Dashed pen                                                          */
+/* ------------------------------------------------------------------ */
+
+type DashMode = 'solid' | 'dash' | 'dot';
+
+const DASH_KEY = 'inkpad-pendash';
+let dashMode: DashMode = 'solid';
+
+function loadDash() {
+  try {
+    const v = localStorage.getItem(DASH_KEY) || '';
+    if (v === 'dash' || v === 'dot' || v === 'solid') dashMode = v;
+  } catch {
+    /* private mode */
+  }
+}
+
+function setDashMode(m: DashMode) {
+  dashMode = m;
+  try {
+    localStorage.setItem(DASH_KEY, m);
+  } catch {
+    /* private mode */
+  }
+  ev(`(function(){ window.__gnPenDash = ${JSON.stringify(m)}; })()`);
+}
+
+/**
+ * The engine has no dashed pen: `end()` rebuilds the committed stroke from a
+ * fixed field list, so a flag put on the live stroke is thrown away. Two hooks
+ * therefore, one for each half of the problem:
+ *
+ *   • `stroke()` is wrapped so a stroke carrying `ds` is drawn as a real
+ *     polyline dash — crisp butt caps, even spacing, no pressure ribbon — which
+ *     is what a "formal" dashed line looks like rather than a wobbly sketch;
+ *   • the strokes the engine pushed during the gesture are tagged on the way
+ *     out, so the dash survives save, reload, undo and sync.
+ */
+function hookDashStroke() {
+  ev(`(function(){
+    if (window.__gnDashHooked) return;
+    window.__gnDashHooked = true;
+    window.__gnPenDash = ${JSON.stringify(dashMode)};
+
+    var orig = stroke;
+
+    function drawDash(c, s){
+      var p = s.p;
+      if (!p || p.length < 2) return;
+      var w = s.w || 2;
+      var isHl = s.t === 'hl';
+      c.save();
+      c.lineCap = 'butt';
+      c.lineJoin = 'round';
+      c.strokeStyle = s.c;
+      c.lineWidth = isHl ? w * 2.2 : w;
+      if (isHl) c.globalAlpha = c.globalAlpha * 0.42;
+      var dm = s.dm || window.__gnPenDash || 'dash';
+      if (dm === 'dot') {
+        c.lineCap = 'round';
+        c.setLineDash([0.01, Math.max(5, w * 2.6)]);
+      } else {
+        c.setLineDash([Math.max(6, w * 3), Math.max(5, w * 2.2)]);
+      }
+      pth(c, p);
+      c.stroke();
+      c.restore();
+    }
+
+    stroke = function(c, s){
+      if (s && s.p && s.p.length > 1 && (s.t === 'pen' || s.t === 'hl')) {
+        var live = window.__gnPenDash;
+        if (s.ds || (live && live !== 'solid' && s === cur)) {
+          drawDash(c, s);
+          return;
+        }
+      }
+      return orig.apply(this, arguments);
+    };
+  })()`);
+}
+
+/** Strokes already on the page when the gesture started. */
+let pdCount = 0;
+let pdTool = '';
+
+function hookDashCommit() {
+  window.addEventListener(
+    'pointerdown',
+    () => {
+      if (dashMode === 'solid') return;
+      pdCount = ev<number>('(typeof pg === "function" && pg()) ? pg().strokes.length : 0') ?? 0;
+      pdTool = ev<string>('tool') || '';
+      if (pdTool !== 'pen' && pdTool !== 'hl') return;
+      // give the live stroke its dashes straight away so the preview matches
+      window.setTimeout(() => {
+        ev(`(function(){ try{ if(cur && (cur.t==='pen'||cur.t==='hl')){ cur.ds=1; cur.dm=${JSON.stringify(dashMode)}; } }catch(e){} })()`);
+      }, 0);
+    },
+    true,
+  );
+
+  window.addEventListener('pointerup', () => {
+    if (dashMode === 'solid') return;
+    if (pdTool !== 'pen' && pdTool !== 'hl') return;
+    ev(`(function(){
+      try{
+        if (typeof pg !== 'function' || !nb) return;
+        var p = pg(), n = ${pdCount};
+        if (!p || p.strokes.length <= n) return;
+        var hit = false;
+        for (var i = n; i < p.strokes.length; i++) {
+          var s = p.strokes[i];
+          if (!s) continue;
+          if (s.t === 'pen' || s.t === 'hl' ||
+              (s.t === 'shape' && (s.k === 'line' || s.k === 'rect' || s.k === 'ell'))) {
+            s.ds = 1;
+            s.dm = ${JSON.stringify(dashMode)};
+            hit = true;
+          }
+        }
+        if (hit) { draw(); save(); }
+      }catch(e){}
+    })()`);
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -562,7 +694,6 @@ function buildColorPopover() {
   if (colorPop) return;
   const p = el('div');
   p.id = 'ink-pop';
-  p.style.width = '242px';
   document.body.append(p);
   colorPop = p;
   paintColorPop();
@@ -851,6 +982,27 @@ bd.append(sec('Stroke Stabilization'));
   };
   smo.append(range, out);
   bd.append(smo);
+
+  // line style — a dashed stroke is a pen property, not a shape one
+  bd.append(sec('Line Style'));
+  const types = el('div', '');
+  types.className = 'types';
+  ([
+    ['solid', 'Solid'],
+    ['dash', 'Dashed'],
+    ['dot', 'Dotted'],
+  ] as [DashMode, string][]).forEach(([m, label]) => {
+    const b = el('button', '', label) as HTMLButtonElement;
+    b.type = 'button';
+    b.title = m === 'solid' ? 'Continuous line' : m === 'dash' ? 'Even, formal dashes' : 'Round dots';
+    b.classList.toggle('on', dashMode === m);
+    b.onclick = () => {
+      setDashMode(m);
+      paintPenSheet();
+    };
+    types.append(b);
+  });
+  bd.append(types);
 
   // pressure
 bd.append(sec('Stylus'));
@@ -1163,14 +1315,11 @@ function closeDrawer() {
   ev(`(function(){ try { closeDr(); } catch(e){} })()`);
 }
 
-/** When a drawing tool was last picked from the rail. */
-let toolClickAt = 0;
-
 /**
  * Clicking a drawing tool makes the engine open its own options drawer. That
  * drawer used to hold the pen type / thickness / predictive controls, but our
  * panel owns those now — and while it is open it covers the top of the page and
- * swallows strokes. So for the ink tools we close it the moment it appears.
+ * swallows strokes. So for the ink tools it is suppressed before it is painted.
  *
  * The same drawer is also what the Settings button opens, and that one has to
  * survive: only a drawer that follows a tool click is shadowed.
@@ -1181,9 +1330,12 @@ function hookDrawer() {
     if (!drw) return false;
     new MutationObserver(() => {
       if (drw.style.display !== 'block') return;
-      if (performance.now() - toolClickAt > 700) return;
-      const t = ev<string>('tool') || '';
-      if (t === 'pen' || t === 'pe' || t === 'hl') window.setTimeout(closeDrawer, 0);
+      // only a drawer opened by an ink-tool click is ours to close; anything
+      // else (Settings, Guides, Layers) must survive. The `ink-nodrw` class is
+      // set for the duration of exactly that click, so it is the precise test —
+      // a time window let a Settings press land inside it by accident.
+      if (!document.body.classList.contains('ink-nodrw')) return;
+      window.setTimeout(closeDrawer, 0);
     }).observe(drw, { attributes: true, attributeFilter: ['style'] });
     return true;
   };
@@ -1194,7 +1346,18 @@ function hookDrawer() {
     (e) => {
       const t = e.target as HTMLElement | null;
       if (!t || !t.closest) return;
-      if (t.closest('#tb [data-t]')) toolClickAt = performance.now();
+      const hit = t.closest('#tb [data-t]') as HTMLElement | null;
+      if (!hit) return;
+
+      // Pre-empt the drawer instead of closing it afterwards. The engine opens
+      // it from its own pointerdown handler; a capture listener on the same
+      // node runs first, so blanketing it with `!important` here means it is
+      // never painted at all. Closing it a frame later (the old way) showed a
+      // one-frame flash — that was the "brushes dropdown disappears quickly".
+      const tool = hit.dataset.t || '';
+      if (tool !== 'pen' && tool !== 'pe' && tool !== 'hl') return;
+      document.body.classList.add('ink-nodrw');
+      window.setTimeout(() => document.body.classList.remove('ink-nodrw'), 320);
     },
     true,
   );
@@ -1246,6 +1409,9 @@ function boot() {
   hookDrawer();
   pushEraserMode();
   hookAutoDeselect();
+  loadDash();
+  hookDashStroke();
+  hookDashCommit();
 
   // close popovers on outside press
   window.addEventListener(

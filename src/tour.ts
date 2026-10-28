@@ -2228,6 +2228,23 @@ function ensureFab() {
   document.body.appendChild(b);
 }
 
+/**
+ * The animation frame bar sits across the bottom of the page whenever animation
+ * is on, right under the "?" button. Lift the button clear of it rather than
+ * parking it at a fixed height — the bar's own height changes with the filmstrip.
+ */
+function placeFab() {
+  const fab = document.getElementById('tour-fab');
+  if (!fab) return;
+  let bottom = 74;
+  const frb = document.getElementById('frb');
+  if (frb && getComputedStyle(frb).display !== 'none') {
+    const r = frb.getBoundingClientRect();
+    if (r.height > 0) bottom = Math.max(bottom, Math.round(window.innerHeight - r.top) + 10);
+  }
+  fab.style.bottom = bottom + 'px';
+}
+
 function edVisible(): boolean {
   const ed = document.getElementById('ed');
   return !!ed && getComputedStyle(ed).display !== 'none';
@@ -2253,6 +2270,7 @@ function watchEditor() {
     const open = edVisible();
     const fab = document.getElementById('tour-fab');
     if (fab) fab.style.display = open ? 'flex' : 'none';
+    if (open) placeFab();
     if (open && !wasOpen) {
       // first time in the editor: offer the tool tour
       clearTimeout(autoEditorTimer);

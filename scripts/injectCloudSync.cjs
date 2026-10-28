@@ -52,6 +52,7 @@ const pwaHead = `
 <script type="module" src="/src/study.ts"></script>
 <script type="module" src="/src/create.ts"></script>
 <script type="module" src="/src/stickers.ts"></script>
+<script type="module" src="/src/notes.ts"></script>
 <script type="module" src="/src/scribble.ts"></script>
 `;
 content = mustReplace(content, '</head>', `${pwaHead}</head>`, '</head>');
@@ -263,6 +264,16 @@ content = mustReplace(content, varCallOld, varCallNew, 'varStroke texture argume
 const grainOld = `if(!m){c.setLineDash(cr?[1,2,3,1.5]:[1,3]);c.globalAlpha=cr?.5:.35;c.lineWidth=s.w*(cr?2.8:1.6);c.stroke()}`;
 const grainNew = `if(!m){c.lineCap="round";c.globalAlpha=cr?.34:.24;c.lineWidth=s.w*(cr?2.85:1.65);pth(c,p);c.stroke()}`;
 content = mustReplace(content, grainOld, grainNew, 'pencil grain pass');
+
+// 7j-2. Dashed shapes were drawn with round caps and a 3w/2w pattern, which
+// reads as a row of sausages rather than a ruled dash. Butt caps plus a pattern
+// scaled to the stroke width give the crisp dash a ruler-and-pen line wants,
+// and `s.dm` lets a shape ask for dots instead.
+const dashOld = `if(s.ds)c.setLineDash([s.w*3+6,s.w*2+4]);`;
+const dashNew =
+  `if(s.ds){if(s.dm==="dot"){c.lineCap="round";c.setLineDash([0.1,Math.max(5,s.w*2.8)])}` +
+  `else{c.lineCap="butt";c.setLineDash([Math.max(7,s.w*4),Math.max(6,s.w*3)])}}`;
+content = mustReplace(content, dashOld, dashNew, 'shape dash pattern');
 
 // 7k. Thickness: one-decimal steps on the slider AND on the numeric field the
 // engine builds at runtime (#sizen), which is the visible readout.
@@ -493,6 +504,7 @@ const requiredMarkers = [
   ['toolbar rail module', 'src="/src/toolbar.ts"'],
   ['notebook studio module', 'src="/src/create.ts"'],
   ['sticker library module', 'src="/src/stickers.ts"'],
+  ['sticky note module', 'src="/src/notes.ts"'],
   ['scribble to erase module', 'src="/src/scribble.ts"'],
   ['ink panel module', 'src="/src/ink.ts"'],
   ['shape module', 'src="/src/shapes.ts"'],
