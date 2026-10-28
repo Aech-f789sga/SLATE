@@ -42,6 +42,7 @@ const pwaHead = `
 <script type="module" src="/src/tour.ts"></script>
 <script type="module" src="/src/snap.ts"></script>
 <script type="module" src="/src/theme.ts"></script>
+<script type="module" src="/src/toolbar.ts"></script>
 <script type="module" src="/src/ink.ts"></script>
 <script type="module" src="/src/shapes.ts"></script>
 <script type="module" src="/src/text.ts"></script>
@@ -242,11 +243,12 @@ const varNew = `function varStroke(c,p,w0,tex){const n0=p.length;if(!n0)return;
  const L=[],R=[];
  for(let i=0;i<n;i++){const a=p2[Math.max(0,i-1)],b=p2[Math.min(n-1,i+1)];let dx=b[0]-a[0],dy=b[1]-a[1];const d=Math.hypot(dx,dy)||1;dx/=d;dy/=d;const h=w0*(p2[i][2]||1)/2;L.push([p2[i][0]-dy*h,p2[i][1]+dx*h]);R.push([p2[i][0]+dy*h,p2[i][1]-dx*h])}
  if(wmax<1.6){c.save();c.lineCap="round";c.lineJoin="round";c.lineWidth=Math.max(.85,wsum/n);c.beginPath();c.moveTo(p2[0][0],p2[0][1]);for(let i=1;i<n-1;i++){const mx=(p2[i][0]+p2[i+1][0])/2,my=(p2[i][1]+p2[i+1][1])/2;c.quadraticCurveTo(p2[i][0],p2[i][1],mx,my)}if(n>1)c.lineTo(p2[n-1][0],p2[n-1][1]);c.stroke();c.restore();return}
- c.beginPath();c.moveTo(L[0][0],L[0][1]);for(let i=1;i<n;i++)c.lineTo(L[i][0],L[i][1]);for(let i=n-1;i>=0;i--)c.lineTo(R[i][0],R[i][1]);c.closePath();c.fill();
- if(tex){const ga=c.globalAlpha;let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(let i=0;i<n;i++){if(L[i][0]<x0)x0=L[i][0];if(R[i][0]<x0)x0=R[i][0];if(L[i][0]>x1)x1=L[i][0];if(R[i][0]>x1)x1=R[i][0];if(L[i][1]<y0)y0=L[i][1];if(R[i][1]<y0)y0=R[i][1];if(L[i][1]>y1)y1=L[i][1];if(R[i][1]>y1)y1=R[i][1]}
-  const gt=varStroke._gt||(varStroke._gt=(function(){const q=document.createElement("canvas");q.width=q.height=16;const g=q.getContext("2d");let sd=24681357;const rr=()=>{sd=(sd*1103515245+12345)&0x7fffffff;return sd/0x7fffffff};g.fillStyle="#000";for(let y=0;y<16;y++)for(let x=0;x<16;x++){const v=rr();if(v<.72){g.globalAlpha=.3+rr()*.7;g.fillRect(x,y,1,1)}}return q})());
-  c.save();c.clip();c.globalCompositeOperation="destination-out";c.globalAlpha=tex==="crayon"?.4:.3;c.fillStyle=c.createPattern(gt,"repeat");c.fillRect(x0-1,y0-1,x1-x0+2,y1-y0+2);c.restore();c.globalAlpha=ga}
- if(c.globalAlpha>=1)[p2[0],p2[n-1]].forEach(q=>{c.beginPath();c.arc(q[0],q[1],w0*(q[2]||1)/2,0,7);c.fill()})}`;
+ c.beginPath();c.moveTo(L[0][0],L[0][1]);for(let i=1;i<n;i++)c.lineTo(L[i][0],L[i][1]);for(let i=n-1;i>=0;i--)c.lineTo(R[i][0],R[i][1]);c.closePath();
+ [p2[0],p2[n-1]].forEach(q=>{const hh=w0*(q[2]||1)/2;c.moveTo(q[0]+hh,q[1]);c.arc(q[0],q[1],hh,0,7)});
+ c.fill();
+ if(tex){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(let i=0;i<n;i++){if(L[i][0]<x0)x0=L[i][0];if(R[i][0]<x0)x0=R[i][0];if(L[i][0]>x1)x1=L[i][0];if(R[i][0]>x1)x1=R[i][0];if(L[i][1]<y0)y0=L[i][1];if(R[i][1]<y0)y0=R[i][1];if(L[i][1]>y1)y1=L[i][1];if(R[i][1]>y1)y1=R[i][1]}
+  const gt=varStroke._gt||(varStroke._gt=(function(){const q=document.createElement("canvas");q.width=q.height=24;const g=q.getContext("2d"),d=g.createImageData(24,24);let sd=24681357;const rr=()=>{sd=(sd*1103515245+12345)&0x7fffffff;return sd/0x7fffffff};for(let i=0;i<d.data.length;i+=4){d.data[i]=255;d.data[i+1]=255;d.data[i+2]=255;d.data[i+3]=rr()>.55?Math.round(26+rr()*150):0}g.putImageData(d,0,0);return q})());
+  c.save();c.clip();c.globalCompositeOperation="source-atop";c.globalAlpha=tex==="crayon"?.8:.62;c.fillStyle=c.createPattern(gt,"repeat");c.fillRect(x0-1,y0-1,x1-x0+2,y1-y0+2);c.restore()}}`;
 content = mustReplace(content, varOld, varNew, 'varStroke ribbon');
 
 // 7i-2. Hand the brush name to varStroke so the grain pass can pick its own
@@ -255,10 +257,11 @@ const varCallOld = `varStroke(c,p,s.w*m,v==="pencil"||v==="crayon")`;
 const varCallNew = `varStroke(c,p,s.w*m,(v==="pencil"||v==="crayon")?v:0)`;
 content = mustReplace(content, varCallOld, varCallNew, 'varStroke texture argument');
 
-// 7j. Pencil / crayon grain pass used round caps, which turned every dash into
-// a bead ("bubbles" along the trail). Flat caps read as paper tooth instead.
+// 7j. Pencil / crayon grain pass used a dashed stroke, which at 2x width reads
+// as a ladder of perpendicular ticks along the trail. A soft, solid halo pass
+// at low alpha gives the same tooth without any directional artefact.
 const grainOld = `if(!m){c.setLineDash(cr?[1,2,3,1.5]:[1,3]);c.globalAlpha=cr?.5:.35;c.lineWidth=s.w*(cr?2.8:1.6);c.stroke()}`;
-const grainNew = `if(!m){c.lineCap="butt";c.setLineDash(cr?[1.4,2.2]:[.7,2.1]);c.globalAlpha=cr?.5:.32;c.lineWidth=s.w*(cr?2.2:1.15);c.stroke()}`;
+const grainNew = `if(!m){c.lineCap="round";c.globalAlpha=cr?.34:.24;c.lineWidth=s.w*(cr?2.85:1.65);pth(c,p);c.stroke()}`;
 content = mustReplace(content, grainOld, grainNew, 'pencil grain pass');
 
 // 7k. Thickness: one-decimal steps on the slider AND on the numeric field the
@@ -487,6 +490,7 @@ const requiredMarkers = [
   ['cloud sync bridge', 'window.__inkpad_cloud'],
   ['cloud sync module', 'src="/src/cloudSync.ts"'],
   ['goodnotes shell module', 'src="/src/theme.ts"'],
+  ['toolbar rail module', 'src="/src/toolbar.ts"'],
   ['notebook studio module', 'src="/src/create.ts"'],
   ['sticker library module', 'src="/src/stickers.ts"'],
   ['scribble to erase module', 'src="/src/scribble.ts"'],

@@ -57,9 +57,21 @@ const GROUPS: { id: string; label: string; items: string[] }[] = [
 
 const cache = new Map<string, string>();
 
-/** Render an emoji to a transparent PNG so it behaves like any other image. */
-function emojiPng(ch: string, size = 112): string {
-  const hit = cache.get(ch);
+/**
+ * Stickers are ordinary page images, so their sharpness is decided by the size
+ * we rasterise them at: the engine scales the bitmap, it does not re-render it.
+ * 112 px looked fine in the picker and fell apart the moment you resized one.
+ *
+ * 640 px gives roughly 3x headroom over the default drop size. WebP keeps that
+ * affordable — the same glyph is ~19 KB instead of ~290 KB as PNG, which
+ * matters because stickers live inside the notebook document that syncs.
+ */
+const STICKER_PX = 640;
+
+/** Render an emoji to a transparent bitmap so it behaves like any other image. */
+function emojiPng(ch: string, size = STICKER_PX): string {
+  const key = ch + '|' + size;
+  const hit = cache.get(key);
   if (hit) return hit;
   const c = document.createElement('canvas');
   c.width = size;
@@ -67,12 +79,17 @@ function emojiPng(ch: string, size = 112): string {
   const g = c.getContext('2d');
   if (!g) return '';
   g.clearRect(0, 0, size, size);
-  g.font = `${Math.round(size * 0.8)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui,sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText(ch, size / 2, size / 2 + size * 0.045);
-  const url = c.toDataURL('image/png');
-  cache.set(ch, url);
+  g.font = `${Math.round(size * 0.82)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twemoji Mozilla",system-ui,sans-serif`;
+  g.fillText(ch, size / 2, size / 2 + size * 0.04);
+
+  let url = c.toDataURL('image/webp', 0.92);
+  if (url.startsWith('data:image/png') && size > 384) {
+    // no WebP encoder in this browser — drop to a size whose PNG stays small
+    return emojiPng(ch, 384);
+  }
+  cache.set(key, url);
   return url;
 }
 
@@ -141,7 +158,7 @@ function place(ch: string) {
   if (!src) return;
 
   const size = ev<number>('typeof W === "number" ? W : 800') || 800;
-  const w = Math.round(Math.min(240, size * 0.24));
+  const w = Math.round(Math.min(240, size * 0.3));
   (window as any).__gnSticker = { src, w, h: w };
 
   ev(`(function(){
@@ -172,6 +189,16 @@ function toast(ch: string) {
 /* Toolbar button                                                      */
 /* ------------------------------------------------------------------ */
 
+function togglePanel() {
+  const md = panel();
+  if (md.classList.contains('on')) {
+    md.classList.remove('on');
+    return;
+  }
+  render(md);
+  md.classList.add('on');
+}
+
 function ensureButton() {
   const bar2 = document.getElementById('bar2');
   if (!bar2 || document.getElementById('gn-stk-btn')) return;
@@ -180,11 +207,7 @@ function ensureButton() {
   b.type = 'button';
   b.title = 'Stickers — drop decorations onto the page';
   b.textContent = '🧩 Stickers';
-  b.onclick = () => {
-    const md = panel();
-    render(md);
-    md.classList.add('on');
-  };
+  b.onclick = () => togglePanel();
   const snap = document.getElementById('snap-btn');
   if (snap && snap.parentElement === bar2) bar2.insertBefore(b, snap);
   else bar2.append(b);
@@ -240,13 +263,10 @@ function boot() {
   window.setInterval(ensureButton, 900);
 
   (window as any).__inkpad_stickers = {
-    open: () => {
-      const md = panel();
-      render(md);
-      md.classList.add('on');
-    },
+    open: () => togglePanel(),
     add: (ch: string) => place(ch),
     png: (ch: string) => emojiPng(ch),
+    px: STICKER_PX,
   };
 }
 

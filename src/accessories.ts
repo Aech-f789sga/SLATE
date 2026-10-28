@@ -97,6 +97,9 @@ function loadState() {
   } catch {
     /* ignore */
   }
+  // older builds stored tools that no longer exist as separate buttons
+  const known = new Set([...Object.keys(TOOL_LABELS), ...Object.keys(EXTRA)]);
+  state.hidden = state.hidden.filter((k) => known.has(k));
   state.ruler = lsGet('inkpad-ruler', '0') === '1';
   state.zoom = lsGet('inkpad-zoomwin', '0') === '1';
   state.timer = lsGet('inkpad-timekeeper', '0') === '1';
@@ -477,14 +480,35 @@ const TOOL_LABELS: Record<string, string> = {
   pen: 'Pen',
   hl: 'Highlighter',
   er: 'Eraser',
-  pe: 'Precision eraser',
-  line: 'Line',
-  rect: 'Rectangle',
-  ell: 'Oval',
   text: 'Text',
   sel: 'Lasso',
   laser: 'Laser pointer',
   bk: 'Bucket fill',
+};
+
+/**
+ * Buttons that are ours rather than the engine's `[data-t]` tools. They belong
+ * in the same list — a toolbar editor that cannot hide half the toolbar is not
+ * a toolbar editor.
+ */
+const EXTRA: Record<string, string> = {
+  shapes: '#sh-trigger',
+  img: '#img',
+  stickers: '#gn-stk-btn',
+  snap: '#snap-btn',
+  undo: '#undo',
+  redo: '#redo',
+  accessories: '#acc-trigger',
+};
+
+const EXTRA_LABELS: Record<string, string> = {
+  shapes: 'Shapes',
+  img: 'Image',
+  stickers: 'Stickers',
+  snap: 'Snap',
+  undo: 'Undo',
+  redo: 'Redo',
+  accessories: 'Accessories',
 };
 
 function applyHidden() {
@@ -493,6 +517,11 @@ function applyHidden() {
     const hide = state.hidden.includes(t);
     n.style.display = hide ? 'none' : '';
   });
+  for (const [key, sel] of Object.entries(EXTRA)) {
+    const n = document.querySelector<HTMLElement>(`#tb ${sel}`);
+    if (!n) continue;
+    n.style.display = state.hidden.includes(key) ? 'none' : '';
+  }
 }
 
 function buildToolSheet(): HTMLElement {
@@ -502,11 +531,17 @@ function buildToolSheet(): HTMLElement {
   node.append(head);
 
   const list = div('acc-list');
-  for (const [id, label] of Object.entries(TOOL_LABELS)) {
+  const rows: [string, string][] = [
+    ...Object.entries(TOOL_LABELS),
+    ...Object.entries(EXTRA_LABELS),
+  ];
+  for (const [id, label] of rows) {
     const row = div('acc-row');
+    row.dataset.tool = id;
     const name = div('acc-name', label);
     const tg = btn('acc-tg');
     tg.dataset.tool = id;
+    tg.setAttribute('role', 'switch');
     tg.onclick = () => {
       if (state.hidden.includes(id)) state.hidden = state.hidden.filter((x) => x !== id);
       else state.hidden.push(id);
@@ -592,7 +627,9 @@ function buildMenu() {
       if (item.id === 'tools') {
         toolSheet?.classList.toggle('on');
         paintTools();
-        if (toolSheet?.classList.contains('on')) placeUnder(toolSheet, row);
+        // hang the sheet under the menu it came from, not under its own row,
+        // or it covers the item you just pressed
+        if (toolSheet?.classList.contains('on')) placeUnder(toolSheet, accPop || row);
         return;
       }
       toggle(item.id as 'ruler' | 'zoom' | 'timer');
@@ -725,15 +762,18 @@ const CSS = `
 .acc-item.on .acc-sw::after{transform:translateX(14px)}
 
 #acc-tools{
-  position:fixed;z-index:45;display:none;width:212px;padding:10px 10px 8px;
+  position:fixed;z-index:45;display:none;width:228px;padding:10px 10px 0;
   background:#fff;border:1px solid #eef1f6;border-radius:14px;
   box-shadow:0 16px 38px rgba(8,20,38,.20),0 2px 6px rgba(8,20,38,.08);
-  font-family:inherit;max-height:70vh;overflow:auto;
+  font-family:inherit;max-height:min(72vh,470px);
+  flex-direction:column;overflow:hidden;
 }
-#acc-tools.on{display:block}
-.acc-list{display:flex;flex-direction:column;gap:1px}
+#acc-tools.on{display:flex}
+#acc-tools .acc-sh{flex:none}
+.acc-list{display:flex;flex-direction:column;gap:1px;flex:1;overflow:auto;min-height:0;padding-bottom:4px}
 .acc-row{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 7px;border-radius:8px}
 .acc-row:hover{background:#f6f8fb}
+.acc-row.off .acc-name{color:#a6b0bd}
 .acc-name{flex:1;font:500 12px/1.3 inherit;color:#3c4654}
 .acc-tg{
   width:32px;height:18px;border-radius:999px;border:0!important;background:#d8dee7!important;
@@ -745,12 +785,15 @@ const CSS = `
 }
 .acc-tg.on{background:#2f6df6!important}
 .acc-tg.on::after{transform:translateX(14px)}
-.acc-foot{display:flex;justify-content:flex-end;margin-top:6px;padding-top:6px;border-top:1px solid #eef1f6}
-.acc-reset{
-  border:0!important;background:transparent!important;color:#2f6df6!important;
-  font:700 11px/1 inherit;cursor:pointer;padding:5px 7px!important;border-radius:7px;
+.acc-foot{
+  display:flex;justify-content:stretch;flex:none;margin:0 -10px;padding:8px 10px 9px;
+  border-top:1px solid #eef1f6;background:#fff;
 }
-.acc-reset:hover{background:#eef4ff}
+.acc-reset{
+  flex:1;border:0!important;background:#eef4ff!important;color:#2f6df6!important;
+  font:700 12px/1 inherit;cursor:pointer;padding:9px 12px!important;border-radius:9px;
+}
+.acc-reset:hover{background:#e2ecff!important}
 
 #gn-ruler{
   position:fixed;z-index:27;display:none;height:46px;

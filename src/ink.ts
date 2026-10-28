@@ -319,6 +319,10 @@ html[data-inkpen="1"] #bar2{min-height:34px}
 @media(max-width:620px){
   #ink-pop .grid{grid-template-columns:repeat(9,20px)}
   #ink-pop .grid button{width:20px;height:20px}
+  /* the pill is wider than a phone, so let it scroll instead of running off */
+  #ink-pen{max-width:calc(100vw - 12px);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  #ink-pen::-webkit-scrollbar{display:none}
+  .ink-sheet{width:min(92vw,300px)}
 }
 `;
 
@@ -770,18 +774,40 @@ function setTab(t: 'presets' | 'custom' | 'recent') {
   paintColorPop();
 }
 
+/**
+ * Only one ink panel can be up at a time, and tapping the icon that opened a
+ * panel puts it away again. Both rules live here so the pill's three popovers
+ * cannot drift apart.
+ */
+type PanelKind = 'color' | 'pen' | 'er';
+let activePanel: PanelKind | '' = '';
+
+function closePanels() {
+  colorPop?.classList.remove('on');
+  penSheet?.classList.remove('on');
+  erSheet?.classList.remove('on');
+  activePanel = '';
+}
+
 function openColorPopover(anchor: HTMLElement) {
+  if (activePanel === 'color') {
+    closePanels();
+    return;
+  }
   buildColorPopover();
   if (!colorPop) return;
+  closePanels();
   popAnchor = anchor;
+  tab = 'presets';
+  wheelTouched = false;
+  paintColorPop();
   placePop(colorPop, anchor);
   colorPop.classList.add('on');
-  tab = 'presets';
-  paintColorPop();
+  activePanel = 'color';
 }
 
 function hidePop() {
-  colorPop?.classList.remove('on');
+  closePanels();
 }
 
 /* ------------------------------------------------------------------ */
@@ -807,35 +833,8 @@ function paintPenSheet() {
   const bd = el('div', '');
   bd.className = 'bd';
 
-  // pen types
-bd.append(sec('Pen Type'));
-  const types = el('div', '');
-  types.className = 'types';
-  const active = currentPenType();
-  PEN_TYPES.forEach((t) => {
-    const b = el('button', '', t.label);
-    b.classList.toggle('on', t.v === active);
-    b.onclick = () => {
-      setPenType(t.v);
-      paintPenSheet();
-    };
-    types.append(b);
-  });
-  bd.append(types);
-
-  // thickness
-bd.append(sec('Thickness'));
-  const thick = row('Thickness', 'Stroke width in pixels');
-  const num = el('input') as HTMLInputElement;
-  num.className = 'num';
-  num.type = 'number';
-  num.min = '1';
-  num.max = '100';
-  num.step = '0.5';
-  num.value = String(currentSize());
-  num.oninput = () => setSize(Math.max(1, Math.min(100, +num.value || 1)));
-  thick.append(num);
-  bd.append(thick);
+  // Pen type and thickness live on the floating pill; only the things the pill
+  // cannot show belong in here, so nothing is offered twice.
 
   // predictive / stabilization
 bd.append(sec('Stroke Stabilization'));
@@ -896,12 +895,18 @@ function row(label: string, sub?: string): HTMLElement {
 }
 
 function openPenSettings(anchor: HTMLElement) {
+  if (activePanel === 'pen') {
+    closePanels();
+    return;
+  }
   buildPenSheet();
   if (!penSheet) return;
+  closePanels();
   paintPenSheet();
   placePop(penSheet, anchor);
   penSheet.classList.add('on');
   penSheet.dataset.kind = 'pen';
+  activePanel = 'pen';
 }
 
 /* ------------------------------------------------------------------ */
@@ -939,6 +944,13 @@ function paintErSheet() {
     eraserMode = on ? 'tape' : 'all';
     lsSet('inkpad-eraser-mode', eraserMode);
     pushEraserMode();
+    paintErSheet();
+  }));
+  // the engine's second eraser (whole-stroke) used to be its own toolbar button;
+  // it is the same tool with a different reach, so it is a mode here instead
+  bd.append(toggleRow('Erase Whole Stroke', 'Lift the entire line instead of a piece of it', ev<string>('tool') === 'pe', (on) => {
+    ev(`(function(){ try{ tool = ${JSON.stringify(on ? 'pe' : 'er')}; syncTools(); }catch(e){} })()`);
+    lastTool = on ? 'pe' : 'er';
     paintErSheet();
   }));
 
@@ -981,17 +993,22 @@ function toggleRow(label: string, sub: string, on: boolean, cb: (v: boolean) => 
 }
 
 function openEraserSettings(anchor: HTMLElement) {
+  if (activePanel === 'er') {
+    closePanels();
+    return;
+  }
   buildErSheet();
   if (!erSheet) return;
+  closePanels();
   paintErSheet();
   placePop(erSheet, anchor);
   erSheet.classList.add('on');
   erSheet.dataset.kind = 'er';
+  activePanel = 'er';
 }
 
 function hideSheets() {
-  penSheet?.classList.remove('on');
-  erSheet?.classList.remove('on');
+  closePanels();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1146,11 +1163,17 @@ function closeDrawer() {
   ev(`(function(){ try { closeDr(); } catch(e){} })()`);
 }
 
+/** When a drawing tool was last picked from the rail. */
+let toolClickAt = 0;
+
 /**
  * Clicking a drawing tool makes the engine open its own options drawer. That
  * drawer used to hold the pen type / thickness / predictive controls, but our
  * panel owns those now — and while it is open it covers the top of the page and
  * swallows strokes. So for the ink tools we close it the moment it appears.
+ *
+ * The same drawer is also what the Settings button opens, and that one has to
+ * survive: only a drawer that follows a tool click is shadowed.
  */
 function hookDrawer() {
   const attach = (): boolean => {
@@ -1158,12 +1181,23 @@ function hookDrawer() {
     if (!drw) return false;
     new MutationObserver(() => {
       if (drw.style.display !== 'block') return;
+      if (performance.now() - toolClickAt > 700) return;
       const t = ev<string>('tool') || '';
       if (t === 'pen' || t === 'pe' || t === 'hl') window.setTimeout(closeDrawer, 0);
     }).observe(drw, { attributes: true, attributeFilter: ['style'] });
     return true;
   };
   if (!attach()) window.setTimeout(() => attach(), 600);
+
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || !t.closest) return;
+      if (t.closest('#tb [data-t]')) toolClickAt = performance.now();
+    },
+    true,
+  );
 
   // Belt and braces: any press on the page closes a stale drawer so it can
   // never sit between the user and their strokes.
@@ -1182,8 +1216,12 @@ function tick() {
     lastTool = tool;
     lastOpen = open;
     paintPanel();
-    hidePop();
-    hideSheets();
+    // switching inside the ink family must not close the settings you are in
+    const ink = tool === 'pen' || tool === 'pe' || tool === 'hl' || tool === 'er';
+    if (!ink) {
+      hidePop();
+      hideSheets();
+    }
   }
   place();
 }
