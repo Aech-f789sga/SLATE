@@ -212,6 +212,15 @@ const PAINT: Record<string, (c: CanvasRenderingContext2D, p: Paper, W: number, H
   },
 
   /* ---- planner: daily ------------------------------------------ */
+  /**
+   * The hour labels used to be written straight onto the rules, and because the
+   * canvas' `textBaseline` was inherited from whatever the last stroke left
+   * behind they landed either across the line or on top of the next one.
+   *
+   * Now each hour owns a row: the rule sits at the top of the row and the label
+   * is centred in the gutter *between* two rules, so the two can never touch.
+   * A dotted half-hour rule breaks each row in two, the way a day planner does.
+   */
   daily(c, p, W, H) {
     const ink = p.ln || 'rgba(90,110,145,.5)';
     const g = p.gap || 32;
@@ -219,28 +228,60 @@ const PAINT: Record<string, (c: CanvasRenderingContext2D, p: Paper, W: number, H
     const left = Math.round(W * 0.055);
     const right = W - left;
     const top = Math.round(H * 0.12);
-    const hourX = left + Math.round(W * 0.1);
+    const bottom = H - left;
+    const hourX = left + Math.round(W * 0.105);
+    // fill the page exactly: pick the row count, then stretch the rows to suit
+    const rows = Math.max(1, Math.round((bottom - top) / (g * 2)));
+    const rowH = (bottom - top) / rows;
 
     c.save();
+    c.textBaseline = 'middle';
     c.fillStyle = ink;
     c.font = `700 ${Math.round(H * 0.026)}px system-ui,sans-serif`;
     c.fillText('DAY', left, Math.round(H * 0.075));
-    c.restore();
+
+    // date line on the right of the header
+    c.textAlign = 'right';
+    c.font = `600 ${Math.round(H * 0.015)}px system-ui,sans-serif`;
+    c.fillText('date  /  /', right, Math.round(H * 0.075));
+    c.textAlign = 'left';
 
     c.strokeStyle = ink;
     c.lineWidth = lw;
-    line(c, hourX, top, hourX, H - left);
-    c.font = `600 ${Math.round(H * 0.015)}px system-ui,sans-serif`;
-    let hh = 7;
-    for (let y = top; y < H - left; y += g * 2) {
+    // the gutter rule, clear of the labels
+    line(c, hourX, top, hourX, top + rows * rowH);
+
+    c.font = `600 ${Math.round(H * 0.0145)}px system-ui,sans-serif`;
+    for (let i = 0; i < rows; i++) {
+      const y = top + i * rowH;
+      // hour rule across the whole width
+      c.lineWidth = lw;
+      c.setLineDash([]);
       line(c, left, y, right, y);
-      c.save();
-      c.fillStyle = ink;
+
+      // the label sits in the middle of its own row, never on a rule
+      const hh = (7 + i) % 24;
       const label = (hh % 12 === 0 ? 12 : hh % 12) + (hh < 12 ? 'am' : 'pm');
-      c.fillText(label, left + 2, y + 4);
-      c.restore();
-      hh = hh === 22 ? 7 : hh + 1;
+      c.fillStyle = ink;
+      c.textAlign = 'right';
+      c.fillText(label, hourX - 10, y + rowH / 2);
+      c.textAlign = 'left';
+
+      // half-hour guide, dotted and lighter
+      if (i < rows - 1) {
+        c.save();
+        c.setLineDash([2, 5]);
+        c.globalAlpha = 0.55;
+        c.lineWidth = lw * 0.8;
+        line(c, hourX + 8, y + rowH / 2, right, y + rowH / 2);
+        c.restore();
+      }
     }
+    // closing rule at the foot
+    c.lineWidth = lw;
+    c.setLineDash([]);
+    line(c, left, top + rows * rowH, right, top + rows * rowH);
+    c.restore();
   },
 
   /* ---- planner: to-do ------------------------------------------ */
@@ -496,6 +537,15 @@ const COVERS: { id: string; label: string }[] = [
   { id: 'terrazzo', label: 'Terrazzo' },
   { id: 'ombre', label: 'Ombré' },
   { id: 'collage', label: 'Collage' },
+  /* sticker-style covers: a die-cut decoration sits on top of the cover and
+     deliberately overlaps the title area / preview, the way a real book looks
+     when someone has stuck something to it. */
+  { id: 'tag', label: 'Tag sticker' },
+  { id: 'washi', label: 'Washi tape' },
+  { id: 'sprig', label: 'Botanical' },
+  { id: 'seal', label: 'Wax seal' },
+  { id: 'pennant', label: 'Star sticker' },
+  { id: 'tabs', label: 'Index tabs' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -1466,9 +1516,12 @@ const CSS = `
   background-color:#3a63a8;
   background-image:linear-gradient(135deg,var(--c,#4b78c4),color-mix(in srgb,var(--c,#4b78c4) 65%,#000));
   box-shadow:0 2px 6px rgba(16,32,64,.18);position:relative;transition:transform .12s ease;
+  overflow:hidden;
 }
 .gn-cov:hover{transform:translateY(-2px)}
 .gn-cov.on{border-color:var(--gn-acc);box-shadow:0 0 0 2px rgba(47,109,246,.25),0 3px 8px rgba(16,32,64,.2)}
+/* the engine ships a global button.on rule; keep the art */
+#gn-covrow .gn-cov.on{background-color:#3a63a8;color:inherit}
 .gn-cov.on::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:14px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.45)}
 #gn-colrow{display:flex;gap:8px;flex-wrap:wrap}
 #gn-colrow #cvs{gap:7px!important}
@@ -1703,6 +1756,101 @@ const CSS = `
   linear-gradient(64deg,rgba(0,0,0,.20) 0 24%,transparent 24.4%),
   linear-gradient(-18deg,rgba(255,255,255,.13) 0 16%,transparent 16.4%),
   linear-gradient(135deg,var(--c,#2f6df6),color-mix(in srgb,var(--c,#2f6df6) 58%,#000))}
+
+/* ==================================================================
+   Sticker covers
+   ------------------------------------------------------------------
+   The base is a bound book; the decoration rides on ::before, which is
+   positioned so it paints *over* the preview canvas and gets cropped by
+   the cover edge — the same way a real sticker looks stuck to a book.
+   ================================================================== */
+
+/* -- tag: a die-cut label stuck on the top-left, punched hole and ruled -- */
+.card .cv[data-cov=tag],.gn-prevcover[data-cov=tag],.gn-cov[data-cov=tag]{background-image:
+  linear-gradient(90deg,rgba(0,0,0,.30) 0 6.5%,transparent 6.9%),
+  linear-gradient(90deg,transparent 6.9%,rgba(255,255,255,.55) 6.9%,rgba(255,255,255,.55) 7.5%,transparent 7.5%),
+  linear-gradient(158deg,color-mix(in srgb,var(--c,#2f6df6) 84%,#fff) 0%,var(--c,#2f6df6) 48%,
+    color-mix(in srgb,var(--c,#2f6df6) 60%,#000) 100%);
+  background-size:100% 100%;background-repeat:no-repeat}
+.card .cv[data-cov=tag]::before,.gn-prevcover[data-cov=tag]::before,.gn-cov[data-cov=tag]::before{
+  content:"";position:absolute;z-index:2;left:-7%;top:7%;width:73%;height:21%;
+  transform:rotate(-6.5deg);border-radius:3px;
+  background-image:
+    radial-gradient(circle at 8.5% 50%,rgba(0,0,0,.55) 0 7%,transparent 7.8%),
+    repeating-linear-gradient(0deg,transparent 0 63%,rgba(92,112,142,.34) 63% 67%),
+    linear-gradient(#fffdf6,#f0ebdf);
+  box-shadow:0 2px 5px rgba(0,0,0,.42),inset 0 0 0 1px rgba(0,0,0,.07)}
+
+/* -- washi: two strips of translucent tape crossing the top-left corner -- */
+.card .cv[data-cov=washi],.gn-prevcover[data-cov=washi],.gn-cov[data-cov=washi]{background-image:
+  radial-gradient(rgba(255,255,255,.17) 1.2px,transparent 1.4px),
+  linear-gradient(160deg,color-mix(in srgb,var(--c,#2f6df6) 88%,#fff),
+    color-mix(in srgb,var(--c,#2f6df6) 54%,#000));
+  background-size:9px 9px,100% 100%;background-repeat:repeat,no-repeat}
+.card .cv[data-cov=washi]::before,.gn-prevcover[data-cov=washi]::before,.gn-cov[data-cov=washi]::before{
+  content:"";position:absolute;z-index:2;left:-26%;top:1%;width:106%;height:34%;
+  transform:rotate(-34deg);
+  background-image:
+    repeating-linear-gradient(115deg,rgba(255,255,255,.55) 0 3px,transparent 3px 9px),
+    linear-gradient(rgba(255,238,192,.87),rgba(255,238,192,.87)),
+    repeating-linear-gradient(115deg,rgba(255,255,255,.55) 0 3px,transparent 3px 9px),
+    linear-gradient(rgba(255,220,152,.87),rgba(255,220,152,.87));
+  background-size:100% 38%,100% 38%,100% 38%,100% 38%;
+  background-position:0 0,0 0,0 100%,0 100%;background-repeat:no-repeat;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.32))}
+
+/* -- sprig: a botanical sticker tucked into the bottom-right -- */
+.card .cv[data-cov=sprig],.gn-prevcover[data-cov=sprig],.gn-cov[data-cov=sprig]{background-image:
+  linear-gradient(200deg,rgba(255,255,255,.15),transparent 58%),
+  linear-gradient(150deg,color-mix(in srgb,var(--c,#2f6df6) 86%,#fff),
+    color-mix(in srgb,var(--c,#2f6df6) 56%,#000))}
+.card .cv[data-cov=sprig]::before,.gn-prevcover[data-cov=sprig]::before,.gn-cov[data-cov=sprig]::before{
+  content:"";position:absolute;z-index:2;right:-8%;bottom:-2%;width:62%;height:62%;
+  transform:rotate(-6deg);
+  background:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'><g fill='none' stroke='%233d5c44' stroke-width='2.6' stroke-linecap='round'><path d='M60 118C60 92 56 66 62 34'/></g><g fill='%236f9c78'><path d='M62 40c-13-2-21-11-22-24 14 1 21 10 22 24z'/><path d='M60 62c13-2 21-11 22-24-14 1-21 10-22 24z'/><path d='M58 82c-13-2-21-11-22-24 14 1 21 10 22 24z'/><path d='M57 100c13-2 21-11 22-24-14 1-21 10-22 24z'/></g><g fill='%238fb597'><path d='M61 52c11-6 15-17 13-29-11 5-15 16-13 29z'/><path d='M59 72c-11-6-15-17-13-29 11 5 15 16 13 29z'/><path d='M58 92c11-6 15-17 13-29-11 5-15 16-13 29z'/></g><circle cx='62' cy='32' r='4.5' fill='%23c9a227'/></svg>")
+    center/contain no-repeat;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.3))}
+
+/* -- seal: a wax seal pressed onto the bottom-right corner -- */
+.card .cv[data-cov=seal],.gn-prevcover[data-cov=seal],.gn-cov[data-cov=seal]{background-image:
+  repeating-linear-gradient(90deg,rgba(255,255,255,.055) 0 1px,transparent 1px 4px),
+  linear-gradient(155deg,color-mix(in srgb,var(--c,#2f6df6) 78%,#fff),
+    color-mix(in srgb,var(--c,#2f6df6) 50%,#000))}
+.card .cv[data-cov=seal]::before,.gn-prevcover[data-cov=seal]::before,.gn-cov[data-cov=seal]::before{
+  content:"";position:absolute;z-index:2;right:-7%;bottom:7%;width:45%;aspect-ratio:1/1;border-radius:50%;
+  background-image:
+    repeating-conic-gradient(from 0deg,rgba(0,0,0,.24) 0 4deg,rgba(255,255,255,.13) 4deg 9deg,transparent 9deg 20deg),
+    radial-gradient(circle at 34% 26%,rgba(255,255,255,.60) 0 4%,transparent 32%),
+    radial-gradient(circle at 50% 50%,#c9413a 0 47%,#9e2a24 48%,#bb463f 63%,#7c1a16 100%);
+  box-shadow:0 4px 10px rgba(0,0,0,.48),inset 0 0 0 1.5px rgba(255,255,255,.22),
+    inset 0 0 10px rgba(0,0,0,.3)}
+
+/* -- star: a gold foil star sticker peeling off the top-right -- */
+.card .cv[data-cov=pennant],.gn-prevcover[data-cov=pennant],.gn-cov[data-cov=pennant]{background-image:
+  linear-gradient(160deg,color-mix(in srgb,var(--c,#2f6df6) 88%,#fff),
+    color-mix(in srgb,var(--c,#2f6df6) 54%,#000))}
+.card .cv[data-cov=pennant]::before,.gn-prevcover[data-cov=pennant]::before,.gn-cov[data-cov=pennant]::before{
+  content:"";position:absolute;z-index:2;right:-7%;top:4%;width:47%;height:27%;
+  transform:rotate(-9deg);
+  background-image:linear-gradient(150deg,#ffeaa8,#e8b53c 52%,#c8902a);
+  clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.42))}
+
+/* -- tabs: three index tabs biting into the right edge -- */
+.card .cv[data-cov=tabs],.gn-prevcover[data-cov=tabs],.gn-cov[data-cov=tabs]{background-image:
+  linear-gradient(90deg,rgba(0,0,0,.26) 0 5.5%,transparent 5.9%),
+  linear-gradient(162deg,color-mix(in srgb,var(--c,#2f6df6) 86%,#fff),
+    color-mix(in srgb,var(--c,#2f6df6) 58%,#000));
+  background-size:100% 100%;background-repeat:no-repeat}
+.card .cv[data-cov=tabs]::before,.gn-prevcover[data-cov=tabs]::before,.gn-cov[data-cov=tabs]::before{
+  content:"";position:absolute;z-index:2;right:0;top:15%;width:16%;height:52%;border-radius:4px 0 0 4px;
+  background-image:
+    linear-gradient(#f0b53c,#f0b53c),
+    linear-gradient(#e0603f,#e0603f),
+    linear-gradient(#3f93d8,#3f93d8);
+  background-size:100% 22%,100% 22%,100% 22%;
+  background-position:0 0,0 50%,0 100%;background-repeat:no-repeat;
+  filter:drop-shadow(-1px 1px 2px rgba(0,0,0,.38))}
 `;
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

@@ -307,6 +307,32 @@ const CSS = `
 .ink-sheet .sw-line{display:flex;align-items:center;gap:8px;font-size:12px;color:#66707d}
 .ink-sheet .sw-line i{width:16px;height:16px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 
+/* brush picker */
+#ink-brush{width:306px;max-width:calc(100vw - 16px)}
+#ink-brush .bd{max-height:min(66vh,460px)}
+.brush-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:8px 14px 4px}
+.brush-tile{
+  display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px 8px;
+  border:1px solid #e6eaf1;background:#fafbfd;border-radius:12px;cursor:pointer;
+  transition:border-color .12s ease,background .12s ease,transform .12s ease;
+}
+.brush-tile:hover{background:#f4f7fc;border-color:#d3dcea}
+.brush-tile.on{border-color:#2f6df6;background:#eef4ff}
+.brush-tile .bi{display:grid;place-items:center;width:26px;height:26px;color:#3c4654}
+.brush-tile.on .bi{color:#1f4fbf}
+.brush-tile .bi svg{width:22px;height:22px;display:block}
+.brush-tile .bn{font:700 11px/1.15 inherit;color:#2b3542;text-align:center}
+.brush-tile .bt{font:500 9px/1.2 inherit;color:#96a0ad;text-align:center}
+.brush-w{display:flex;gap:7px;padding:2px 14px 12px}
+.brush-w .bw{
+  flex:1;height:34px;display:grid;place-items:center;border:1px solid #e6eaf1;
+  background:#fafbfd;border-radius:10px;cursor:pointer;
+}
+.brush-w .bw:hover{background:#f4f7fc}
+.brush-w .bw.on{border-color:#2f6df6;background:#eef4ff}
+.brush-w .bw i{display:block;border-radius:999px;background:#3c4654}
+.brush-w .bw.on i{background:#1f4fbf}
+
 /* toggle */
 .ink-tg{position:relative;width:42px;height:25px;border-radius:999px;background:#dfe3ea;cursor:pointer;
   border:0;padding:0;flex:none;transition:background .16s ease}
@@ -910,13 +936,14 @@ function setTab(t: 'presets' | 'custom' | 'recent') {
  * panel puts it away again. Both rules live here so the pill's three popovers
  * cannot drift apart.
  */
-type PanelKind = 'color' | 'pen' | 'er';
+type PanelKind = 'color' | 'pen' | 'er' | 'brush';
 let activePanel: PanelKind | '' = '';
 
 function closePanels() {
   colorPop?.classList.remove('on');
   penSheet?.classList.remove('on');
   erSheet?.classList.remove('on');
+  brushPop?.classList.remove('on');
   activePanel = '';
 }
 
@@ -1059,6 +1086,118 @@ function openPenSettings(anchor: HTMLElement) {
   penSheet.classList.add('on');
   penSheet.dataset.kind = 'pen';
   activePanel = 'pen';
+}
+
+/* ------------------------------------------------------------------ */
+/* Brush picker                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The engine's own brush drawer is what the pen button used to open, and it is
+ * gone (our pill owns brush choice now). Suppressing it left the button looking
+ * dead, so give it the dropdown it deserves: the six brushes by name, with a
+ * one-line description each and the thickness row underneath.
+ */
+let brushPop: HTMLElement | null = null;
+let brushAnchor: HTMLElement | null = null;
+
+const BRUSH_BLURB: Record<string, string> = {
+  ball: 'Even everyday line',
+  fountain: 'Tapered, pressure aware',
+  brush: 'Soft expressive swell',
+  pencil: 'Grainy graphite',
+  crayon: 'Waxy broken edge',
+  marker: 'Wide and translucent',
+};
+
+function buildBrushPop() {
+  if (brushPop) return;
+  const p = el('div');
+  p.id = 'ink-brush';
+  p.className = 'ink-sheet';
+  document.body.append(p);
+  brushPop = p;
+}
+
+function paintBrushPop() {
+  if (!brushPop) return;
+  brushPop.textContent = '';
+
+  const hd = el('div', '', 'Brushes');
+  hd.className = 'hd';
+  brushPop.append(hd);
+
+  const bd = el('div', '');
+  bd.className = 'bd';
+
+  const grid = el('div', '');
+  grid.className = 'brush-grid';
+  const active = currentPenType();
+  PEN_TYPES.forEach((t) => {
+    const b = el('button') as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'brush-tile';
+    b.title = t.label + ' — ' + (BRUSH_BLURB[t.v] || t.tip);
+    b.classList.toggle('on', t.v === active);
+    const ic = el('span', '');
+    ic.className = 'bi';
+    ic.innerHTML = PEN_ICONS[t.v] || PEN_ICONS.ball;
+    const nm = el('span', '', t.label.replace(' Pen', ''));
+    nm.className = 'bn';
+    const tp = el('span', '', BRUSH_BLURB[t.v] || t.tip);
+    tp.className = 'bt';
+    b.append(ic, nm, tp);
+    b.onclick = () => {
+      setPenType(t.v);
+      paintBrushPop();
+    };
+    grid.append(b);
+  });
+  bd.append(grid);
+
+  bd.append(sec('Thickness'));
+  const wr = el('div', '');
+  wr.className = 'brush-w';
+  const ws = WIDTHS[ev<string>('tool') || 'pen'] || WIDTHS.pen;
+  const size = currentSize();
+  let best = 0;
+  ws.forEach((w, i) => {
+    if (Math.abs(w - size) < Math.abs(ws[best] - size)) best = i;
+  });
+  ws.forEach((w, i) => {
+    const b = el('button') as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'bw';
+    b.title = ['Thin', 'Medium', 'Thick'][i];
+    const d = 5 + i * 5;
+    b.innerHTML = '<i style="width:' + d + 'px;height:' + d + 'px"></i>';
+    b.classList.toggle('on', i === best);
+    b.onclick = () => {
+      setSize(w);
+      paintBrushPop();
+    };
+    wr.append(b);
+  });
+  bd.append(wr);
+
+  brushPop.append(bd);
+}
+
+function toggleBrush(anchor: HTMLElement) {
+  // a second press on the same button puts it away again
+  if (activePanel === 'brush' && brushAnchor === anchor) {
+    closePanels();
+    return;
+  }
+  buildBrushPop();
+  if (!brushPop) return;
+  closePanels();
+  paintBrushPop();
+  placePop(brushPop, anchor);
+  brushPop.classList.add('on');
+  brushPop.dataset.kind = 'brush';
+  brushAnchor = anchor;
+  activePanel = 'brush';
 }
 
 /* ------------------------------------------------------------------ */
@@ -1358,6 +1497,12 @@ function hookDrawer() {
       if (tool !== 'pen' && tool !== 'pe' && tool !== 'hl') return;
       document.body.classList.add('ink-nodrw');
       window.setTimeout(() => document.body.classList.remove('ink-nodrw'), 320);
+
+      // ...and put our own brush dropdown in its place, on the same press
+      if (tool === 'pen' || tool === 'hl') {
+        const btn = hit;
+        window.setTimeout(() => toggleBrush(btn), 0);
+      }
     },
     true,
   );
@@ -1419,6 +1564,9 @@ function boot() {
     (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('#ink-pen') || t.closest('#ink-pop') || t.closest('.ink-sheet')) return;
+      // the brush picker lives under the pen button: let it own that press, or
+      // the toggle would be closed here and reopened by the handler above
+      if (t.closest('#tb [data-t="pen"]') || t.closest('#tb [data-t="hl"]')) return;
       hidePop();
       hideSheets();
     },

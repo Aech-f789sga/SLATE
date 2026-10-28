@@ -161,6 +161,112 @@ function openGuidePanel() {
   })()`);
 }
 
+/**
+ * Make every guide snap, not just two of them.
+ *
+ * The engine's `gdTool()` only turns snapping on for the straight ruler, the
+ * circle and perspective lines — pick the square grid, the isometric grid or
+ * thirds and `SNAPON` stays false, so the stroke is pure freehand. Its `gSnap()`
+ * also has no case for those three kinds at all, and it latches the first point
+ * onto a *line* for the whole stroke, which is right for a ruler and wrong for a
+ * lattice.
+ *
+ * So: widen the tool test, keep the engine's latch for the ruler/circle/
+ * perspective, widen the ruler's reach to the band that is actually drawn, and
+ * add per-point snapping for the three kinds it ignores.
+ */
+function hookGuideSnap() {
+  ev(`(function(){
+    if (window.__gnGuideHooked) return;
+    window.__gnGuideHooked = true;
+
+    function k(){ return W / cv.getBoundingClientRect().width; }
+
+    var origTool = gdTool;
+    gdTool = function(){
+      var base = origTool.apply(this, arguments);   // resets SNL, keep that
+      if (base) return true;
+      if (!['pen','hl','line','arrow','hid'].includes(tool)) return false;
+      return GD.g !== 'none' || GD.p !== 'none';
+    };
+
+    var origSnap = gSnap;
+
+    function snapLattice(q, g){
+      var s = k(), th = 14 * s, x = q[0], y = q[1], best = null, bd = th;
+
+      if (g === 'grid') {
+        var gx = 32 * Math.round(x / 32), gy = 32 * Math.round(y / 32);
+        var dx = Math.abs(x - gx), dy = Math.abs(y - gy);
+        // an intersection when both axes are close, otherwise the nearer axis
+        if (dx < bd && dy < bd) return [gx, gy];
+        if (dx < bd && dx <= dy) return [gx, y];
+        if (dy < bd) return [x, gy];
+        return q;
+      }
+
+      if (g === 'iso') {
+        // dots sit on rows of height g*0.866, every other row offset by g/2
+        var step = 32, hh = step * 0.866;
+        var row = Math.round((y - step) / hh);
+        for (var r = row - 1; r <= row + 1; r++) {
+          var oy = step + r * hh;
+          var off = r % 2 ? step / 2 : 0;
+          var col = Math.round((x - step - off) / step);
+          for (var c = col - 1; c <= col + 1; c++) {
+            var ox = step + off + c * step;
+            var d = Math.hypot(x - ox, y - oy);
+            if (d < bd) { bd = d; best = [ox, oy]; }
+          }
+        }
+        return best || q;
+      }
+
+      // thirds: three vertical and three horizontal rules
+      var fs = [1/3, 0.5, 2/3];
+      for (var i = 0; i < fs.length; i++) {
+        var vx = W * fs[i], vy = H * fs[i];
+        var d2 = Math.abs(x - vx);
+        if (d2 < bd) { bd = d2; best = [vx, y]; }
+        d2 = Math.abs(y - vy);
+        if (d2 < bd) { bd = d2; best = [x, vy]; }
+      }
+      return best || q;
+    }
+
+    gSnap = function(q){
+      var g = GD.g;
+      if (g === 'grid' || g === 'iso' || g === 'third') return snapLattice(q, g);
+
+      // the straight ruler's band is drawn 22 px either side of the line but the
+      // engine only latches within 16, so the outer part of the band did nothing
+      if (g === 'ruler' && SNL === null) {
+        var s = k(), r = GD.r, d = [Math.cos(r.a), Math.sin(r.a)], hl = r.l / 2;
+        var t = Math.max(-hl, Math.min(hl, (q[0]-r.x)*d[0] + (q[1]-r.y)*d[1]));
+        var px = r.x + d[0]*t, py = r.y + d[1]*t;
+        if (Math.hypot(q[0]-px, q[1]-py) < 26 * s) {
+          SNL = { t:'l', p:[r.x, r.y], d:d, hl:hl };
+        }
+      }
+      return origSnap.apply(this, arguments);
+    };
+
+    // The handles were grabbed within 18 px while the dots are drawn at 10, so
+    // pressing near the middle of the ruler moved it instead of drawing. Match
+    // the hit area to what you can see.
+    var origDown = gdDown;
+    gdDown = function(x, y){
+      if (!nb || (GD.g === 'none' && GD.s === 'none' && GD.p === 'none')) return false;
+      gdInit();
+      var s = k(), hs = gdHandles();
+      for (var i = hs.length - 1; i >= 0; i--) {
+        if (Math.hypot(x - hs[i].p[0], y - hs[i].p[1]) < 10 * s) { GDR = hs[i]; return true; }
+      }
+      return false;
+    };
+  })()`);
+}
+
 /* ------------------------------------------------------------------ */
 /* Zoom window                                                         */
 /* ------------------------------------------------------------------ */
@@ -809,6 +915,7 @@ function boot() {
   buildTimer();
   buildMenu();
   hookTrigger();
+  hookGuideSnap();
   applyHidden();
 
   let lastOpen = false;
