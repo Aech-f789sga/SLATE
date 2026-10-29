@@ -1,0 +1,17 @@
+Sticker artwork bundled with Inkpad
+===================================
+
+OpenMoji — https://openmoji.org
+  Licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)
+  Copyright the OpenMoji authors. Colour SVG set, version 15.1.0.
+
+Phosphor Icons — https://phosphoricons.com
+  Licensed under the MIT License.
+  Copyright (c) 2020 Phosphor Icons.
+
+Material Symbols — https://fonts.google.com/icons
+  Licensed under the Apache License, Version 2.0.
+  Copyright Google LLC.
+
+These files are redistributed unmodified. The Inkpad sticker picker loads them
+from /stickers/ and rasterises them client-side onto the page.
