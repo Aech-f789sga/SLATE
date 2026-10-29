@@ -1,18 +1,19 @@
 /**
  * Accessories — the GoodNotes floating tools.
  *
- *   • Ruler & Guides   the engine's own straightedge, circle, grids and thirds,
- *                      with stroke snapping — surfaced here instead of being
- *                      buried behind an icon in the secondary row
- *   • Symmetry         vertical / horizontal / quad / radial / kaleidoscope
- *   • Perspective      1-, 2- and 3-point guides with stroke snapping
  *   • Zoom Window      a lens that magnifies the page under the pen
  *   • Time Keeper      a session timer for the open notebook
  *   • Toolbar          show/hide individual tools in the engine's own rows
  *
+ * Ruler, guides, symmetry and perspective are deliberately *not* listed here:
+ * the engine already ships one combined guides button in the secondary toolbar
+ * row that opens every one of those options in a single drawer. Two doors to the
+ * same room just made both look unreliable.
+ *
  * Everything is additive. The guides are the engine's own (`GD`), so strokes
  * snap in `pos()` and symmetry copies are written by `symAdd()` — this module
- * only puts a menu in front of them.
+ * only widens that machinery (see `hookGuideSnap`) and puts a menu in front of
+ * the rest.
  */
 
 /* ------------------------------------------------------------------ */
@@ -192,6 +193,34 @@ function hookGuideSnap() {
 
     var origSnap = gSnap;
 
+    /**
+     * Isometric paper is three families of parallel lines (vertical, +30deg,
+     * -30deg) spaced 32 apart, matching what drawGuides() paints. Latch the
+     * stroke onto the nearest of those lines and run along it, so the doodle
+     * follows the gridline instead of jumping between lattice dots.
+     */
+    function isoLine(q){
+      var x = q[0], y = q[1];
+      var S3 = 0.8660254;
+      var cands = [
+        // vertical rules: x = 32m
+        { c: x,        k: 32 * Math.round(x / 32) },
+        // +30deg: -0.5x + 0.866y = 32m
+        { c: -0.5 * x + S3 * y, k: 32 * Math.round((-0.5 * x + S3 * y) / 32) },
+        // -30deg:  0.5x + 0.866y = 32m
+        { c:  0.5 * x + S3 * y, k: 32 * Math.round(( 0.5 * x + S3 * y) / 32) }
+      ];
+      var best = 0, bd = 1e9;
+      for (var i = 0; i < cands.length; i++) {
+        var d = Math.abs(cands[i].c - cands[i].k);
+        if (d < bd) { bd = d; best = i; }
+      }
+      var kk = cands[best].k;
+      if (best === 0) return { t:'l', p:[kk, 0],            d:[0, 1],          hl:1e9 };
+      if (best === 1) return { t:'l', p:[-2 * kk, 0],       d:[S3, 0.5],       hl:1e9 };
+      return            { t:'l', p:[ 2 * kk, 0],            d:[S3, -0.5],      hl:1e9 };
+    }
+
     function snapLattice(q, g){
       var s = k(), th = 14 * s, x = q[0], y = q[1], best = null, bd = th;
 
@@ -203,23 +232,6 @@ function hookGuideSnap() {
         if (dx < bd && dx <= dy) return [gx, y];
         if (dy < bd) return [x, gy];
         return q;
-      }
-
-      if (g === 'iso') {
-        // dots sit on rows of height g*0.866, every other row offset by g/2
-        var step = 32, hh = step * 0.866;
-        var row = Math.round((y - step) / hh);
-        for (var r = row - 1; r <= row + 1; r++) {
-          var oy = step + r * hh;
-          var off = r % 2 ? step / 2 : 0;
-          var col = Math.round((x - step - off) / step);
-          for (var c = col - 1; c <= col + 1; c++) {
-            var ox = step + off + c * step;
-            var d = Math.hypot(x - ox, y - oy);
-            if (d < bd) { bd = d; best = [ox, oy]; }
-          }
-        }
-        return best || q;
       }
 
       // thirds: three vertical and three horizontal rules
@@ -236,16 +248,37 @@ function hookGuideSnap() {
 
     gSnap = function(q){
       var g = GD.g;
-      if (g === 'grid' || g === 'iso' || g === 'third') return snapLattice(q, g);
 
-      // the straight ruler's band is drawn 22 px either side of the line but the
-      // engine only latches within 16, so the outer part of the band did nothing
+      // ---- isometric: follow the nearest gridline, not the nearest dot
+      if (g === 'iso') {
+        if (SNL === null) SNL = isoLine(q) || 0;
+        var L = SNL;
+        if (!L || L.t !== 'l') return q;
+        var t = (q[0] - L.p[0]) * L.d[0] + (q[1] - L.p[1]) * L.d[1];
+        return [L.p[0] + L.d[0] * t, L.p[1] + L.d[1] * t];
+      }
+
+      if (g === 'grid' || g === 'third') return snapLattice(q, g);
+
+      /**
+       * The straight ruler is drawn as a band 22 screen px either side of its
+       * axis, and the engine latches the centre of that band — so the line
+       * appeared *inside* the ruler. Latch the edge nearest the pen instead, so
+       * the ink runs along the ruler's rim the way a real ruler works.
+       */
       if (g === 'ruler' && SNL === null) {
-        var s = k(), r = GD.r, d = [Math.cos(r.a), Math.sin(r.a)], hl = r.l / 2;
-        var t = Math.max(-hl, Math.min(hl, (q[0]-r.x)*d[0] + (q[1]-r.y)*d[1]));
-        var px = r.x + d[0]*t, py = r.y + d[1]*t;
-        if (Math.hypot(q[0]-px, q[1]-py) < 26 * s) {
-          SNL = { t:'l', p:[r.x, r.y], d:d, hl:hl };
+        var s = k(), r = GD.r;
+        var ca = Math.cos(r.a), sa = Math.sin(r.a), hl = r.l / 2, hw = 22 * s;
+        var nx = -sa, ny = ca;                       // unit normal to the axis
+        var sd = (q[0] - r.x) * nx + (q[1] - r.y) * ny;
+        if (Math.abs(sd) < hw + 10 * s) {
+          var side = sd >= 0 ? 1 : -1;
+          SNL = {
+            t: 'l',
+            p: [r.x + nx * hw * side, r.y + ny * hw * side],
+            d: [ca, sa],
+            hl: hl
+          };
         }
       }
       return origSnap.apply(this, arguments);
@@ -577,24 +610,6 @@ interface MenuItem {
 }
 
 const MENU: MenuItem[] = [
-  {
-    id: 'guides',
-    label: 'Ruler & Guides',
-    kind: 'g',
-    icon: '<path d="M3 9h18v6H3z"/><path d="M7 9v3M11 9v3M15 9v3M19 9v3"/>',
-  },
-  {
-    id: 'symmetry',
-    label: 'Symmetry',
-    kind: 's',
-    icon: '<path d="M12 3v18"/><path d="M8.5 7.5 4.5 12l4 4.5M15.5 7.5l4 4.5-4 4.5"/>',
-  },
-  {
-    id: 'perspective',
-    label: 'Perspective',
-    kind: 'p',
-    icon: '<path d="M3 20 12 6.5 21 20"/><path d="M7.2 13.4h9.6"/>',
-  },
   {
     id: 'zoom',
     label: 'Zoom Window',

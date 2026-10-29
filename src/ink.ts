@@ -308,9 +308,23 @@ const CSS = `
 .ink-sheet .sw-line i{width:16px;height:16px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 
 /* brush picker */
-#ink-brush{width:306px;max-width:calc(100vw - 16px)}
-#ink-brush .bd{max-height:min(66vh,460px)}
+#ink-brush{width:330px;max-width:calc(100vw - 16px)}
+#ink-brush .bd{max-height:min(70vh,500px)}
 .brush-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:8px 14px 4px}
+/* the engine's 32 brush presets, two to a row with a live stroke preview */
+.brush-presets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:2px 14px 4px}
+.brush-preset{
+  display:flex;flex-direction:column;gap:3px;padding:5px 6px 6px;cursor:pointer;text-align:left;
+  border:1px solid var(--gn-line,#e6e2dc);border-radius:9px;background:#fff;
+  transition:background .12s ease,border-color .12s ease;
+}
+.brush-preset:hover{background:#f4f7fc;border-color:#d3dcea}
+.brush-preset.on{border-color:#2f6df6;background:#eef4ff}
+.brush-preset canvas{display:block;width:100%;height:34px;border-radius:5px;background:#fbfcfe}
+.brush-preset .pn{
+  font:600 10.5px/1.2 inherit;color:#3c4654;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.brush-preset.on .pn{color:#1f4fbf}
 .brush-tile{
   display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px 8px;
   border:1px solid #e6eaf1;background:#fafbfd;border-radius:12px;cursor:pointer;
@@ -1110,6 +1124,56 @@ const BRUSH_BLURB: Record<string, string> = {
   marker: 'Wide and translucent',
 };
 
+/** One of the engine's 32 presets (`BRD`), slimmed down for the picker. */
+interface BrushPreset {
+  id: string;
+  n: string;
+  sz: number;
+}
+
+/** The three preset families, in the order the engine's own panel used. */
+const PRESET_FAMILIES: { prefix: string; title: string }[] = [
+  { prefix: 'dd', title: 'Dashes & dots' },
+  { prefix: 'pb', title: 'Particle burst' },
+  { prefix: 'cs', title: 'Calligraphy' },
+];
+
+let presets: BrushPreset[] | null = null;
+
+function brushPresets(): BrushPreset[] {
+  if (presets) return presets;
+  presets =
+    ev<BrushPreset[]>(`(function(){
+      try{
+        return BRD.map(function(x){ return { id: x.id, n: x.n, sz: x.sz || 3 }; });
+      }catch(e){ return []; }
+    })()`) || [];
+  return presets;
+}
+
+/**
+ * Draw one preset's stroke sample with the engine's own `pvw()`, so the tile
+ * looks exactly like the mark it makes.
+ */
+function drawPresetPreview(cv: HTMLCanvasElement, v: string, w: number) {
+  const W = 128;
+  const H = 34;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  const g = cv.getContext('2d');
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  let col = ev<string>('color') || '#1c2430';
+  if (col.toLowerCase() === '#ffffff') col = '#888888';
+  (window as any).__gnPv = g;
+  ev(`(function(){
+    try{ pvw(window.__gnPv, { t:'pen', c:${JSON.stringify(col)}, w:${w}, v:${JSON.stringify(v)} }); }catch(e){}
+  })()`);
+  (window as any).__gnPv = null;
+}
+
 function buildBrushPop() {
   if (brushPop) return;
   const p = el('div');
@@ -1133,6 +1197,7 @@ function paintBrushPop() {
   const grid = el('div', '');
   grid.className = 'brush-grid';
   const active = currentPenType();
+  bd.append(sec('Pen'));
   PEN_TYPES.forEach((t) => {
     const b = el('button') as HTMLButtonElement;
     b.type = 'button';
@@ -1154,6 +1219,36 @@ function paintBrushPop() {
     grid.append(b);
   });
   bd.append(grid);
+
+  // the engine's own preset library, grouped the way its drawer used to group it
+  const all = brushPresets();
+  PRESET_FAMILIES.forEach((fam) => {
+    const list = all.filter((x) => x.id.startsWith(fam.prefix));
+    if (!list.length) return;
+    bd.append(sec(fam.title));
+    const pg = el('div', '');
+    pg.className = 'brush-presets';
+    list.forEach((x) => {
+      const b = el('button') as HTMLButtonElement;
+      b.type = 'button';
+      b.className = 'brush-preset';
+      b.title = x.n;
+      b.classList.toggle('on', x.id === active);
+      const c = document.createElement('canvas');
+      b.append(c);
+      const nm = el('span', '', x.n);
+      nm.className = 'pn';
+      b.append(nm);
+      b.onclick = () => {
+        setPenType(x.id);
+        paintBrushPop();
+      };
+      pg.append(b);
+      // paint after the node is in the document so the dpr maths is right
+      drawPresetPreview(c, x.id, x.sz);
+    });
+    bd.append(pg);
+  });
 
   bd.append(sec('Thickness'));
   const wr = el('div', '');

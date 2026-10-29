@@ -334,6 +334,8 @@ function noteImage(design: string, skin: NoteSkin, w: number, h: number): string
   g.restore();
 
   const url = c.toDataURL('image/webp', 0.94);
+  // resizing a note mints a new size key every time, so keep the map bounded
+  if (IMG_CACHE.size > 80) IMG_CACHE.clear();
   IMG_CACHE.set(key, url);
   return url;
 }
@@ -444,7 +446,10 @@ function insertNote() {
       var body = {
         t:'img', src:${JSON.stringify(src)},
         x: x, y: y, w: w + ${PAD * 2}, h: h + ${PAD * 2},
-        nb: { id:${JSON.stringify(id)}, design:${JSON.stringify(design.id)}, skin:${JSON.stringify(skin.id)} }
+        nb: {
+          id:${JSON.stringify(id)}, design:${JSON.stringify(design.id)}, skin:${JSON.stringify(skin.id)},
+          bx: x, by: y, rw: ${w}, rh: ${h}
+        }
       };
       try { snap(); } catch(e){}
       pg().strokes.push(body);
@@ -607,6 +612,8 @@ function repaintNote(body: any) {
   const src = noteImage(design.id, skin, w, h);
   if (!src) return;
   body.src = src;
+  body.nb.rw = w;
+  body.nb.rh = h;
 
   // keep the text inside the card, and let it take the skin's ink colour
   const txt = linkedText(body);
@@ -738,9 +745,11 @@ function paintEditor() {
 }
 
 /**
- * A note is a card plus a text object. Moving or resizing the card with the
- * select tool would leave the text behind, so re-seat every linked text at its
- * card's inset after the pointer lifts.
+ * A note is a card plus a text object. Two things have to hold at once:
+ * the text stays wherever the user dragged it, and it travels with the card
+ * when the card moves. So track the card's last position on the note record and
+ * shift the text by exactly the card's delta — never re-seat it at a fixed inset,
+ * or every attempt to move the writing inside the note is undone on pointer-up.
  */
 function hookNoteSync() {
   const cv = document.getElementById('cv');
@@ -748,34 +757,234 @@ function hookNoteSync() {
     window.setTimeout(hookNoteSync, 400);
     return;
   }
-  const padMap: Record<string, number> = {};
-  DESIGNS.forEach((d) => (padMap[d.id] = d.padTop));
   const run = () => {
-    ev(`(function(){
+    const resized = ev<any[]>(`(function(){
       try{
-        if (typeof te !== 'undefined' && te) return;
-        var PAD = ${PAD}, PADS = ${JSON.stringify(padMap)};
-        var S = pg().strokes, i, j, changed = false;
+        if (typeof te !== 'undefined' && te) return [];
+        var PAD = ${PAD};
+        var S = pg().strokes, i, j, moved = false, out = [];
         for (i = 0; i < S.length; i++) {
           var b = S[i];
           if (!b || b.t !== 'img' || !b.nb) continue;
-          var top = PADS[b.nb.design];
-          if (typeof top !== 'number') top = 16;
-          var nx = b.x + PAD + 17, ny = b.y + PAD + top;
+          var nb = b.nb;
+          if (typeof nb.bx !== 'number') { nb.bx = b.x; nb.by = b.y; }
+          var dx = b.x - nb.bx, dy = b.y - nb.by;
           for (j = 0; j < S.length; j++) {
             var t = S[j];
-            if (!t || t.t !== 'text' || t.nbid !== b.nb.id) continue;
-            if (Math.abs(t.x - nx) > 0.5 || Math.abs(t.y - ny) > 0.5) {
-              t.x = nx; t.y = ny; changed = true;
-            }
+            if (!t || t.t !== 'text' || t.nbid !== nb.id) continue;
+            // if the engine already moved it as part of the same selection,
+            // leave it alone or it would be shifted twice
+            if (typeof sel !== 'undefined' && sel && sel.indexOf(t) >= 0) continue;
+            if (dx || dy) { t.x += dx; t.y += dy; moved = true; }
+          }
+          if (dx || dy) { nb.bx = b.x; nb.by = b.y; }
+          var w = Math.round(b.w - PAD * 2), h = Math.round(b.h - PAD * 2);
+          if (w > 8 && h > 8 && (nb.rw !== w || nb.rh !== h)) {
+            nb.rw = w; nb.rh = h;
+            out.push({ id: nb.id, design: nb.design, skin: nb.skin, w: w, h: h });
           }
         }
-        if (changed) { draw(); save(); thumbs(); }
-      }catch(e){}
-    })()`);
+        if (moved) { draw(); save(); thumbs(); }
+        return out;
+      }catch(e){ return []; }
+    })()`) || [];
+
+    if (!resized.length) return;
+    // the bitmap is a canvas of a fixed size; after a resize it has to be
+    // repainted at the new size or it just looks stretched
+    let touched = false;
+    const all = ev<any[]>('pg() ? pg().strokes : []') || [];
+    resized.forEach((r) => {
+      const skin = SKINS.find((s) => s.id === r.skin) || SKINS[0];
+      const src = noteImage(r.design, skin, r.w, r.h);
+      if (!src) return;
+      const body = all.find((s) => s && s.t === 'img' && s.nb && s.nb.id === r.id);
+      if (body) {
+        body.src = src;
+        touched = true;
+      }
+    });
+    if (touched) ev('try{ draw(); save(); thumbs(); }catch(e){}');
   };
   cv.addEventListener('pointerup', () => window.setTimeout(run, 40));
   cv.addEventListener('pointercancel', () => window.setTimeout(run, 40));
+}
+
+/**
+ * The engine has no resize handles at all — a page object is fixed at the size
+ * it was dropped. A sticky note is paper, so it has to be resizable like a
+ * sticker. Draw our own corner grips over the canvas for the selected note and
+ * drive the box directly; the card's bitmap is repainted at the new size on
+ * release, so it never looks stretched.
+ */
+let rszBox: HTMLElement | null = null;
+let rszBody: any = null;
+let rszDrag: {
+  corner: string;
+  px: number;
+  py: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  k: number;
+  texts: { t: any; ox: number; oy: number }[];
+} | null = null;
+
+const MIN_W = 90;
+const MIN_H = 80;
+
+function buildResize() {
+  if (rszBox) return rszBox;
+  const w = document.createElement('div');
+  w.id = 'gn-note-rsz';
+  ['nw', 'ne', 'sw', 'se'].forEach((c) => {
+    const h = document.createElement('div');
+    h.className = 'gn-nr';
+    h.dataset.c = c;
+    h.title = 'Resize note';
+    h.addEventListener('pointerdown', (e) => onResizeDown(e, c));
+    w.append(h);
+  });
+  document.body.append(w);
+  rszBox = w;
+  return w;
+}
+
+function linkedTexts(body: any): any[] {
+  const all = ev<any[]>('pg() ? pg().strokes : []') || [];
+  return all.filter((s) => s && s.t === 'text' && s.nbid === body.nb.id);
+}
+
+function paintResize() {
+  const box = buildResize();
+  const sel = ev<any[]>('sel') || [];
+  const body =
+    sel.length === 1 && sel[0] && sel[0].t === 'img' && sel[0].nb ? sel[0] : null;
+  if (!body || (ev<string>('tool') || '') !== 'sel') {
+    box.classList.remove('on');
+    rszBody = null;
+    return;
+  }
+  rszBody = body;
+  const cv = document.getElementById('cv');
+  if (!cv) return;
+  const r = cv.getBoundingClientRect();
+  const W = ev<number>('W') || 800;
+  const k = r.width / W;
+  const L = r.left + body.x * k;
+  const T = r.top + body.y * k;
+  const R = L + body.w * k;
+  const B = T + body.h * k;
+  const at: Record<string, [number, number]> = {
+    nw: [L, T],
+    ne: [R, T],
+    sw: [L, B],
+    se: [R, B],
+  };
+  box.querySelectorAll<HTMLElement>('.gn-nr').forEach((h) => {
+    const p = at[h.dataset.c || 'se'];
+    h.style.left = Math.round(p[0]) + 'px';
+    h.style.top = Math.round(p[1]) + 'px';
+  });
+  box.classList.add('on');
+}
+
+function onResizeDown(e: PointerEvent, corner: string) {
+  const body = rszBody;
+  if (!body) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const cv = document.getElementById('cv');
+  if (!cv) return;
+  const r = cv.getBoundingClientRect();
+  const W = ev<number>('W') || 800;
+  const k = r.width / W;
+  rszDrag = {
+    corner,
+    px: e.clientX,
+    py: e.clientY,
+    x: body.x,
+    y: body.y,
+    w: body.w,
+    h: body.h,
+    k,
+    texts: linkedTexts(body).map((t) => ({ t, ox: t.x - body.x, oy: t.y - body.y })),
+  };
+  (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  (e.target as HTMLElement).addEventListener('pointermove', onResizeMove);
+  (e.target as HTMLElement).addEventListener('pointerup', onResizeUp);
+  (e.target as HTMLElement).addEventListener('pointercancel', onResizeUp);
+}
+
+function onResizeMove(e: PointerEvent) {
+  const d = rszDrag;
+  if (!d || !rszBody) return;
+  const dx = (e.clientX - d.px) / d.k;
+  const dy = (e.clientY - d.py) / d.k;
+  const b = rszBody;
+  let x = d.x;
+  let y = d.y;
+  let w = d.w;
+  let h = d.h;
+  if (d.corner.includes('e')) w = d.w + dx;
+  if (d.corner.includes('s')) h = d.h + dy;
+  if (d.corner.includes('w')) {
+    w = d.w - dx;
+    x = d.x + dx;
+  }
+  if (d.corner.includes('n')) {
+    h = d.h - dy;
+    y = d.y + dy;
+  }
+  if (w < MIN_W) {
+    if (d.corner.includes('w')) x = d.x + (d.w - MIN_W);
+    w = MIN_W;
+  }
+  if (h < MIN_H) {
+    if (d.corner.includes('n')) y = d.y + (d.h - MIN_H);
+    h = MIN_H;
+  }
+  b.x = x;
+  b.y = y;
+  b.w = w;
+  b.h = h;
+  b.nb.bx = x;
+  b.nb.by = y;
+  // keep the writing in the same relative spot, so it never falls outside
+  const sx = w / d.w;
+  const sy = h / d.h;
+  d.texts.forEach(({ t, ox, oy }) => {
+    t.x = b.x + ox * sx;
+    t.y = b.y + oy * sy;
+    t.w = Math.max(40, t.w * sx);
+  });
+  ev('try{ draw(); }catch(e){}');
+  paintResize();
+}
+
+function onResizeUp(e: PointerEvent) {
+  const t = e.target as HTMLElement;
+  t.removeEventListener('pointermove', onResizeMove);
+  t.removeEventListener('pointerup', onResizeUp);
+  t.removeEventListener('pointercancel', onResizeUp);
+  if (!rszDrag || !rszBody) return;
+  rszDrag = null;
+  const b = rszBody;
+  const skin = SKINS.find((s) => s.id === b.nb.skin) || SKINS[0];
+  const w = Math.max(20, Math.round(b.w - PAD * 2));
+  const h = Math.max(20, Math.round(b.h - PAD * 2));
+  const src = noteImage(b.nb.design, skin, w, h);
+  if (src) b.src = src;
+  b.nb.rw = w;
+  b.nb.rh = h;
+  ev('try{ draw(); save(); thumbs(); }catch(e){}');
+  paintResize();
+}
+
+function hookNoteResize() {
+  window.setInterval(paintResize, 160);
+  window.addEventListener('pointerup', () => window.setTimeout(paintResize, 60), true);
 }
 
 function openEditor(body: any) {
@@ -1020,6 +1229,17 @@ const CSS = `
 #gn-note-grab.dragging{cursor:grabbing}
 #gn-note-grab svg{width:12px;height:12px;display:block;opacity:.85}
 
+/* resize grips for the selected note */
+#gn-note-rsz{position:fixed;inset:0;z-index:45;pointer-events:none;display:none}
+#gn-note-rsz.on{display:block}
+#gn-note-rsz .gn-nr{
+  position:absolute;width:15px;height:15px;margin:-8px 0 0 -8px;border-radius:50%;
+  background:#fff;border:2px solid #2f6df6;box-shadow:0 1px 4px rgba(16,32,64,.3);
+  pointer-events:auto;cursor:nwse-resize;touch-action:none;
+}
+#gn-note-rsz .gn-nr:hover{background:#eef4ff;transform:scale(1.12)}
+#gn-note-rsz .gn-nr[data-c="ne"],#gn-note-rsz .gn-nr[data-c="sw"]{cursor:nesw-resize}
+
 /* note editor */
 #gn-note-edit{
   position:fixed;z-index:46;display:none;width:min(320px,calc(100vw - 16px));
@@ -1069,6 +1289,7 @@ function boot() {
   hookCommit();
   hookNotePick();
   hookNoteSync();
+  hookNoteResize();
   window.setInterval(ensureButton, 900);
 
   (window as any).__inkpad_notes = {
