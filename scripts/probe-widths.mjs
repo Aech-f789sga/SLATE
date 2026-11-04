@@ -88,9 +88,27 @@ const sheet = await page.evaluate(() => {
 });
 console.log('dock sheet row            ', JSON.stringify(sheet));
 
-// 6. edit a level in the pen settings sheet and see the pill follow
+// 6. and the other way: a pill change must move the dock's own number field
 await page.evaluate(() => {
   document.querySelector('#pen-sheet .ps-x')?.click();
+  window.__inkpad_pen_dock.open(3);
+});
+await page.waitForTimeout(300);
+await page.evaluate(() => window.__inkpad_ink.size(18));
+await page.waitForTimeout(400);
+const sheetFollow = await page.evaluate(() => {
+  const row = document.querySelectorAll('#pen-sheet .ps-row')[3];
+  return {
+    num: row.querySelector('.ps-thick input[type=number]').value,
+    name: row.querySelector('.ps-name').textContent,
+    model: +window.__inkpad_widths.width('hl').toFixed(2),
+  };
+});
+console.log('pill 18 → dock sheet      ', JSON.stringify(sheetFollow));
+await page.evaluate(() => document.querySelector('#pen-sheet .ps-x')?.click());
+
+// 7. edit a level in the pen settings sheet and see the pill follow
+await page.evaluate(() => {
   eval('tool="hl"');
 });
 await page.waitForTimeout(300);
