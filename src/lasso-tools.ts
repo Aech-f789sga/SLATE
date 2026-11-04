@@ -170,6 +170,7 @@ function buildCard() {
       <span class="lc-hint"></span>
     </div>
     <textarea class="lc-area" spellcheck="false" aria-label="Recognised text"></textarea>
+    <div class="lc-prev" aria-hidden="true"></div>
     <div class="lc-foot">
       <span class="lc-note">Edit before inserting — recognition is a guess, you are the proof.</span>
       <div class="lc-btns">
@@ -194,8 +195,77 @@ function buildCard() {
       (card!.querySelector('.lc-area') as HTMLTextAreaElement).value = mode === 'latex' ? read.latex : read.text;
       (card!.querySelector('.lc-conf') as HTMLElement).textContent = confLabel(read.confidence);
       (card!.querySelector('.lc-conf') as HTMLElement).dataset.v = String(Math.round(read.confidence * 100));
+      paintPreview(true);
     };
   });
+
+  (card.querySelector('.lc-area') as HTMLTextAreaElement).oninput = () => paintPreview();
+}
+
+/* ------------------------------------------------------------------ */
+/* Formula preview                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The LaTeX tab produces source, and source is unreadable at the moment you
+ * most need to judge it — right after the read. KaTeX renders it, so a wrong
+ * read looks wrong immediately instead of after you paste it.
+ *
+ * Imported lazily: a notebook that never converts a formula should not pay for
+ * the renderer or its font files. If the chunk cannot be fetched — offline on
+ * a first run — the source is shown as plain text rather than nothing.
+ */
+let katex: any = null;
+let katexTried = false;
+let katexLoad: Promise<void> | null = null;
+
+function loadKatex(): Promise<void> {
+  if (katexLoad) return katexLoad;
+  katexLoad = (async () => {
+    try {
+      const [mod] = await Promise.all([import('katex'), import('katex/dist/katex.min.css')]);
+      katex = (mod as any).default || mod;
+    } catch {
+      katex = null;
+    } finally {
+      katexTried = true;
+    }
+  })();
+  return katexLoad;
+}
+
+function rawInto(prev: HTMLElement, src: string) {
+  prev.innerHTML = '<span class="lc-raw"></span>';
+  (prev.firstElementChild as HTMLElement).textContent = src;
+}
+
+let prevTimer = 0;
+
+function paintPreview(now = false) {
+  if (!card) return;
+  const prev = card.querySelector('.lc-prev') as HTMLElement | null;
+  const area = card.querySelector('.lc-area') as HTMLTextAreaElement | null;
+  if (!prev || !area) return;
+  const src = card.dataset.mode === 'latex' ? area.value.trim() : '';
+  if (!src) {
+    prev.innerHTML = '';
+    return;
+  }
+
+  const run = async () => {
+    if (!katex && !katexTried) await loadKatex();
+    if (!prev.isConnected) return;
+    if (!katex) return rawInto(prev, src);
+    try {
+      katex.render(src, prev, { displayMode: true, throwOnError: false, strict: false });
+    } catch {
+      rawInto(prev, src);
+    }
+  };
+
+  window.clearTimeout(prevTimer);
+  if (now) void run();
+  else prevTimer = window.setTimeout(run, 140);
 }
 
 function confLabel(c: number): string {
@@ -220,6 +290,7 @@ function openCard(mode: Mode) {
   const conf = card.querySelector('.lc-conf') as HTMLElement;
   conf.textContent = confLabel(read.confidence);
   conf.dataset.v = String(Math.round(read.confidence * 100));
+  paintPreview(true);
 
   const at = toScreen(current.box[0], current.box[3]);
   card.classList.add('on');
@@ -396,6 +467,21 @@ const CSS = `
   background:var(--bg,#e6e9ef);color:var(--tx,#1c1c1e);outline:none;
 }
 #lasso-card[data-mode=latex] .lc-area{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* the rendered formula — without it the LaTeX tab is just punctuation */
+#lasso-card .lc-prev{
+  display:none;margin-top:7px;padding:10px 12px;border-radius:9px;
+  border:1px dashed color-mix(in srgb,var(--bd,#d9d9de) 80%,transparent);
+  background:color-mix(in srgb,var(--sf,#fff) 70%,transparent);
+  color:var(--tx,#1c1c1e);overflow-x:auto;overflow-y:hidden;
+  min-height:34px;line-height:1.2;
+}
+#lasso-card[data-mode=latex] .lc-prev{display:block}
+#lasso-card .lc-prev:empty{display:none}
+#lasso-card .lc-prev .katex{font-size:1.12em}
+#lasso-card .lc-prev .lc-raw{
+  font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mu,#6e6e73);
+}
 #lasso-card .lc-foot{display:flex;align-items:center;gap:8px;margin-top:8px}
 #lasso-card .lc-note{font-size:10.5px;color:var(--mu,#6e6e73);flex:1;line-height:1.35}
 #lasso-card .lc-btns{display:flex;gap:6px}

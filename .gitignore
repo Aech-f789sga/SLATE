@@ -11,3 +11,6 @@ coverage/
 # scratch probes
 .probe*
 .tmp-*
+
+# probe screenshots
+shots/

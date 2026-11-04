@@ -30,6 +30,232 @@ export interface GxTheme {
   light: { acc: [number, number, number]; sec: [number, number, number] };
 }
 
+/* ------------------------------------------------------------------ */
+/* Feel — what a mod does to the shape of the interface                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A GX mod is more than a wallpaper: it also decides whether buttons are
+ * rounded or squared off, how heavy a border is, whether labels shout in
+ * capitals, and how thick an icon's stroke runs. Those are the choices that
+ * make two mods with the same colours feel like different products.
+ *
+ * They are expressed as a preset rather than per-theme numbers because most
+ * mods in a family agree on the shape language, and a preset is the thing you
+ * can actually tune without touching twenty-four objects.
+ */
+export interface GxFeel {
+  /** Corner radius for controls — buttons, fields, chips. */
+  r: number;
+  /** Corner radius for containers — cards, dialogs. */
+  r2: number;
+  /** Border thickness in px. */
+  bd: number;
+  /** Chrome font stack. Paper keeps its own. */
+  font: string;
+  /** Letter spacing on chrome labels, in em. */
+  ls: number;
+  /** Do small labels sit in capitals? */
+  caps: boolean;
+  /** SVG stroke width, in viewBox units (icons are drawn on a 24 grid). */
+  iw: number;
+  /** SVG stroke cap and join. */
+  cap: 'round' | 'square' | 'butt';
+  /** 0–1: how far idle icons drift toward the accent instead of the text colour. */
+  tint: number;
+}
+
+const FEEL: Record<string, GxFeel> = {
+  /** The app's own voice: neutral, quiet, nothing to notice. */
+  paper: {
+    r: 10, r2: 16, bd: 1,
+    // spelled out rather than `inherit`: a custom property set to a CSS-wide
+    // keyword resolves to nothing, and the rule that consumes it then dies
+    font: '-apple-system,"Segoe UI",Roboto,sans-serif', ls: 0, caps: false,
+    iw: 1.7, cap: 'round', tint: 0,
+  },
+  /** Big radii, soft faces — the plush end of the mod catalogue. */
+  soft: {
+    r: 15, r2: 22, bd: 1,
+    font: '"Nunito","Quicksand",ui-rounded,system-ui,sans-serif',
+    ls: 0, caps: false, iw: 1.9, cap: 'round', tint: 0.2,
+  },
+  /** Voxel mods: nearly square, doubled borders, chunky strokes. */
+  block: {
+    r: 3, r2: 6, bd: 2,
+    font: '"Lucida Console",ui-monospace,monospace',
+    ls: 0.04, caps: true, iw: 2.4, cap: 'square', tint: 0,
+  },
+  /** Terminal mods: tight radii, mono type, hairline strokes. */
+  mono: {
+    r: 4, r2: 8, bd: 1,
+    font: 'ui-monospace,"JetBrains Mono","SF Mono",monospace',
+    ls: 0.05, caps: true, iw: 1.55, cap: 'butt', tint: 0.3,
+  },
+  /** Fantasy mods: square corners, serif capitals, engraved weight. */
+  serif: {
+    r: 2, r2: 5, bd: 1,
+    font: '"Iowan Old Style",Palatino,"Book Antiqua",Georgia,serif',
+    ls: 0.06, caps: true, iw: 1.5, cap: 'round', tint: 0.15,
+  },
+  /** Anime mods: round, airy, slightly wider tracking. */
+  anime: {
+    r: 14, r2: 20, bd: 1,
+    font: '"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif',
+    ls: 0.02, caps: false, iw: 1.8, cap: 'round', tint: 0.28,
+  },
+  /** Film and game mods: flat panels, condensed tracking, no softness. */
+  cinema: {
+    r: 5, r2: 9, bd: 1,
+    font: '"Helvetica Neue",Arial,system-ui,sans-serif',
+    ls: 0.07, caps: true, iw: 1.6, cap: 'butt', tint: 0.12,
+  },
+};
+
+export type FeelKey = keyof typeof FEEL;
+
+export const FEEL_LABEL: Record<FeelKey, string> = {
+  paper: 'Neutral',
+  soft: 'Soft',
+  block: 'Voxel',
+  mono: 'Terminal',
+  serif: 'Fantasy',
+  anime: 'Anime',
+  cinema: 'Cinematic',
+};
+
+export function feelOf(id: string): GxFeel {
+  return FEEL[FEEL_BY_THEME[id]] || FEEL.paper;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sound — what a mod does to your ears                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * GX mods ship sound packs: a click, a hover, a keystroke. We cannot copy the
+ * audio (the mod files are gone), but a click is a short transient — a body
+ * oscillator plus a filtered noise burst — and those six numbers are enough to
+ * rebuild the *character* of each pack rather than its exact waveform.
+ *
+ * `f`→`f2` is the pitch glide, `d` the decay, `g` the peak gain, `n` how much
+ * noise is mixed in, `q` the noise band. `ty` enables keystroke ticks, which
+ * only some mods have.
+ */
+export interface GxSnd {
+  w: OscillatorType;
+  f: number;
+  f2: number;
+  d: number;
+  g: number;
+  n: number;
+  q: number;
+  ty: boolean;
+}
+
+const SND: Record<string, GxSnd> = {
+  /** Neutral plastic click. */
+  tick: { w: 'sine', f: 900, f2: 700, d: 0.07, g: 0.1, n: 0.12, q: 1.2, ty: false },
+  /** Wooden knock with a paper tail — the Minecraft end of the catalogue. */
+  wood: { w: 'triangle', f: 340, f2: 185, d: 0.11, g: 0.17, n: 0.5, q: 1.1, ty: true },
+  /** A struck bell that rings on after you let go. */
+  bell: { w: 'sine', f: 640, f2: 615, d: 0.52, g: 0.1, n: 0.06, q: 0.8, ty: false },
+  /** Plucked string — lutes, kotos, and ninja mods. */
+  pluck: { w: 'triangle', f: 700, f2: 300, d: 0.18, g: 0.13, n: 0.1, q: 1.4, ty: false },
+  /** Terminal blip: square, short, no tail. */
+  digital: { w: 'square', f: 1400, f2: 980, d: 0.05, g: 0.06, n: 0.05, q: 2, ty: true },
+  /** Sub-bass thump for the void-dwellers. */
+  sub: { w: 'sine', f: 110, f2: 52, d: 0.3, g: 0.2, n: 0.3, q: 0.7, ty: false },
+  /** Bright two-tone chirp. */
+  chime: { w: 'triangle', f: 1100, f2: 1620, d: 0.1, g: 0.075, n: 0.03, q: 1, ty: false },
+  /** Muted tape hiss under a soft tone. */
+  lofi: { w: 'triangle', f: 480, f2: 330, d: 0.17, g: 0.1, n: 0.24, q: 0.9, ty: true },
+  /** Brassy stab with a little grit. */
+  brass: { w: 'sawtooth', f: 300, f2: 240, d: 0.13, g: 0.075, n: 0.16, q: 1.6, ty: false },
+  /** Chiptune square, held flat — 8-bit, no glide. */
+  chip: { w: 'square', f: 440, f2: 440, d: 0.06, g: 0.065, n: 0.02, q: 1, ty: true },
+  /** Barely there. */
+  soft: { w: 'sine', f: 620, f2: 600, d: 0.09, g: 0.07, n: 0.08, q: 1, ty: false },
+};
+
+export type SndKey = keyof typeof SND;
+
+export const SND_LABEL: Record<SndKey, string> = {
+  tick: 'plastic click',
+  wood: 'wood knock',
+  bell: 'struck bell',
+  pluck: 'plucked string',
+  digital: 'terminal blip',
+  sub: 'sub thump',
+  chime: 'bright chirp',
+  lofi: 'tape hiss',
+  brass: 'brass stab',
+  chip: '8-bit blip',
+  soft: 'soft tick',
+};
+
+export function sndOf(id: string): GxSnd {
+  return SND[SND_BY_THEME[id]] || SND.tick;
+}
+
+/** Per-theme shape language, keyed by theme id. */
+export const FEEL_BY_THEME: Record<string, FeelKey> = {
+  slate: 'paper',
+  'day-one': 'paper',
+  msi: 'mono',
+  cyberdeck: 'mono',
+  'minecraft-sound-fireplace': 'block',
+  'lofi-chill': 'cinema',
+  'grand-theft-auto-san-andreas': 'cinema',
+  blockified: 'block',
+  'violet-nebula': 'soft',
+  anime: 'anime',
+  'monkey-rizz': 'block',
+  'the-traveller': 'soft',
+  cozy: 'soft',
+  'creamy-keyboard': 'soft',
+  'hollow-knight': 'serif',
+  'elden-ring': 'serif',
+  'japanese-lofi-mix': 'cinema',
+  horror: 'cinema',
+  'black-hole': 'mono',
+  'josh-hutcherson': 'soft',
+  'spaced-out': 'mono',
+  medieval: 'serif',
+  'legendary-rift': 'serif',
+  'naruto-itachi-uchiha': 'anime',
+  'capybara-party': 'soft',
+};
+
+/** Per-theme sound pack, keyed by theme id. */
+export const SND_BY_THEME: Record<string, SndKey> = {
+  slate: 'tick',
+  'day-one': 'chime',
+  msi: 'digital',
+  cyberdeck: 'digital',
+  'minecraft-sound-fireplace': 'wood',
+  'lofi-chill': 'lofi',
+  'grand-theft-auto-san-andreas': 'brass',
+  blockified: 'chip',
+  'violet-nebula': 'soft',
+  anime: 'chime',
+  'monkey-rizz': 'chip',
+  'the-traveller': 'soft',
+  cozy: 'chime',
+  'creamy-keyboard': 'wood',
+  'hollow-knight': 'bell',
+  'elden-ring': 'bell',
+  'japanese-lofi-mix': 'lofi',
+  horror: 'sub',
+  'black-hole': 'sub',
+  'josh-hutcherson': 'soft',
+  'spaced-out': 'digital',
+  medieval: 'pluck',
+  'legendary-rift': 'brass',
+  'naruto-itachi-uchiha': 'pluck',
+  'capybara-party': 'chime',
+};
+
 /** The app's own palette, kept as a first-class choice. */
 export const SLATE_THEME: GxTheme = {
   id: 'slate',

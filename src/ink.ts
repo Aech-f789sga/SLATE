@@ -1780,17 +1780,20 @@ function hookDrawer() {
         }
         return;
       }
+      // A drawer opened by an ink-tool press is cancelled on the next tick, so
+      // it must not take the brush panel down with it on the way out. That race
+      // was the "the brush window shows, then disappears": the engine opened
+      // its drawer a task after we opened ours, and this callback closed ours
+      // while closing the engine's.
+      if (document.body.classList.contains('ink-nodrw')) {
+        window.setTimeout(closeDrawer, 0);
+        return;
+      }
       // the drawer and our tool row sit at the same height, so only one of
       // them may be up: the row steps aside while the drawer is showing
       drawerLock = true;
       closePopovers();
       paintPanel();
-      // only a drawer opened by an ink-tool click is ours to close; anything
-      // else (Settings, Guides, Layers) must survive. The `ink-nodrw` class is
-      // set for the duration of exactly that click, so it is the precise test —
-      // a time window let a Settings press land inside it by accident.
-      if (!document.body.classList.contains('ink-nodrw')) return;
-      window.setTimeout(closeDrawer, 0);
     }).observe(drw, { attributes: true, attributeFilter: ['style'] });
     return true;
   };

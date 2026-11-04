@@ -319,6 +319,15 @@ function installShapeEngine() {
     var S = window.__gnShape || (window.__gnShape = {});
     var origShp = shp;
     var origPts = shapePts;
+    var origDraw = draw;
+
+    // The engine paints the in-flight stroke from the tool alone, so a circle
+    // picked in the picker would preview as the rectangle it is built from.
+    // Rewrite the live stroke just before each paint instead.
+    draw = function(){
+      try { window.__gnPreviewCur && window.__gnPreviewCur(); } catch (e) {}
+      return origDraw.apply(this, arguments);
+    };
 
     function isCustom(s){
       return !!(s && s.t === 'shape' && (s.poly || s.el || s.pb || s.hb));
@@ -392,14 +401,46 @@ function installShapeEngine() {
 /* Recognition hook                                                    */
 /* ------------------------------------------------------------------ */
 
-const HOLD_MS = 380;
+const HOLD_MS = 420;
+
+/** Movement under this still counts as holding still — a hand is never frozen. */
+const JITTER = 2.6;
+
+/** Never let a resize collapse below this, or the engine drops the stroke. */
+const MIN_BOX = 10;
 
 let lastRun: any = null;
 
 let path: Pt[] = [];
 let drawing = false;
 let shapePending = false;
-let lastMove = 0;
+let holdTimer = 0;
+let strokesBefore = 0;
+
+/**
+ * The shape a hold produced, while the finger is still down.
+ *
+ * Keeping the anchor and the normalised outline means a drag after the snap is
+ * a resize rather than a new stroke: the outline scales with the box, so the
+ * user can place the shape before lifting.
+ */
+interface Snap {
+  kind: string;
+  anchor: Pt;
+  target: Pt;
+  line: boolean;
+  norm: { poly?: Pt[]; el?: any; pb?: any; hb?: any };
+}
+let snap: Snap | null = null;
+/** Carried from pointerup to the deferred fix-up, once `snap` is cleared. */
+let pendingSnap: Snap | null = null;
+
+/** Raw drag box for the shape tool, tracked before the engine normalises it. */
+let rawA: Pt | null = null;
+let rawB: Pt | null = null;
+
+/** Previous pointer position, used to tell a hold from a slow drag. */
+let prevPoint: Pt | null = null;
 
 function canvasEl(): HTMLCanvasElement | null {
   return document.getElementById('cv') as HTMLCanvasElement | null;
@@ -426,11 +467,14 @@ function hookRecognition() {
   cv.addEventListener(
     'pointerdown',
     (e) => {
+      snap = null;
       if (!style.recognise) return;
       if (ev<string>('tool') !== 'pen') return;
       drawing = true;
       path = [toPage(e, cv)];
-      lastMove = performance.now();
+      prevPoint = path[0];
+      strokesBefore = (ev<any[]>('pg().strokes') || []).length;
+      armHold();
     },
     true
   );
@@ -440,23 +484,48 @@ function hookRecognition() {
     (e) => {
       if (!drawing) return;
       const p = toPage(e, cv);
-      const last = path[path.length - 1];
-      if (!last || dist(last, p) > 1.5) {
-        path.push(p);
-        lastMove = performance.now();
+      if (snap) {
+        resizeTo(p);
+        return;
       }
+      const last = path[path.length - 1];
+      if (!last || dist(last, p) > 1.5) path.push(p);
+      // Restart the clock only on real movement, measured against the previous
+      // pointer position. Comparing against the last accepted point instead
+      // means a slow hand keeps resetting the timer and nothing ever snaps.
+      if (!prevPoint || dist(prevPoint, p) > JITTER) armHold();
+      prevPoint = p;
     },
     true
   );
 
   const finish = () => {
+    window.clearTimeout(holdTimer);
     if (!drawing && !shapePending) return;
     if (drawing) {
       drawing = false;
-      const held = performance.now() - lastMove;
       const pts = path;
+      const wasSnapped = !!snap;
+      pendingSnap = snap;
+      snap = null;
       path = [];
-      if (style.recognise && held >= HOLD_MS && pts.length >= 8) {
+      if (wasSnapped) {
+        window.setTimeout(finaliseSnap, 0);
+        return;
+      }
+      if (!style.recognise) return;
+      // The engine turns any large closed loop into an oval on release. Run the
+      // classifier over the same points so a square comes back a square, and
+      // fall back to the plain hold test for open strokes.
+      const madeOval = (() => {
+        const all = ev<any[]>('pg().strokes') || [];
+        // a release outside the canvas never reaches the engine, so the last
+        // stroke would be somebody else's
+        if (all.length <= strokesBefore) return false;
+        const s = all[all.length - 1];
+        return !!s && s.t === 'shape' && s.k === 'ell';
+      })();
+      if (pts.length >= 8 && (madeOval || performance.now() - lastMove > HOLD_MS)) {
         window.setTimeout(() => commit(pts), 0);
       }
       return;
@@ -479,9 +548,182 @@ function hookRecognition() {
   window.addEventListener('pointercancel', finish, false);
 }
 
+/* ------------------------------------------------------------------ */
+/* Hold, snap, resize                                                  */
+/* ------------------------------------------------------------------ */
+
+let lastMove = 0;
+
+/**
+ * Track the raw drag box for the shape tool.
+ *
+ * Listeners sit on `document` in the capture phase, which runs before anything
+ * the engine listens to on the canvas — so the box is always current by the
+ * time the paint happens, with no one-frame lag.
+ */
+function hookShapePreview() {
+  const cv = canvasEl();
+  if (!cv) return;
+
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      rawA = null;
+      rawB = null;
+      if (!forced || !toolIsShape()) return;
+      const p = toPage(e as PointerEvent, cv);
+      rawA = p;
+      rawB = p;
+    },
+    true
+  );
+
+  document.addEventListener(
+    'pointermove',
+    (e) => {
+      if (!rawA) return;
+      rawB = toPage(e as PointerEvent, cv);
+    },
+    true
+  );
+
+  const clear = () => window.setTimeout(() => ((rawA = null), (rawB = null)), 40);
+  document.addEventListener('pointerup', clear, true);
+  document.addEventListener('pointercancel', clear, true);
+
+  (window as any).__gnPreviewCur = () => {
+    const cur = ev<any>('cur');
+    if (!cur) return;
+
+    // A hold that has snapped owns the stroke: the engine keeps writing the
+    // raw pointer into `cur.b` on every move, so the geometry is re-applied
+    // here, at paint time, where nothing can overwrite it afterwards.
+    if (snap) {
+      const [a, b] = snapBox();
+      cur.t = 'shape';
+      cur.k = snap.kind;
+      cur.a = a;
+      cur.b = b;
+      setDerived(cur, snap.norm);
+      return;
+    }
+
+    if (cur.t !== 'shape' || !forced || !rawA || !rawB) return;
+    const geo = shapeFromBox(forced as GeoKind, rawA, rawB, { sides: polySides });
+    cur.k = forced;
+    cur.a = geo.a;
+    cur.b = geo.b;
+    setDerived(cur, geo);
+  };
+}
+
+/** The box a snapped shape should occupy, from its fixed corner and the finger. */
+function snapBox(): [Pt, Pt] {
+  if (!snap) return [[0, 0], [0, 0]];
+  const [ax, ay] = snap.anchor;
+  const [px, py] = snap.target;
+
+  if (snap.line) return [snap.anchor, snap.target];
+
+  let dx = px - ax;
+  let dy = py - ay;
+  // a circle or square keeps its proportions while you drag the corner
+  if (snap.kind === 'circle' || snap.kind === 'square') {
+    const m = Math.max(Math.abs(dx), Math.abs(dy));
+    dx = (dx < 0 ? -1 : 1) * m;
+    dy = (dy < 0 ? -1 : 1) * m;
+  }
+  if (Math.abs(dx) < MIN_BOX) dx = (dx < 0 ? -1 : 1) * MIN_BOX;
+  if (Math.abs(dy) < MIN_BOX) dy = (dy < 0 ? -1 : 1) * MIN_BOX;
+
+  return [
+    [Math.min(ax, ax + dx), Math.min(ay, ay + dy)],
+    [Math.max(ax, ax + dx), Math.max(ay, ay + dy)],
+  ];
+}
+
+function armHold() {
+  lastMove = performance.now();
+  window.clearTimeout(holdTimer);
+  holdTimer = window.setTimeout(trySnap, HOLD_MS);
+}
+
+function trySnap() {
+  if (!drawing || snap) return;
+  const pts = path;
+  if (pts.length < 8) return;
+  const shape = recognise(pts);
+  if (!shape) return;
+  beginSnap(shape);
+}
+
+/** Turn the live pen stroke into the recognised shape, still under the finger. */
+function beginSnap(shape: ShapeOut) {
+  const line = shape.k === 'line' || shape.k === 'arrow';
+  const b = boxOf(shape.a, shape.b);
+  const tip = path[path.length - 1] || shape.b;
+
+  // The corner you are not holding becomes the pivot, so a drag grows the shape
+  // away from it — the way a selection handle behaves everywhere else.
+  const anchor: Pt = line
+    ? shape.a
+    : [tip[0] > (b.x + b.x2) / 2 ? b.x : b.x2, tip[1] > (b.y + b.y2) / 2 ? b.y : b.y2];
+
+  snap = {
+    kind: shape.k,
+    anchor,
+    target: line ? shape.b : tip,
+    line,
+    norm: { poly: shape.poly, el: shape.el, pb: shape.pb, hb: shape.hb },
+  };
+  ev('try{ draw(); }catch(e){}');
+  flash(shape.k);
+}
+
+function resizeTo(p: Pt) {
+  if (!snap) return;
+  snap.target = p;
+  ev('try{ draw(); }catch(e){}');
+}
+
+/** The engine copies only k/a/b on release, so put the outline back. */
+function finaliseSnap() {
+  const sn = pendingSnap;
+  pendingSnap = null;
+  if (!sn || !editorOpen()) return;
+  const strokes = ev<any[]>('pg().strokes') || [];
+  if (strokes.length <= strokesBefore) return;
+  const s = strokes[strokes.length - 1];
+  if (!s || s.t !== 'shape') return;
+  setDerived(s, sn.norm);
+  applyStyle(s, false);
+  ev('try{ draw(); save(); thumbs(); }catch(e){}');
+}
+
+function boxOf(a: Pt, b: Pt) {
+  return {
+    x: Math.min(a[0], b[0]),
+    y: Math.min(a[1], b[1]),
+    x2: Math.max(a[0], b[0]),
+    y2: Math.max(a[1], b[1]),
+  };
+}
+
+function setDerived(target: any, norm: { poly?: Pt[]; el?: any; pb?: any; hb?: any }) {
+  delete target.poly;
+  delete target.el;
+  delete target.pb;
+  delete target.hb;
+  if (norm.poly) target.poly = norm.poly;
+  if (norm.el) target.el = norm.el;
+  if (norm.pb) target.pb = norm.pb;
+  if (norm.hb) target.hb = norm.hb;
+}
+
 /**
  * The engine builds shape strokes from the tool alone, so fill and dash are
- * applied here once the stroke exists.
+ * applied here once the stroke exists — and a derived kind (circle, triangle,
+ * polygon…) gets its real outline back, which the engine drops on release.
  */
 function stampStyle() {
   if (!editorOpen()) return;
@@ -489,29 +731,24 @@ function stampStyle() {
   if (!strokes || !strokes.length) return;
   const s = strokes[strokes.length - 1];
   if (!s || s.t !== 'shape') return;
+  applyStyle(s, !!forced);
+}
 
-  // a derived kind was drawn with the rect tool: rename it and give it the
-  // numbers that make it perfect (a square box, a regular polygon, …)
-  let renamed = false;
-  if (forced && s.k === 'rect') {
+function applyStyle(s: any, geometry: boolean) {
+  let changed = false;
+
+  // The picker keeps its selection, so every stroke with that kind selected is
+  // rebuilt from its box: the box is the authority, the outline is normalised
+  // inside it, which is what makes a drag a resize rather than a redraw.
+  if (geometry && forced) {
     const geo = shapeFromBox(forced as GeoKind, s.a, s.b, { sides: polySides });
     s.k = forced;
     s.a = geo.a;
     s.b = geo.b;
-    delete s.poly;
-    delete s.el;
-    delete s.pb;
-    delete s.hb;
-    if (geo.poly) s.poly = geo.poly;
-    if (geo.el) s.el = geo.el;
-    if (geo.pb) s.pb = geo.pb;
-    if (geo.hb) s.hb = geo.hb;
-    forced = null;
-    paintPicker();
-    renamed = true;
+    setDerived(s, geo);
+    changed = true;
   }
 
-  let changed = renamed;
   if (style.fill && (s.k === 'rect' || s.k === 'ell' || s.k === 'tri' || s.poly || s.el)) {
     s.fc = style.fill;
     s.fop = style.opacity;
@@ -521,7 +758,7 @@ function stampStyle() {
     applyDash(s);
     changed = true;
   }
-  if (changed) ev('try{ draw(); save(); }catch(e){}');
+  if (changed) ev('try{ draw(); save(); thumbs(); }catch(e){}');
 }
 
 /** Diagnostics for one classified path — used by the harness, harmless otherwise. */
@@ -1157,6 +1394,7 @@ function boot() {
   pushAxes();
   installShapeEngine();
   hookRecognition();
+  hookShapePreview();
   buildPanel();
   buildPicker();
   hookToolbar();
@@ -1196,6 +1434,8 @@ function boot() {
     kinds: KINDS,
     metrics: metricsOf,
     last: () => lastRun,
+    live: () => ({ drawing, snap, path: path.length, pts: path.map((q) => q.map(Math.round)), hold: !!holdTimer, tool: ev<string>('tool'), rec: style.recognise }),
+    trySnap,
   };
 }
 

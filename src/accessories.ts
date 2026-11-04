@@ -20,6 +20,8 @@
 /* Engine access                                                       */
 /* ------------------------------------------------------------------ */
 
+import { anySmart, onSmartChange, setSmart, smartOn, type SmartKey } from './smart';
+
 function ev<T = any>(expr: string): T | null {
   try {
     return (window as any).eval(expr) as T;
@@ -600,6 +602,61 @@ function paintTools() {
 
 let accBtn: HTMLElement | null = null;
 let accPop: HTMLElement | null = null;
+let smartSheet: HTMLElement | null = null;
+
+/**
+ * The three smart-ink switches, where people actually reach for them.
+ *
+ * They live in Settings too, but a switch you have to open a settings sheet to
+ * find is a switch nobody flips. Same state object either way — `smart.ts` is
+ * the single source of truth, so the two surfaces can never disagree.
+ */
+const SMART_ROWS: { key: SmartKey; label: string; note: string }[] = [
+  { key: 'calc', label: 'Auto-calculate', note: 'Solve what you write after an = sign' },
+  { key: 'toText', label: 'Ink → text', note: 'Turn a lassoed scribble into typed text' },
+  { key: 'toLatex', label: 'Ink → LaTeX', note: 'Turn a lassoed formula into maths' },
+];
+
+function buildSmartSheet(): HTMLElement {
+  const node = div('acc-sheet');
+  node.id = 'acc-smart';
+  node.append(div('acc-sh', 'Smart ink'));
+
+  const list = div('acc-list');
+  for (const row of SMART_ROWS) {
+    const r = div('acc-row');
+    r.dataset.smart = row.key;
+    const wrap = div('acc-name');
+    wrap.textContent = row.label;
+    const note = div('acc-note', row.note);
+    const tg = btn('acc-tg');
+    tg.dataset.smart = row.key;
+    tg.setAttribute('role', 'switch');
+    tg.onclick = () => {
+      setSmart(row.key, !smartOn(row.key));
+      paintSmart();
+    };
+    r.append(wrap, tg);
+    list.append(r, note);
+  }
+  node.append(list);
+
+  const foot = div('acc-foot');
+  foot.append(div('acc-hint', 'Off until you ask for them'));
+  node.append(foot);
+  return node;
+}
+
+function paintSmart() {
+  if (!smartSheet) return;
+  smartSheet.querySelectorAll<HTMLElement>('.acc-tg').forEach((n) => {
+    const k = n.dataset.smart as SmartKey;
+    n.classList.toggle('on', smartOn(k));
+  });
+  smartSheet
+    .querySelectorAll<HTMLElement>('.acc-row')
+    .forEach((r) => r.classList.toggle('off', !smartOn(r.dataset.smart as SmartKey)));
+}
 
 interface MenuItem {
   id: string;
@@ -624,6 +681,11 @@ const MENU: MenuItem[] = [
     id: 'tools',
     label: 'Toolbar Customization',
     icon: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
+  },
+  {
+    id: 'smart',
+    label: 'Smart ink',
+    icon: '<path d="M5 19 12 5l7 14"/><path d="M8.5 13h7"/><path d="M19.5 4.5 20 6l1.5.5L20 7l-.5 1.5L19 7l-1.5-.5L19 6z"/>',
   },
 ];
 
@@ -663,25 +725,33 @@ function buildMenu() {
         openGuidePanel();
       };
       row.append(more);
-    } else if (item.id === 'tools') {
+    } else if (item.id === 'tools' || item.id === 'smart') {
       const go = el('i', '') as HTMLElement;
       go.className = 'acc-go';
       go.innerHTML = ICON_GO;
       row.append(go);
     }
 
-    if (item.id !== 'tools') {
+    if (item.id !== 'tools' && item.id !== 'smart') {
       const sw = div('acc-sw');
       row.append(sw);
     }
 
     row.onclick = () => {
       if (item.id === 'tools') {
+        smartSheet?.classList.remove('on');
         toolSheet?.classList.toggle('on');
         paintTools();
         // hang the sheet under the menu it came from, not under its own row,
         // or it covers the item you just pressed
         if (toolSheet?.classList.contains('on')) placeUnder(toolSheet, accPop || row);
+        return;
+      }
+      if (item.id === 'smart') {
+        toolSheet?.classList.remove('on');
+        paintSmart();
+        smartSheet?.classList.toggle('on');
+        if (smartSheet?.classList.contains('on')) placeUnder(smartSheet, accPop || row);
         return;
       }
       toggle(item.id);
@@ -695,14 +765,19 @@ function buildMenu() {
   toolSheet = buildToolSheet();
   document.body.append(toolSheet);
 
+  smartSheet = buildSmartSheet();
+  document.body.append(smartSheet);
+
   document.addEventListener(
     'pointerdown',
     (e) => {
       const t = e.target as HTMLElement;
       if (!t.closest) return;
-      if (t.closest('#acc-pop') || t.closest('#acc-trigger') || t.closest('#acc-tools')) return;
+      if (t.closest('#acc-pop') || t.closest('#acc-trigger') || t.closest('#acc-tools') || t.closest('#acc-smart'))
+        return;
       accPop?.classList.remove('on');
       toolSheet?.classList.remove('on');
+      smartSheet?.classList.remove('on');
     },
     true
   );
@@ -737,6 +812,7 @@ function paintMenu() {
     if (item && item.kind) on = g[item.kind] !== 'none';
     else if (id === 'zoom') on = state.zoom;
     else if (id === 'timer') on = state.timer;
+    else if (id === 'smart') on = anySmart();
     n.classList.toggle('on', on);
     if (on) any = true;
   });
@@ -776,10 +852,12 @@ function hookTrigger() {
     if (accPop.classList.contains('on')) {
       accPop.classList.remove('on');
       toolSheet?.classList.remove('on');
+      smartSheet?.classList.remove('on');
       return;
     }
     // the customization sheet is anchored to this menu; it must not outlive it
     toolSheet?.classList.remove('on');
+    smartSheet?.classList.remove('on');
     paintMenu();
     placeUnder(accPop, accBtn!);
   };
@@ -848,6 +926,20 @@ const CSS = `
 }
 #acc-tools.on{display:flex}
 #acc-tools .acc-sh{flex:none}
+
+#acc-smart{
+  position:fixed;z-index:45;display:none;width:252px;padding:10px 10px 0;
+  background:#fff;border:1px solid #eef1f6;border-radius:14px;
+  box-shadow:0 16px 38px rgba(8,20,38,.20),0 2px 6px rgba(8,20,38,.08);
+  font-family:inherit;max-height:min(72vh,470px);
+  flex-direction:column;overflow:hidden;
+}
+#acc-smart.on{display:flex}
+#acc-smart .acc-sh{flex:none}
+#acc-smart .acc-row{margin-top:2px}
+#acc-smart .acc-note{
+  font:500 10.5px/1.35 inherit;color:#9aa5b4;padding:0 4px 4px 7px;margin-top:-2px;
+}
 .acc-list{display:flex;flex-direction:column;gap:1px;flex:1;overflow:auto;min-height:0;padding-bottom:4px}
 .acc-row{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 7px;border-radius:8px}
 .acc-row:hover{background:#f6f8fb}
@@ -932,6 +1024,12 @@ function boot() {
   hookTrigger();
   hookGuideSnap();
   applyHidden();
+
+  // Settings has the same three switches; whichever moves, both repaint
+  onSmartChange(() => {
+    paintSmart();
+    paintMenu();
+  });
 
   let lastOpen = false;
   window.setInterval(() => {

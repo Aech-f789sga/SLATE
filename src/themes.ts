@@ -16,7 +16,17 @@
  * your place.
  */
 
-import { ALL_THEMES, themeById, type GxTheme } from './themes-data';
+import {
+  ALL_THEMES,
+  FEEL_BY_THEME,
+  FEEL_LABEL,
+  SND_BY_THEME,
+  SND_LABEL,
+  feelOf,
+  themeById,
+  type GxTheme,
+} from './themes-data';
+import { play, setSfxOn, sfxOn } from './sfx';
 
 const KEY = 'inkpad-gx-theme';
 
@@ -143,15 +153,44 @@ function ensureWall(): HTMLElement {
   return w;
 }
 
+/**
+ * The shape language a mod imposes on the interface: corner radii, border
+ * weight, typeface, tracking, and how an icon is drawn. These are exported as
+ * variables rather than baked into rules so a single `apply()` moves the whole
+ * chrome, the same way the palette does.
+ */
+function feelVars(t: GxTheme): Record<string, string> {
+  const f = feelOf(t.id);
+  // `square` is a legal line cap but not a legal line join, so the two are
+  // mapped separately rather than sharing one value
+  const join = f.cap === 'round' ? 'round' : f.cap === 'square' ? 'miter' : 'miter';
+  return {
+    '--gx-r': `${f.r}px`,
+    '--gx-r2': `${f.r2}px`,
+    '--gx-bd': `${f.bd}px`,
+    '--gx-font': f.font,
+    '--gx-ls': `${f.ls}em`,
+    '--gx-iw': String(f.iw),
+    '--gx-cap': f.cap,
+    '--gx-join': join,
+    // percentage form, so the CSS can do `calc(100% - var(--gx-tintp))`
+    '--gx-tintp': `${Math.round(f.tint * 100)}%`,
+  };
+}
+
 function apply() {
   const t = themeById(choice.id);
   const dark = wantsDark();
   const root = document.documentElement;
   root.dataset.theme = dark ? 'dark' : 'light';
   root.dataset.gx = '1';
+  // read by sfx.ts, which must not import this module (it would be a cycle)
+  root.dataset.gxTheme = t.id;
 
   for (const [k, v] of Object.entries(palette(t, dark))) root.style.setProperty(k, v);
   for (const [k, v] of Object.entries(shellVars(dark))) root.style.setProperty(k, v);
+  for (const [k, v] of Object.entries(feelVars(t))) root.style.setProperty(k, v);
+  root.dataset.gxCaps = feelOf(t.id).caps ? '1' : '0';
 
   const wall = ensureWall();
   const on = choice.wall && !!t.wall;
@@ -243,6 +282,8 @@ function buildPanel() {
       <div class="gxp-grid"></div>
       <div class="gxp-foot">
         <label class="gxp-wall"><input type="checkbox" id="gxp-wall-t" /> Wallpaper on the shelf</label>
+        <label class="gxp-wall"><input type="checkbox" id="gxp-snd-t" /> Interface sounds</label>
+        <span class="gxp-tag" id="gxp-tag"></span>
       </div>
     </div>`;
   document.body.append(panel);
@@ -265,6 +306,11 @@ function buildPanel() {
     save();
     apply();
   };
+  const sndT = panel.querySelector('#gxp-snd-t') as HTMLInputElement;
+  sndT.onchange = () => {
+    setSfxOn(sndT.checked);
+    paintTag();
+  };
 }
 
 function paintModes() {
@@ -273,6 +319,23 @@ function paintModes() {
   });
   const wallT = panel?.querySelector('#gxp-wall-t') as HTMLInputElement | null;
   if (wallT) wallT.checked = choice.wall;
+  const sndT = panel?.querySelector('#gxp-snd-t') as HTMLInputElement | null;
+  if (sndT) sndT.checked = sfxOn();
+  paintTag();
+}
+
+/**
+ * The footer line. Colours are obvious from the swatches; the two things a
+ * swatch cannot show are the shape language and the sound pack, so they get
+ * named. It doubles as the explanation for why the buttons just changed shape.
+ */
+function paintTag() {
+  const tag = panel?.querySelector('#gxp-tag');
+  if (!tag) return;
+  const t = themeById(choice.id);
+  const f = FEEL_LABEL[FEEL_BY_THEME[t.id] || 'paper'];
+  const s = SND_LABEL[SND_BY_THEME[t.id] || 'tick'];
+  tag.textContent = `${f} · ${s}`;
 }
 
 function paintGrid() {
@@ -298,7 +361,10 @@ function paintGrid() {
       choice.id = t.id;
       save();
       apply();
+      // audition the pack you just picked, rather than the one you left
+      play('toggle', true);
       paintGrid();
+      paintModes();
     };
     grid.append(card);
   }
@@ -451,8 +517,121 @@ html[data-theme="dark"][data-gx] #nav > button:hover{
 }
 
 /* ---------------- editor bar ---------------- */
-html[data-gx] #tb{background:var(--gx-bar)!important}
+html[data-gx] #tb{
+  background:var(--gx-bar)!important;
+  border-radius:var(--gx-r2)!important;
+  border-width:var(--gx-bd)!important;
+}
 html[data-gx] #tb button.on:not(.sw){color:var(--gx-bar)!important}
+/* the white cluster under the bar is the one surface in the editor with a
+   shape of its own, so it is where a mod's corner language shows up */
+html[data-gx] #tb #bar2{
+  background:color-mix(in srgb, var(--sf) 94%, var(--ac))!important;
+  border-color:var(--bd)!important;
+  border-radius:var(--gx-r2)!important;
+  border-width:var(--gx-bd)!important;
+}
+html[data-gx] #tb #bar2 button,
+html[data-gx] #tb #bar2 select,
+html[data-gx] #tb #bar2 label,
+html[data-gx] #tb #bar2 input{color:var(--tx)!important}
+html[data-gx] #tb #bar2 button{
+  background:color-mix(in srgb, var(--bg) 62%, var(--sf))!important;
+  border-radius:calc(var(--gx-r) - 2px)!important;
+}
+html[data-gx] #tb #bar2 button:hover{background:color-mix(in srgb, var(--ac) 15%, var(--sf))!important}
+html[data-gx] #tb #bar2 button.on{background:var(--ac)!important;color:#fff!important}
+html[data-gx] #tb button:not(.sw){border-radius:calc(var(--gx-r) - 2px)!important}
+
+/* the tab strip and the overflow button are painted a fixed navy by the shell
+   module; without this they stay blue under every theme */
+html[data-gx] #gn-tabs{background:var(--gx-bar)!important}
+html[data-gx] #gn-tab-home,
+html[data-gx] #gn-tabs .gn-tab{border-radius:var(--gx-r) var(--gx-r) 0 0!important}
+html[data-gx] #gn-tabs .gn-tab.on{
+  background:color-mix(in srgb, var(--gx-bar) 58%, var(--ac))!important;
+}
+html[data-gx] #tb #more{
+  background:var(--gx-bar)!important;
+  box-shadow:-12px 0 10px var(--gx-bar)!important;
+}
+html[data-gx] input[type=checkbox],
+html[data-gx] input[type=radio]{accent-color:var(--ac)}
+
+/* ---------------- feel: shape, type, icons ---------------- */
+/* A mod is not only a palette. The same six colours feel like a different
+   product depending on whether a button is a pill or a brick, whether the
+   labels shout, and whether an icon is a hairline or a marker stroke. All of
+   that is driven from the preset the theme declares. */
+
+html[data-gx] #lib,
+html[data-gx] #gx-theme-panel{font-family:var(--gx-font)!important}
+
+html[data-gx] #gn-search,
+html[data-gx] #gn-board,
+html[data-gx] #gn-study,
+html[data-gx] .gn-head > button,
+html[data-gx] #gn-new,
+html[data-gx] #gn-view,
+html[data-gx] #gx-theme-btn,
+html[data-gx] .lib-chip,
+html[data-gx] .lib-chip-add,
+html[data-gx] .card .sub button{
+  border-radius:var(--gx-r)!important;
+  border-width:var(--gx-bd)!important;
+}
+html[data-gx] #gn-view button{border-radius:calc(var(--gx-r) - 3px)!important}
+html[data-gx] #gn-view{border-radius:calc(var(--gx-r) + 2px)!important}
+
+html[data-gx] .card .cv{
+  /* the shelf draws a book spine: tight on the left, open on the right, and
+     both ends scale off the control radius */
+  border-radius:calc(var(--gx-r) * .4) var(--gx-r) var(--gx-r) calc(var(--gx-r) * .4)!important;
+}
+html[data-gx] .cv canvas{border-radius:calc(var(--gx-r) * .22)!important}
+html[data-gx] #grid .new{border-radius:var(--gx-r2)!important;border-width:calc(var(--gx-bd) + 1px)!important}
+html[data-gx] #md .box,
+html[data-gx] #auth-md .box,
+html[data-gx] #pwa-md .box,
+html[data-gx] #gx-theme-panel .gxp-box{
+  border-radius:calc(var(--gx-r2) + 2px)!important;
+  border-width:var(--gx-bd)!important;
+}
+html[data-gx] .box input[type=text],
+html[data-gx] .box input[type=email],
+html[data-gx] .box input[type=password],
+html[data-gx] #gn-search input{
+  border-radius:calc(var(--gx-r) - 2px)!important;
+}
+
+/* tracking and capitals */
+html[data-gx] #nav a,
+html[data-gx] .gn-head b,
+html[data-gx] .lib-chip,
+html[data-gx] #gn-view button,
+html[data-gx] #gx-theme-btn,
+html[data-gx] #gx-theme-panel .gxp-modes button,
+html[data-gx] #gx-theme-panel .gxp-name{letter-spacing:var(--gx-ls)}
+html[data-gx-caps="1"] #nav a,
+html[data-gx-caps="1"] .gn-head b,
+html[data-gx-caps="1"] .lib-chip,
+html[data-gx-caps="1"] #gn-view button,
+html[data-gx-caps="1"] #gx-theme-panel .gxp-modes button,
+html[data-gx-caps="1"] #gx-theme-panel .gxp-name{text-transform:uppercase}
+
+/* icons: one stroke weight for the whole app, plus a wash of accent */
+html[data-gx] svg{
+  stroke-width:var(--gx-iw);
+  stroke-linecap:var(--gx-cap);
+  stroke-linejoin:var(--gx-join);
+}
+html[data-gx] #nav a svg,
+html[data-gx] .gn-head > button svg,
+html[data-gx] #gn-view button svg,
+html[data-gx] .lib-chip svg,
+html[data-gx] #gx-theme-panel .gxp-x svg{
+  color:color-mix(in srgb, currentColor calc(100% - var(--gx-tintp)), var(--ac));
+}
 
 /* ---------------- theme button ---------------- */
 #gx-theme-row{display:flex;align-items:center;gap:10px;margin-bottom:16px;width:100%;max-width:520px}
@@ -525,18 +704,24 @@ html[data-gx] #tb button.on:not(.sw){color:var(--gx-bar)!important}
 #gx-theme-panel .gxp-card:hover{transform:translateY(-2px);border-color:var(--ac)}
 #gx-theme-panel .gxp-card.on{border-color:var(--ac);box-shadow:0 0 0 2px color-mix(in srgb, var(--ac) 30%, transparent)}
 #gx-theme-panel .gxp-thumb{
-  display:block;height:76px;min-height:76px;flex:0 0 auto;
+  display:block;height:72px;min-height:72px;flex:0 0 auto;
   background-size:cover;background-position:center;
 }
-#gx-theme-panel .gxp-name{display:block;font-size:12.5px;padding:8px 9px 2px;font-weight:600;
+#gx-theme-panel .gxp-name{display:block;font-size:12.5px;line-height:1.25;padding:7px 9px 1px;font-weight:600;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#gx-theme-panel .gxp-sub{display:flex;align-items:center;gap:5px;padding:0 9px 9px;font-size:10.5px;color:var(--mu)}
+#gx-theme-panel .gxp-sub{display:flex;align-items:center;gap:5px;padding:0 9px 8px;font-size:10.5px;line-height:1.3;color:var(--mu)}
 #gx-theme-panel .gxp-sub i{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
 #gx-theme-panel .gxp-mod{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #gx-theme-panel .gxp-foot{
-  padding:11px 18px;border-top:1px solid var(--bd);display:flex;align-items:center;gap:10px;
+  padding:11px 18px;border-top:1px solid var(--bd);display:flex;align-items:center;gap:14px;
+  flex-wrap:wrap;
 }
 #gx-theme-panel .gxp-wall{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--mu);cursor:pointer}
+#gx-theme-panel .gxp-tag{
+  margin-left:auto;font-size:11px;color:var(--mu);letter-spacing:.02em;
+  padding:3px 9px;border-radius:999px;border:1px solid var(--bd);
+  background:var(--bg);white-space:nowrap;
+}
 `;
 
 /* ------------------------------------------------------------------ */
