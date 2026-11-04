@@ -13,6 +13,15 @@
  * Both live behind a small floating panel that appears with the shape tools.
  */
 
+import {
+  recogniseShape,
+  shapeFromBox,
+  shapeOutline,
+  SHAPE_NAMES,
+  type Pt as GeoPt,
+  type ShapeKind as GeoKind,
+} from './shapes-geometry';
+
 /* ------------------------------------------------------------------ */
 /* Engine access                                                       */
 /* ------------------------------------------------------------------ */
@@ -39,6 +48,10 @@ interface ShapeOut {
   a: Pt;
   b: Pt;
   pts?: Pt[];
+  poly?: Pt[];
+  el?: any;
+  pb?: any;
+  hb?: any;
 }
 
 /* ------------------------------------------------------------------ */
@@ -155,40 +168,17 @@ function polyArea(P: Pt[]): number {
  * the three far more reliably than counting corners on a shaky hand line.
  */
 function recognise(raw: Pt[]): ShapeOut | null {
-  if (raw.length < 8) return null;
-  const b = bboxOf(raw);
-  const diag = Math.hypot(b.w, b.h);
-  if (diag < 44) return null;
-
-  const P = resample(raw, 64);
-  const gap = dist(P[0], P[P.length - 1]);
-  const closed = gap < diag * 0.3;
-
-  if (!closed) {
-    const dev = maxDeviation(P, P[0], P[P.length - 1]);
-    // a line is a line when it barely leaves its own chord
-    if (dev < diag * 0.1) return { k: 'line', a: P[0], b: P[P.length - 1] };
-    return null;
-  }
-
-  const box = b.w * b.h || 1;
-  const ratio = polyArea(P) / box;
-
-  // how much of the path lies along the bounding box edges — a rectangle does
-  const onEdge =
-    P.filter(([x, y]) => {
-      const dx = Math.min(Math.abs(x - b.x), Math.abs(x - b.x2));
-      const dy = Math.min(Math.abs(y - b.y), Math.abs(y - b.y2));
-      return Math.min(dx, dy) < Math.max(7, diag * 0.055);
-    }).length / P.length;
-
-  const a: Pt = [b.x, b.y];
-  const c: Pt = [b.x2, b.y2];
-
-  if (ratio > 0.87 && onEdge > 0.5) return { k: 'rect', a, b: c };
-  if (ratio >= 0.62) return { k: 'ell', a, b: c };
-  if (ratio >= 0.36 && cornerCount(P) <= 5) return { k: 'tri', a, b: c };
-  return null;
+  const geo = recogniseShape(raw as GeoPt[], { minSize: 44 });
+  if (!geo) return null;
+  return {
+    k: geo.kind,
+    a: geo.a,
+    b: geo.b,
+    poly: geo.poly,
+    el: geo.el,
+    pb: geo.pb,
+    hb: geo.hb,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -307,6 +297,21 @@ function applyDash(s: any) {
  * the outline, and so the triangle kind renders at all.
  */
 function installShapeEngine() {
+  // the renderer calls back into this module, so hand it the real functions
+  (window as any).__shapeOutline = (s: any) =>
+    shapeOutline(
+      {
+        kind: s.k,
+        a: s.a,
+        b: s.b,
+        poly: s.poly,
+        el: s.el,
+        pb: s.pb,
+        hb: s.hb,
+      },
+      120
+    );
+
   ev(`(function(){
     if (window.__gnShapeHooked) return;
     window.__gnShapeHooked = true;
@@ -315,75 +320,70 @@ function installShapeEngine() {
     var origShp = shp;
     var origPts = shapePts;
 
-    function triP(s){
-      var x0=s.a[0], y0=s.a[1], x1=s.b[0], y1=s.b[1];
-      return [[(x0+x1)/2, Math.min(y0,y1)], [Math.max(x0,x1), Math.max(y0,y1)], [Math.min(x0,x1), Math.max(y0,y1)]];
+    function isCustom(s){
+      return !!(s && s.t === 'shape' && (s.poly || s.el || s.pb || s.hb));
     }
-    S.triP = triP;
+    S.isCustom = isCustom;
 
     shapePts = function(s){
-      if (s && s.t === 'shape' && s.k === 'tri') {
-        var P = triP(s);
-        return [P[0], P[1], P[2], P[0]];
+      if (isCustom(s)) {
+        var P = window.__shapeOutline(s);
+        if (P && P.length > 1) return P;
       }
       return origPts.apply(this, arguments);
     };
 
-    shp = function(c, s){
-      if (!s || s.t !== 'shape') return origShp.apply(this, arguments);
-
-      if (s.k === 'tri') {
-        var P = triP(s);
-        c.save();
-        c.lineCap = c.lineJoin = 'round';
-        if (s.fc) {
-          c.globalAlpha = Math.max(0.04, Math.min(1, s.fop == null ? 1 : s.fop));
-          c.fillStyle = s.fc;
-          c.beginPath();
-          c.moveTo(P[0][0], P[0][1]);
-          c.lineTo(P[1][0], P[1][1]);
-          c.lineTo(P[2][0], P[2][1]);
-          c.closePath();
-          c.fill();
-          c.globalAlpha = 1;
+    function trace(c, P, smooth){
+      c.beginPath();
+      c.moveTo(P[0][0], P[0][1]);
+      if (smooth && P.length > 4) {
+        for (var i = 1; i < P.length - 1; i++) {
+          var mx = (P[i][0] + P[i+1][0]) / 2, my = (P[i][1] + P[i+1][1]) / 2;
+          c.quadraticCurveTo(P[i][0], P[i][1], mx, my);
         }
-        c.strokeStyle = s.c;
-        c.lineWidth = s.w;
-        if (s.ds) {
-          if (s.dm === 'dot') {
-            c.lineCap = 'round';
-            c.setLineDash([0.1, Math.max(5, s.w * 2.8)]);
-          } else {
-            c.lineCap = 'butt';
-            c.setLineDash([Math.max(7, s.w * 4), Math.max(6, s.w * 3)]);
-          }
-        }
-        c.beginPath();
-        c.moveTo(P[0][0], P[0][1]);
-        c.lineTo(P[1][0], P[1][1]);
-        c.lineTo(P[2][0], P[2][1]);
-        c.closePath();
-        c.stroke();
-        c.restore();
-        return;
+        c.lineTo(P[P.length-1][0], P[P.length-1][1]);
+      } else {
+        for (var j = 1; j < P.length; j++) c.lineTo(P[j][0], P[j][1]);
       }
+    }
 
-      if (s.fc && (s.k === 'rect' || s.k === 'ell')) {
-        c.save();
+    shp = function(c, s){
+      if (!isCustom(s)) return origShp.apply(this, arguments);
+
+      var P = window.__shapeOutline(s);
+      if (!P || P.length < 2) return origShp.apply(this, arguments);
+
+      var closed = !!s.poly || s.k === 'circle' || s.k === 'ell';
+      var smooth = s.k === 'circle' || s.k === 'ell' || s.k === 'parab' || s.k === 'hyper' || !!s.el;
+
+      c.save();
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+
+      if (closed && s.fc) {
         c.globalAlpha = Math.max(0.04, Math.min(1, s.fop == null ? 1 : s.fop));
         c.fillStyle = s.fc;
-        c.beginPath();
-        if (s.k === 'rect') {
-          c.rect(s.a[0], s.a[1], s.b[0] - s.a[0], s.b[1] - s.a[1]);
-        } else {
-          c.ellipse((s.a[0]+s.b[0])/2, (s.a[1]+s.b[1])/2,
-                    Math.abs(s.b[0]-s.a[0])/2, Math.abs(s.b[1]-s.a[1])/2, 0, 0, 7);
-        }
+        trace(c, P, smooth);
+        c.closePath();
         c.fill();
-        c.restore();
+        c.globalAlpha = 1;
       }
 
-      return origShp.apply(this, arguments);
+      c.strokeStyle = s.c;
+      c.lineWidth = s.w;
+      if (s.ds) {
+        if (s.dm === 'dot') {
+          c.lineCap = 'round';
+          c.setLineDash([0.1, Math.max(5, s.w * 2.8)]);
+        } else {
+          c.lineCap = 'butt';
+          c.setLineDash([Math.max(7, s.w * 4), Math.max(6, s.w * 3)]);
+        }
+      }
+      trace(c, P, smooth);
+      if (closed) c.closePath();
+      c.stroke();
+      c.restore();
     };
   })()`);
 }
@@ -490,17 +490,29 @@ function stampStyle() {
   const s = strokes[strokes.length - 1];
   if (!s || s.t !== 'shape') return;
 
-  // a triangle was drawn with the rect tool, so rename it before anything else
+  // a derived kind was drawn with the rect tool: rename it and give it the
+  // numbers that make it perfect (a square box, a regular polygon, …)
   let renamed = false;
   if (forced && s.k === 'rect') {
+    const geo = shapeFromBox(forced as GeoKind, s.a, s.b, { sides: polySides });
     s.k = forced;
+    s.a = geo.a;
+    s.b = geo.b;
+    delete s.poly;
+    delete s.el;
+    delete s.pb;
+    delete s.hb;
+    if (geo.poly) s.poly = geo.poly;
+    if (geo.el) s.el = geo.el;
+    if (geo.pb) s.pb = geo.pb;
+    if (geo.hb) s.hb = geo.hb;
     forced = null;
     paintPicker();
     renamed = true;
   }
 
   let changed = renamed;
-  if (style.fill && (s.k === 'rect' || s.k === 'ell' || s.k === 'tri')) {
+  if (style.fill && (s.k === 'rect' || s.k === 'ell' || s.k === 'tri' || s.poly || s.el)) {
     s.fc = style.fill;
     s.fop = style.opacity;
     changed = true;
@@ -571,13 +583,21 @@ function commit(raw: Pt[]) {
     made.k = shape.k;
     made.a = shape.a;
     made.b = shape.b;
+    delete made.poly;
+    delete made.el;
+    delete made.pb;
+    delete made.hb;
+    if (shape.poly) made.poly = shape.poly;
+    if (shape.el) made.el = shape.el;
+    if (shape.pb) made.pb = shape.pb;
+    if (shape.hb) made.hb = shape.hb;
     made.w = Math.max(2, Math.min(8, s.w || 3));
     made.c = s.c;
     if (style.dash !== 'solid') {
       made.ds = true;
       made.dm = style.dash;
     }
-    if (style.fill && shape.k !== 'line') {
+    if (style.fill && shape.k !== 'line' && shape.k !== 'parab' && shape.k !== 'hyper') {
       made.fc = style.fill;
       made.fop = style.opacity;
     }
@@ -599,7 +619,16 @@ let panel: HTMLElement | null = null;
 let hint: HTMLElement | null = null;
 let hintTimer = 0;
 
-const SHAPE_TOOLS = ['line', 'rect', 'ell', 'arrow', 'hid', 'ax2', 'ax3', 'tri'];
+const SHAPE_TOOLS = [
+  'line', 'rect', 'ell', 'arrow', 'hid', 'ax2', 'ax3',
+  'tri', 'square', 'circle', 'para', 'trap', 'rhomb', 'poly', 'parab', 'hyper',
+];
+
+/** Kinds the engine cannot build itself: they arrive as a rect and are renamed. */
+const DERIVED = new Set(['tri', 'square', 'circle', 'para', 'trap', 'rhomb', 'poly', 'parab', 'hyper']);
+
+/** How many sides the polygon tool draws. */
+let polySides = 6;
 
 function toolIsShape(): boolean {
   const t = ev<string>('tool');
@@ -608,8 +637,7 @@ function toolIsShape(): boolean {
 
 function flash(k: string) {
   if (!hint) return;
-  const names: Record<string, string> = { line: 'Line', rect: 'Rectangle', ell: 'Oval', tri: 'Triangle' };
-  hint.textContent = `${names[k] || 'Shape'} snapped`;
+  hint.textContent = `${SHAPE_NAMES[k] || 'Shape'} snapped`;
   hint.classList.add('on');
   window.clearTimeout(hintTimer);
   hintTimer = window.setTimeout(() => hint?.classList.remove('on'), 1100);
@@ -783,7 +811,7 @@ function paint() {
 
   const kind = forced || ev<string>('tool') || '';
   const isAxis = kind === 'ax2' || kind === 'ax3';
-  const canFill = kind === 'rect' || kind === 'ell' || kind === 'tri';
+  const canFill = kind === 'rect' || kind === 'ell' || kind === 'tri' || kind === 'square' || kind === 'circle' || kind === 'rhomb' || kind === 'para' || kind === 'trap' || kind === 'poly';
 
   panel.querySelectorAll<HTMLElement>('.sh-fill').forEach((n) => {
     n.classList.toggle('on', (n.dataset.fill ?? null) === style.fill);
@@ -835,42 +863,36 @@ interface ShapeKind {
   svg: string;
 }
 
-const KINDS: ShapeKind[] = [
-  {
-    id: 'line',
-    label: 'Line',
-    svg: '<path d="M4 19 19 5"/>',
-  },
-  {
-    id: 'arrow',
-    label: 'Arrow',
-    svg: '<path d="M4 19 19 5M19 5h-6M19 5v6"/>',
-  },
-  {
-    id: 'ax2',
-    label: 'Axes',
-    svg: '<path d="M4 4v15h16"/><path d="M4 4l-2 3M4 4l3-2M20 19l-3 2M20 19l2-3"/>',
-  },
-  {
-    id: 'ax3',
-    label: '3 Axes',
-    svg: '<path d="M12 20V5M12 20l-8-4M12 20l8-4"/><path d="M12 5l-2 3M12 5l2 3"/>',
-  },
-  {
-    id: 'rect',
-    label: 'Rectangle',
-    svg: '<rect x="3.5" y="6" width="17" height="12" rx="1.6"/>',
-  },
-  {
-    id: 'ell',
-    label: 'Oval',
-    svg: '<ellipse cx="12" cy="12" rx="8.5" ry="6"/>',
-  },
-  {
-    id: 'tri',
-    label: 'Triangle',
-    svg: '<path d="M12 5.5 20 19H4z"/>',
-  },
+interface ShapePick {
+  id: string;
+  label: string;
+  svg: string;
+  group: 'basic' | 'poly' | 'curve';
+}
+
+const KINDS: ShapePick[] = [
+  { id: 'line', label: 'Line', group: 'basic', svg: '<path d="M4 19 19 5"/>' },
+  { id: 'arrow', label: 'Arrow', group: 'basic', svg: '<path d="M4 19 19 5M19 5h-6M19 5v6"/>' },
+  { id: 'rect', label: 'Rectangle', group: 'basic', svg: '<rect x="3.5" y="6" width="17" height="12" rx="1.6"/>' },
+  { id: 'square', label: 'Square', group: 'basic', svg: '<rect x="4.5" y="4.5" width="15" height="15" rx="1.4"/>' },
+  { id: 'circle', label: 'Circle', group: 'basic', svg: '<circle cx="12" cy="12" r="8"/>' },
+  { id: 'ell', label: 'Ellipse', group: 'basic', svg: '<ellipse cx="12" cy="12" rx="9" ry="5.5"/>' },
+  { id: 'tri', label: 'Triangle', group: 'basic', svg: '<path d="M12 5.5 20 19H4z"/>' },
+  { id: 'rhomb', label: 'Rhombus', group: 'basic', svg: '<path d="M12 4 20 12 12 20 4 12z"/>' },
+  { id: 'para', label: 'Parallelogram', group: 'basic', svg: '<path d="M7 6h13l-3 12H4z"/>' },
+  { id: 'trap', label: 'Trapezoid', group: 'basic', svg: '<path d="M7 6h10l4 12H3z"/>' },
+  { id: 'poly', label: 'Polygon', group: 'poly', svg: '<path d="M12 4l7 4v8l-7 4-7-4V8z"/>' },
+  { id: 'parab', label: 'Parabola', group: 'curve', svg: '<path d="M4 5c0 9 4 14 8 14s8-5 8-14"/>' },
+  { id: 'hyper', label: 'Hyperbola', group: 'curve', svg: '<path d="M5 19c6 0 3-14 7-14M19 5c-6 0-3 14-7 14"/>' },
+  { id: 'ax2', label: 'Axes', group: 'basic', svg: '<path d="M4 4v15h16"/><path d="M4 4l-2 3M4 4l3-2M20 19l-3 2M20 19l2-3"/>' },
+  { id: 'ax3', label: '3 axes', group: 'basic', svg: '<path d="M12 20V5M12 20l-8-4M12 20l8-4"/><path d="M12 5l-2 3M12 5l2 3"/>' },
+  { id: 'hid', label: 'Dashed', group: 'basic', svg: '<path d="M4 12h4M11 12h4M18 12h2"/>' },
+];
+
+const GROUPS: { id: 'basic' | 'poly' | 'curve'; title: string }[] = [
+  { id: 'basic', title: 'Shapes' },
+  { id: 'poly', title: 'Polygons' },
+  { id: 'curve', title: 'Conics' },
 ];
 
 let picker: HTMLElement | null = null;
@@ -884,8 +906,8 @@ let pickBtn: HTMLButtonElement | null = null;
 let forced: string | null = null;
 
 function setTool(t: string) {
-  forced = t === 'tri' ? 'tri' : null;
-  const real = t === 'tri' ? 'rect' : t;
+  forced = DERIVED.has(t) ? t : null;
+  const real = DERIVED.has(t) ? 'rect' : t;
   ev(`try{ tool=${JSON.stringify(real)}; sel=[]; draw(); syncTools(); }catch(e){}`);
   paintPicker();
   paint();
@@ -897,30 +919,51 @@ function buildPicker() {
   picker = el('div', '');
   picker.id = 'sh-pick';
 
-  const head = el('div', '', 'Shapes');
-  head.className = 'sh-ph';
-  picker.append(head);
+  for (const g of GROUPS) {
+    const head = el('div', '', g.title);
+    head.className = 'sh-ph';
+    picker.append(head);
 
-  const grid = el('div', '');
-  grid.className = 'sh-pg';
+    const grid = el('div', '');
+    grid.className = 'sh-pg';
 
-  for (const k of KINDS) {
-    const b = el('button', '') as HTMLButtonElement;
-    b.type = 'button';
-    b.className = 'sh-pb';
-    b.dataset.kind = k.id;
-    b.title = k.label;
-    b.innerHTML =
-      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ` +
-      `stroke-linecap="round" stroke-linejoin="round">${k.svg}</svg><span>${k.label}</span>`;
-    b.onclick = () => {
-      setTool(k.id);
-      picker?.classList.remove('on');
-    };
-    grid.append(b);
+    for (const k of KINDS.filter((x) => x.group === g.id)) {
+      const b = el('button', '') as HTMLButtonElement;
+      b.type = 'button';
+      b.className = 'sh-pb';
+      b.dataset.kind = k.id;
+      b.title = k.label;
+      b.innerHTML =
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ` +
+        `stroke-linecap="round" stroke-linejoin="round">${k.svg}</svg><span>${k.label}</span>`;
+      b.onclick = () => {
+        setTool(k.id);
+        picker?.classList.remove('on');
+      };
+      grid.append(b);
+    }
+    picker.append(grid);
+
+    if (g.id === 'poly') {
+      const row = el('div', '');
+      row.className = 'sh-sides';
+      const lab = el('span', '', 'Sides');
+      row.append(lab);
+      for (let n = 5; n <= 12; n++) {
+        const b = el('button', '', String(n)) as HTMLButtonElement;
+        b.type = 'button';
+        b.dataset.sides = String(n);
+        b.onclick = () => {
+          polySides = n;
+          paintPicker();
+          setTool('poly');
+        };
+        row.append(b);
+      }
+      picker.append(row);
+    }
   }
 
-  picker.append(grid);
   document.body.append(picker);
 
   document.addEventListener(
@@ -940,6 +983,9 @@ function paintPicker() {
   const t = forced || ev<string>('tool');
   picker.querySelectorAll<HTMLElement>('.sh-pb').forEach((n) => {
     n.classList.toggle('on', n.dataset.kind === t);
+  });
+  picker.querySelectorAll<HTMLElement>('.sh-sides button').forEach((n) => {
+    n.classList.toggle('on', Number(n.dataset.sides) === polySides);
   });
   pickBtn?.classList.toggle('on', !!t && SHAPE_TOOLS.includes(t));
 }
@@ -1070,7 +1116,8 @@ const CSS = `
 #sh-trigger svg{width:18px;height:18px;display:block}
 
 #sh-pick{
-  position:fixed;z-index:42;display:none;width:238px;padding:10px;
+  position:fixed;z-index:42;display:none;width:300px;padding:10px;
+  max-height:min(78vh,640px);overflow:auto;
   background:#fff;border:1px solid #eef1f6;border-radius:14px;
   box-shadow:0 16px 38px rgba(8,20,38,.20),0 2px 6px rgba(8,20,38,.08);
   font-family:inherit;
@@ -1089,7 +1136,19 @@ const CSS = `
 #sh-pick .sh-pb:hover{background:#eef3fb!important}
 #sh-pick .sh-pb.on{border-color:var(--gn-acc,#2f6df6)!important;background:#eaf1ff!important;color:#1f4fbf}
 #sh-pick .sh-pb svg{width:20px;height:20px;display:block}
-#sh-pick .sh-pb span{font:600 8.5px/1 inherit;color:#77828f;letter-spacing:.01em;white-space:nowrap}
+#sh-pick .sh-pb span{
+  font:600 9px/1.12 inherit;color:#77828f;letter-spacing:.01em;white-space:normal;
+  text-align:center;max-width:92px;min-height:20px;display:flex;align-items:center;justify-content:center;
+}
+#sh-pick .sh-sides{display:flex;flex-wrap:wrap;gap:3px;align-items:center;margin:0 0 8px 3px}
+#sh-pick .sh-sides span{
+  font:700 9px/1 inherit;letter-spacing:.08em;text-transform:uppercase;color:#8b95a3;margin-right:3px;
+}
+#sh-pick .sh-sides button{
+  width:24px;height:22px;padding:0;border:1px solid #e3e7ee;background:#f7f9fc;border-radius:6px;
+  font:600 10.5px/1 ui-monospace,monospace;color:#5b6673;cursor:pointer;
+}
+#sh-pick .sh-sides button.on{background:#eaf1ff;border-color:var(--gn-acc,#2f6df6);color:#1f4fbf}
 #sh-pick .sh-pb.on span{color:#1f4fbf}
 `;
 
