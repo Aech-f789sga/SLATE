@@ -296,6 +296,27 @@ function drawPaper(c: CanvasRenderingContext2D, tpl: string, col: string) {
 /* ------------------------------------------------------------------ */
 
 /**
+ * How a highlighter stroke composites on the page in front of you.
+ *
+ * Multiply on light paper is what makes a highlight look like ink soaked into
+ * the sheet instead of paint sitting on top of it; on dark paper the same blend
+ * would vanish, so it lightens instead. Exposed because a *snapped* highlighter
+ * is a shape rather than a stroke, and the shape renderer has to agree with this
+ * one or the same pen would look like two different pens.
+ */
+function hlMode(): GlobalCompositeOperation {
+  const page = ev<any>('pg && pg()');
+  const light = lum(paperColor(page)) > 0.45;
+  return (prefs.hlBlend === 'auto' ? (light ? 'multiply' : 'lighten') : prefs.hlBlend === 'multiply' ? 'multiply' : 'source-over') as GlobalCompositeOperation;
+}
+
+/** The density a highlighter is painted at — per stroke, else the user's choice. */
+function hlAlpha(s?: any): number {
+  const v = s && s.ho != null ? s.ho : prefs.hlOpacity;
+  return Math.min(0.95, Math.max(0.05, Number(v) || 0.34));
+}
+
+/**
  * A highlighter is a chisel nib: flat across, square at the ends, and it lets
  * whatever is underneath show through. Two passes — a soft shoulder and a
  * slightly stronger core — read as ink soaked into paper rather than a
@@ -305,13 +326,9 @@ function drawHighlighter(c: CanvasRenderingContext2D, s: any) {
   const p: number[][] = s.p;
   if (!p || !p.length) return;
 
-  const page = ev<any>('pg && pg()');
-  const light = lum(paperColor(page)) > 0.45;
-  const mode =
-    prefs.hlBlend === 'auto' ? (light ? 'multiply' : 'lighten') : prefs.hlBlend === 'multiply' ? 'multiply' : 'source-over';
-
+  const mode = hlMode();
   const w = Math.max(1, s.w * 4);
-  const alpha = Math.min(0.95, Math.max(0.05, s.ho != null ? s.ho : prefs.hlOpacity));
+  const alpha = hlAlpha(s);
 
   c.save();
   c.globalCompositeOperation = mode;
@@ -579,6 +596,9 @@ function boot() {
     invalidate,
     save: savePrefs,
     PX_PER_MM,
+    /** For the shape renderer: a snapped highlighter must paint like a stroke. */
+    hlMode,
+    hlAlpha,
   };
 }
 

@@ -356,7 +356,68 @@ function installShapeEngine() {
       }
     }
 
+    /** The outline of any shape kind, as a polyline. */
+    function pathOf(s){
+      if (isCustom(s)) {
+        var P = window.__shapeOutline(s);
+        if (P && P.length > 1) return P;
+      }
+      return origPts(s);
+    }
+
+    /**
+     * A shape that was snapped out of a highlighter stroke.
+     *
+     * The width is already the *painted* width — the stroke it came from was
+     * multiplied out before it was converted — so it is used as-is. The two
+     * passes and the blend are the same recipe drawHighlighter uses, so the
+     * snapped shape sits on the page exactly like the freehand line did.
+     */
+    function hlShape(c, s){
+      var P = pathOf(s);
+      if (!P || P.length < 2) return origShp.apply(this, arguments);
+      var closed = !!s.poly || s.k === 'circle' || s.k === 'ell';
+      var smooth = s.k === 'circle' || s.k === 'ell' || s.k === 'parab' || s.k === 'hyper' || !!s.el;
+      var mode = 'multiply', a = s.ho == null ? 0.35 : s.ho;
+      try {
+        var pp = window.__inkpad_paper;
+        if (pp && pp.hlMode) mode = pp.hlMode();
+        if (pp && pp.hlAlpha) a = pp.hlAlpha(s);
+      } catch (e) {}
+
+      c.save();
+      c.globalCompositeOperation = mode;
+      c.strokeStyle = s.c;
+      c.lineCap = 'butt';
+      c.lineJoin = 'round';
+
+      var pass = function(width, alpha){
+        c.lineWidth = width;
+        c.globalAlpha = alpha;
+        trace(c, P, smooth);
+        if (closed) c.closePath();
+        c.stroke();
+      };
+      // shoulder first, then the core: same 6 % / a-third recipe as a stroke
+      pass(s.w * 1.07, a * 0.34);
+      pass(s.w, a);
+      c.restore();
+    }
+
     shp = function(c, s){
+      if (s && s.hl) return hlShape(c, s);
+
+      // Any other translucent nib (marker, crayon, pencil) keeps its density.
+      if (s && s.ho != null) {
+        c.save();
+        c.globalAlpha *= Math.max(0.02, Math.min(1, s.ho));
+        try { return paintOutline(c, s); } finally { c.restore(); }
+      }
+      return paintOutline(c, s);
+    };
+
+    /** The ordinary shape painter: fill under, dashed or solid outline over. */
+    function paintOutline(c, s){
       if (!isCustom(s)) return origShp.apply(this, arguments);
 
       var P = window.__shapeOutline(s);
@@ -393,7 +454,7 @@ function installShapeEngine() {
       if (closed) c.closePath();
       c.stroke();
       c.restore();
-    };
+    }
   })()`);
 }
 
@@ -484,6 +545,8 @@ interface Snap {
   target: Pt;
   line: boolean;
   norm: { poly?: Pt[]; el?: any; pb?: any; hb?: any };
+  /** The nib the stroke was drawn with, so the shape keeps its weight. */
+  ink: Ink;
 }
 let snap: Snap | null = null;
 /** Carried from pointerup to the deferred fix-up, once `snap` is cleared. */
@@ -519,6 +582,12 @@ function toPage(e: PointerEvent, cv: HTMLCanvasElement): Pt {
   return [((e.clientX - r.left) / (r.width || 1)) * W, ((e.clientY - r.top) / (r.height || 1)) * H];
 }
 
+/** Tools whose strokes may become shapes. The highlighter is one of them. */
+function snapsTool(): boolean {
+  const t = ev<string>('tool');
+  return t === 'pen' || t === 'hl';
+}
+
 function hookRecognition() {
   const cv = canvasEl();
   if (!cv || (cv as any).__gnShapeHook) return;
@@ -529,7 +598,7 @@ function hookRecognition() {
     (e) => {
       snap = null;
       if (!style.recognise) return;
-      if (ev<string>('tool') !== 'pen') return;
+      if (!snapsTool()) return;
       drawing = true;
       path = [toPage(e, cv)];
       strokesBefore = (ev<any[]>('pg().strokes') || []).length;
@@ -666,6 +735,9 @@ function hookShapePreview() {
       cur.a = a;
       cur.b = b;
       setDerived(cur, snap.norm);
+      // the preview has to be as wide and as translucent as the ink under the
+      // finger, or the snap looks like it swapped pens mid-stroke
+      applyInk(cur, snap.ink);
       return;
     }
 
@@ -744,6 +816,7 @@ function beginSnap(shape: ShapeOut) {
     target: line ? shape.b : tip,
     line,
     norm: { poly: shape.poly, el: shape.el, pb: shape.pb, hb: shape.hb },
+    ink: inkOf(ev<any>('cur') || {}),
   };
   ev('try{ draw(); }catch(e){}');
   flash(shape.k);
@@ -765,6 +838,9 @@ function finaliseSnap() {
   const s = strokes[strokes.length - 1];
   if (!s || s.t !== 'shape') return;
   setDerived(s, sn.norm);
+  // `end()` rebuilds the stroke from a fixed field list, which drops the weight
+  // and the density — that is how a highlighter came back as a thin pen.
+  applyInk(s, sn.ink);
   applyStyle(s, false);
   ev('try{ draw(); save(); thumbs(); }catch(e){}');
 }
@@ -830,6 +906,86 @@ function applyStyle(s: any, geometry: boolean) {
   if (changed) ev('try{ draw(); save(); thumbs(); }catch(e){}');
 }
 
+/* ------------------------------------------------------------------ */
+/* The ink a stroke was drawn with                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A stroke does not paint at `s.w`. The engine's `stroke()` multiplies for the
+ * highlighter (×4), the marker (×2.5), the crayon (×2) and the brush (×2.8), and
+ * thins the pencil, then sets an alpha for the translucent ones. A snapped shape
+ * has to arrive at the same weight and the same density, or the same nib would
+ * change character the moment it became clean — which is exactly the complaint:
+ * a highlighter turned into "a thin, bold pen".
+ *
+ * These mirror `stroke()` in index.html. If that table ever moves, this is the
+ * one place that has to follow.
+ */
+const PAINT: Record<string, { mul: number; alpha: number }> = {
+  marker: { mul: 2.5, alpha: 0.7 },
+  crayon: { mul: 2, alpha: 0.75 },
+  pencil: { mul: 0.9, alpha: 0.5 },
+  fountain: { mul: 1.6, alpha: 1 },
+  brush: { mul: 2.8, alpha: 1 },
+};
+
+/** The density a highlighter is painted at, from the paper module if it is up. */
+function hlAlpha(s?: any): number {
+  try {
+    const a = (window as any).__inkpad_paper?.hlAlpha?.(s);
+    if (typeof a === 'number' && Number.isFinite(a)) return a;
+  } catch {
+    /* fall through to the engine's own figure */
+  }
+  return 0.35;
+}
+
+/** Width a stroke actually covers, in page units. */
+function paintedWidth(s: any): number {
+  const w = Number(s.w) || 3;
+  if (s.t === 'hl') return w * 4;
+  const p = PAINT[s.v];
+  return p ? w * p.mul : w;
+}
+
+/** Density a stroke actually paints at. */
+function paintedAlpha(s: any): number {
+  if (s.t === 'hl') return hlAlpha(s);
+  const p = PAINT[s.v];
+  return p ? p.alpha : 1;
+}
+
+/**
+ * What a shape has to remember about the stroke it replaced.
+ *
+ * `w` is the *painted* width, because the shape renderer draws at `s.w` and the
+ * stroke renderer did not: a 14-unit highlighter covered 56 units of paper, so a
+ * shape that keeps `14` is a quarter as wide as the line it came from.
+ */
+interface Ink {
+  w: number;
+  /** Present only when the ink was translucent. */
+  ho?: number;
+  /** Present only for the highlighter, whose blend and butt caps differ. */
+  hl?: boolean;
+}
+
+function inkOf(s: any): Ink {
+  const ink: Ink = { w: Math.max(1, Math.min(120, paintedWidth(s))) };
+  const a = paintedAlpha(s);
+  if (a < 0.995) ink.ho = a;
+  if (s.t === 'hl') ink.hl = true;
+  return ink;
+}
+
+function applyInk(target: any, ink: Ink) {
+  target.w = ink.w;
+  if (ink.ho == null) delete target.ho;
+  else target.ho = ink.ho;
+  if (ink.hl) target.hl = 1;
+  else delete target.hl;
+}
+
 /** Diagnostics for one classified path — used by the harness, harmless otherwise. */
 function metricsOf(raw: Pt[]) {
   const b = bboxOf(raw);
@@ -865,7 +1021,7 @@ function metricsOf(raw: Pt[]) {
  */
 function commit(raw: Pt[]) {
   if (!editorOpen()) return;
-  if (ev<string>('tool') !== 'pen') return;
+  if (!snapsTool()) return;
 
   const shape = recognise(raw);
   lastRun = { metrics: metricsOf(raw), shape };
@@ -880,7 +1036,7 @@ function commit(raw: Pt[]) {
       if (++tries < 10) requestAnimationFrame(apply);
       return;
     }
-    if (s.t !== 'pen' && s.t !== 'shape') return;
+    if (s.t !== 'pen' && s.t !== 'hl' && s.t !== 'shape') return;
     if (s.t === 'shape' && s.k === shape.k) return;
 
     const made: any = { ...s };
@@ -897,7 +1053,10 @@ function commit(raw: Pt[]) {
     if (shape.el) made.el = shape.el;
     if (shape.pb) made.pb = shape.pb;
     if (shape.hb) made.hb = shape.hb;
-    made.w = Math.max(2, Math.min(8, s.w || 3));
+    // Keep the weight and the density of the ink that was actually on the page.
+    // This used to clamp every snapped stroke into a 2–8 px pen, which turned a
+    // 22 px highlighter into a thin opaque line the moment it snapped.
+    applyInk(made, inkOf(s));
     made.c = s.c;
     if (style.dash !== 'solid') {
       made.ds = true;

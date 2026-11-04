@@ -15,7 +15,21 @@
  * Thickness is millimetres first: 0.1 mm to 100 mm, on a logarithmic slider
  * plus a typed value, so a mouse or a finger can pick a 0.3 mm fineliner just as
  * easily as a 40 mm marker. A stylus is a nicety here, not a requirement.
+ *
+ * The width is not the dock's private business: the floating pill's dots and the
+ * brush popover's slider are the same nib, so all three go through
+ * `./widths`. A slot's millimetres are the dock's view of that record, and the
+ * record wins — change the thickness in the pill and this slot follows.
  */
+
+import {
+  HL_SCALE,
+  PX_PER_MM,
+  mmOf,
+  onWidth,
+  setWidth as setModelWidth,
+  type InkTool,
+} from './widths';
 
 /* ------------------------------------------------------------------ */
 /* Engine access                                                       */
@@ -55,7 +69,6 @@ interface Slot {
 }
 
 /** Page units per millimetre: an A4 page is 800 × 1131 units for 210 × 297 mm. */
-const PX_PER_MM = 800 / 210;
 const MIN_MM = 0.1;
 const MAX_MM = 100;
 
@@ -134,7 +147,14 @@ function save() {
 /** The engine's own stroke width for a given tool, in page units. */
 function engineWidth(s: Slot): number {
   // the highlighter renderer multiplies by four, so divide to stay honest
-  return s.kind === 'highlighter' ? (s.mm * PX_PER_MM) / 4 : s.mm * PX_PER_MM;
+  return s.kind === 'highlighter' ? (s.mm * PX_PER_MM) / HL_SCALE : s.mm * PX_PER_MM;
+}
+
+/** Which of the shared width records this slot speaks for. */
+function slotTool(s: Slot): InkTool {
+  if (s.kind === 'highlighter') return 'hl';
+  if (s.kind === 'eraser') return s.erase === 'pixel' ? 'pe' : 'er';
+  return 'pen';
 }
 
 function apply(s: Slot, opts: { keepSelection?: boolean } = {}) {
@@ -157,6 +177,12 @@ function apply(s: Slot, opts: { keepSelection?: boolean } = {}) {
       syncTools(); draw();
     }catch(e){}
   })()`);
+
+  // Record the nib *after* the engine has it. The record's listeners read the
+  // engine to stay honest, so writing it first would let them see the old width
+  // and adopt it straight back over the new one.
+  if (s.kind !== 'laser') setModelWidth(slotTool(s), width, { apply: false });
+
   paint();
 }
 
@@ -439,6 +465,7 @@ function renderSheet() {
   slots.forEach((s, i) => {
     const row = el('div', '');
     row.className = 'ps-row' + (i === editing ? ' on' : '');
+    row.dataset.id = s.id;
 
     const head = el('div', '');
     head.className = 'ps-rowhead';
@@ -640,6 +667,33 @@ function move(i: number, dir: number) {
   renderSheet();
 }
 
+/**
+ * Take a thickness that was set somewhere else — the pill's dots, the popover's
+ * slider, the engine's own size control — and show it on the slot it belongs to.
+ *
+ * Only the active slot can be the one in hand, so only that one moves. The
+ * inputs are rewritten in place rather than by re-rendering the sheet: a full
+ * render would drop the node under the user's finger.
+ */
+function syncFromRecord(t: InkTool) {
+  const s = slots.find((x) => x.id === activeId);
+  if (!s || slotTool(s) !== t) return;
+  const mm = Math.round(mmOf(t) * 100) / 100;
+  if (Math.abs(mm - s.mm) < 0.005) return;
+  s.mm = clampMm(mm);
+  save();
+  paint();
+
+  const row = sheet?.querySelector<HTMLElement>(`.ps-row[data-id="${s.id}"]`);
+  if (!row) return;
+  const range = row.querySelector<HTMLInputElement>('.ps-thick input[type=range]');
+  const num = row.querySelector<HTMLInputElement>('.ps-thick input[type=number]');
+  const name = row.querySelector<HTMLElement>('.ps-name');
+  if (range) range.value = String(mmToSlider(s.mm));
+  if (num) num.value = s.mm.toFixed(2).replace(/0$/, '');
+  if (name) name.textContent = kindName(s);
+}
+
 function mmToSlider(mm: number): number {
   // log scale from 0.1 to 100
   const t = (Math.log(mm) - Math.log(MIN_MM)) / (Math.log(MAX_MM) - Math.log(MIN_MM));
@@ -811,6 +865,9 @@ function boot() {
   tick();
   window.setInterval(tick, 300);
 
+  // the width record is shared, so a change made in the pill lands here too
+  onWidth(syncFromRecord);
+
   // apply the remembered pen the first time a notebook is opened
   const ed = document.getElementById('ed');
   if (ed) {
@@ -827,6 +884,15 @@ function boot() {
     slots: () => slots.map((s) => ({ ...s })),
     apply: (i: number) => slots[i] && apply(slots[i]),
     open: openSheet,
+    /** Set the active slot's nib from engine units — the pill calls this. */
+    setWidth: (units: number) => {
+      const s = slots.find((x) => x.id === activeId);
+      if (!s) return;
+      s.mm = clampMm(mmOf(slotTool(s), units));
+      save();
+      paint();
+      syncFromRecord(slotTool(s));
+    },
     PX_PER_MM,
   };
 }

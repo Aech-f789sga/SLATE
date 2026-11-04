@@ -18,7 +18,30 @@
  * Nothing here re-implements drawing: the panels write to the engine's own
  * controls (`#pt`, `#size`, `setBrush`, `setCol`, `SMO`) so undo, layers,
  * thumbnails and export all keep working.
+ *
+ * Thickness is the exception to "the engine is the source of truth": one nib is
+ * described in three places (the pill's dots, the popover's slider, the dock's
+ * millimetres), so the number lives in `./widths` and this module only presents
+ * it. See the note at the top of that file.
  */
+
+import {
+  adopt,
+  activeTool,
+  applyActive,
+  engineTool,
+  isInkTool,
+  mmLabel,
+  mmOf,
+  onWidth,
+  resetSteps,
+  setSteps,
+  setWidth,
+  steps,
+  unitsOf,
+  width,
+  type InkTool,
+} from './widths';
 
 /* ------------------------------------------------------------------ */
 /* Engine access                                                       */
@@ -162,11 +185,18 @@ const PEN_TYPES: { v: string; label: string; tip: string }[] = [
   { v: 'marker', label: 'Marker', tip: 'Wide translucent stroke' },
 ];
 
-const WIDTHS: Record<string, number[]> = {
-  pen: [2, 4, 7],
-  pe: [2, 4, 7],
-  hl: [8, 14, 22],
-  er: [10, 20, 34],
+/**
+ * The pill's three dots are levels, not constants: `./widths` owns them so the
+ * settings sheet can rewrite them. This is the shape of the row the pill paints.
+ */
+const DOTS = ['Thin', 'Medium', 'Thick'];
+
+/** How a nib is named in the settings sheet. */
+const TOOL_NAME: Record<InkTool, string> = {
+  pen: 'Pen',
+  pe: 'Pixel eraser',
+  hl: 'Highlighter',
+  er: 'Eraser',
 };
 
 /* ------------------------------------------------------------------ */
@@ -208,6 +238,9 @@ const CSS = `
 #ink-pen button svg{width:19px;height:19px;display:block}
 #ink-pen .w{display:grid;place-items:center}
 #ink-pen .w i{display:block;border-radius:999px;background:currentColor}
+/* a width between levels: hint at the nearest one without claiming it */
+#ink-pen .w.near{background:#f5f8fd}
+#ink-pen .w.near i{opacity:.45}
 #ink-pen .sw{
   width:22px!important;height:22px!important;border-radius:50%!important;
   background:var(--swc,#111)!important;
@@ -314,6 +347,29 @@ const CSS = `
   padding:9px 16px 5px;font-size:10.5px;font-weight:700;letter-spacing:.06em;
   text-transform:uppercase;color:#9aa3b0;
 }
+/* the three thickness levels, editable */
+.ink-sheet .sec .lvl-reset{
+  float:right;border:0;background:transparent;padding:0;margin-top:-2px;cursor:pointer;
+  font:600 10.5px/1 inherit;letter-spacing:.02em;text-transform:none;color:#2f6df6;
+}
+.ink-sheet .lvls{padding:2px 16px 8px}
+.ink-sheet .lvl{
+  display:flex;align-items:center;gap:9px;padding:5px 0;font-size:12.5px;color:#1c2430;
+}
+.ink-sheet .lvl-dot{
+  display:block;border-radius:999px;background:#3c4654;flex:none;margin-left:1px;
+}
+.ink-sheet .lvl-nm{width:56px;flex:none;color:#54606f}
+.ink-sheet .lvl input[type=number]{
+  width:58px;border:1px solid #e2e7ef;border-radius:7px;padding:4px 6px;font-size:12px;
+  text-align:center;color:#1c2430;font-variant-numeric:tabular-nums;
+}
+.ink-sheet .lvl-mm{font-size:11px;color:#8b95a3;margin-left:-4px}
+.ink-sheet .lvl-use{
+  margin-left:auto;border:1px solid #e2e7ef;background:#fff;border-radius:7px;
+  padding:3px 9px;font:600 11px/1 inherit;color:#54606f;cursor:pointer;
+}
+.ink-sheet .lvl-use:hover{border-color:#2f6df6;color:#2f6df6}
 .ink-sheet input[type=range]{width:104px;accent-color:#2f6df6}
 .ink-sheet .num{
   width:46px;border:1px solid #e2e7ef;border-radius:7px;padding:4px 6px;font-size:12px;
@@ -370,8 +426,26 @@ const CSS = `
 }
 .brush-w .bw:hover{background:#f4f7fc}
 .brush-w .bw.on{border-color:#2f6df6;background:#eef4ff}
+.brush-w .bw.near{border-color:#dbe6f8;background:#f8fbff}
+.brush-w .bw.near i{opacity:.45}
 .brush-w .bw i{display:block;border-radius:999px;background:#3c4654}
 .brush-w .bw.on i{background:#1f4fbf}
+/* continuous thickness under the three levels */
+.brush-wm{display:flex;align-items:center;gap:10px;padding:0 14px 13px;margin-top:-4px}
+.brush-wm input[type=range]{
+  -webkit-appearance:none;appearance:none;flex:1;height:4px;border-radius:2px;
+  background:linear-gradient(90deg,#dfe4ec,#c9d3e2);outline:none;cursor:pointer;margin:0;
+}
+.brush-wm input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#2f6df6;
+  box-shadow:0 1px 3px rgba(16,32,64,.32);cursor:pointer;border:2px solid #fff;
+}
+.brush-wm input[type=range]::-moz-range-thumb{
+  width:12px;height:12px;border-radius:50%;background:#2f6df6;border:2px solid #fff;cursor:pointer;
+}
+.brush-wm .wm-out{
+  font:600 11px/1 ui-monospace,Menlo,monospace;color:#54606f;min-width:52px;text-align:right;
+}
 
 /* toggle */
 .ink-tg{position:relative;width:42px;height:25px;border-radius:999px;background:#dfe3ea;cursor:pointer;
@@ -429,10 +503,6 @@ function currentColor(): string {
   return ev<string>('color') || '#111111';
 }
 
-function currentSize(): number {
-  return ev<number>('size') || 3;
-}
-
 function currentPenType(): string {
   const sel = document.getElementById('pt') as HTMLSelectElement | null;
   return sel ? sel.value : 'ball';
@@ -453,9 +523,70 @@ function setPenType(v: string) {
   paintPanel();
 }
 
+/**
+ * The width in play for a tool.
+ *
+ * The engine's `size` is what a stroke is actually painted with, so when the
+ * tool in hand is that tool the engine is believed over the record — that is how
+ * the engine's own size control stays authoritative. For a tool that is not in
+ * hand the record is the only thing that knows.
+ */
+function sizeOf(t: InkTool): number {
+  if (engineTool() === t) {
+    const v = ev<number>('size');
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+      adopt(t, v);
+      return v;
+    }
+  }
+  return width(t);
+}
+
+/** Change the width of whichever tool is in hand. */
 function setSize(v: number) {
-  ev(`(function(){ try { setBrush(${v}); } catch(e){} })()`);
+  setWidth(activeTool(), v);
   paintPanel();
+}
+
+/**
+ * Change the width of a named tool — what the brush popover's tabs need, since
+ * the Highlighter tab must move the highlighter even when a pen is selected.
+ */
+function setSizeFor(t: InkTool, v: number) {
+  setWidth(t, v);
+  paintPanel();
+  // only re-place a popover that is already up: `placePop` opens what it touches
+  if (!brushPop || !brushPop.classList.contains('on')) return;
+  paintBrushPop();
+  placePop(brushPop, brushAnchor || brushPop);
+}
+
+/**
+ * Move the "which level am I on" highlight without rebuilding the popover.
+ *
+ * The continuous slider cannot go through `setSizeFor`: rebuilding the popover
+ * on every input event replaces the node the finger is dragging, and the drag
+ * dies. So a live change only re-marks the dots.
+ */
+function markLevels(t: InkTool) {
+  if (!brushPop) return;
+  const ws = steps(t);
+  const size = sizeOf(t);
+  const near = nearestLevel(ws, size);
+  brushPop.querySelectorAll<HTMLElement>('.brush-w .bw[data-lvl]').forEach((b) => {
+    const i = Number(b.dataset.lvl);
+    if (!(i < ws.length)) return;
+    const exact = onLevel(ws[i], size);
+    b.classList.toggle('on', exact);
+    b.classList.toggle('near', !exact && i === near);
+  });
+}
+
+/** The continuous slider's live path: record, repaint the pill, re-mark the dots. */
+function setSizeLive(t: InkTool, v: number) {
+  setWidth(t, v);
+  paintPanel();
+  markLevels(t);
 }
 
 function setColor(hex: string) {
@@ -628,6 +759,20 @@ function editorOpen(): boolean {
   return getComputedStyle(ed).display !== 'none';
 }
 
+/** How close a width has to be to a level before it counts as being on it. */
+function onLevel(w: number, size: number): boolean {
+  return Math.abs(w - size) < Math.max(0.2, w * 0.03);
+}
+
+/** Index of the level nearest to `size` — used to hint at one without claiming it. */
+function nearestLevel(ws: number[], size: number): number {
+  let best = 0;
+  ws.forEach((w, i) => {
+    if (Math.abs(w - size) < Math.abs(ws[best] - size)) best = i;
+  });
+  return best;
+}
+
 function paintPanel() {
   if (!penPanel) return;
   const tool = ev<string>('tool') || 'pen';
@@ -650,12 +795,18 @@ function paintPanel() {
   if (isEr) {
     const grp = el('div', '');
     grp.className = 'grp';
-    WIDTHS.er.forEach((w, i) => {
+    const erTool: InkTool = isInkTool(tool) ? tool : 'er';
+    const erSteps = steps(erTool);
+    const erSize = sizeOf(erTool);
+    const erNear = nearestLevel(erSteps, erSize);
+    erSteps.forEach((w, i) => {
       const b = el('button') as HTMLButtonElement;
       b.className = 'w';
-      b.title = ['Small eraser', 'Medium eraser', 'Large eraser'][i];
+      b.title = ['Small eraser', 'Medium eraser', 'Large eraser'][i] + ' — ' + mmLabel(mmOf(erTool, w));
       b.innerHTML = '<i style="width:' + (8 + i * 6) + 'px;height:' + (8 + i * 6) + 'px"></i>';
-      b.classList.toggle('on', Math.abs(currentSize() - w) < 3);
+      const exact = onLevel(w, erSize);
+      b.classList.toggle('on', exact);
+      b.classList.toggle('near', !exact && i === erNear);
       b.onclick = () => setSize(w);
       grp.append(b);
     });
@@ -687,19 +838,22 @@ function paintPanel() {
   // widths
   const widths = el('div', '');
   widths.className = 'grp';
-  const ws = WIDTHS[tool] || WIDTHS.pen;
-  const size = currentSize();
-  let best = 0;
-  ws.forEach((w, i) => {
-    if (Math.abs(w - size) < Math.abs(ws[best] - size)) best = i;
-  });
+  const wTool: InkTool = isInkTool(tool) ? tool : 'pen';
+  const ws = steps(wTool);
+  const size = sizeOf(wTool);
+  const near = nearestLevel(ws, size);
   ws.forEach((w, i) => {
     const b = el('button') as HTMLButtonElement;
     b.className = 'w';
-    b.title = ['Thin', 'Medium', 'Thick'][i];
+    b.title = DOTS[i] + ' — ' + mmLabel(mmOf(wTool, w));
     const d = 4 + i * 4;
     b.innerHTML = '<i style="width:' + d + 'px;height:' + d + 'px"></i>';
-    b.classList.toggle('on', i === best);
+    // A custom width — dragged in the dock or typed in the settings sheet — sits
+    // between levels. It lights none of them, and the nearest one is only
+    // hinted at, so the row never claims a level the nib is not on.
+    const exact = onLevel(w, size);
+    b.classList.toggle('on', exact);
+    b.classList.toggle('near', !exact && i === near);
     b.onclick = () => setSize(w);
     widths.append(b);
   });
@@ -994,12 +1148,18 @@ let drawerLock = false;
 
 /** Drop every popover without touching the floating tool row. */
 function closePopovers() {
+  const had = !!activePanel || panelLock;
   colorPop?.classList.remove('on');
   penSheet?.classList.remove('on');
   erSheet?.classList.remove('on');
   brushPop?.classList.remove('on');
   activePanel = '';
   panelLock = false;
+  // A sheet suppresses the pill while it is up, so the pill's dots went stale
+  // the moment it opened. Redraw it now that it has the screen back — but only
+  // if something was actually open, or `paintPanel`'s own "close everything"
+  // path would call this again and never return.
+  if (had) paintPanel();
 }
 
 /** Close every panel — popovers, the tool row and the engine's drawer. */
@@ -1061,6 +1221,80 @@ function paintPenSheet() {
 
   const bd = el('div', '');
   bd.className = 'bd';
+
+  // Thickness levels. The pill shows three dots; this is where their values are
+  // set. They are per tool, so the title says which nib you are editing, and a
+  // level is a millimetre figure — the unit the dock already speaks.
+  const lt = activeTool();
+  const lvTitle = sec('Thickness · ' + TOOL_NAME[lt]);
+  const reset = el('button', '', 'Reset') as HTMLButtonElement;
+  reset.type = 'button';
+  reset.className = 'lvl-reset';
+  reset.title = 'Back to the standard three';
+  reset.onclick = () => {
+    resetSteps(lt);
+    paintPenSheet();
+    paintPanel();
+  };
+  lvTitle.append(reset);
+  bd.append(lvTitle);
+
+  const list = steps(lt);
+  const lvWrap = el('div', '');
+  lvWrap.className = 'lvls';
+  list.forEach((units, i) => {
+    const r = el('div', '');
+    r.className = 'lvl';
+
+    const dot = el('span', '');
+    dot.className = 'lvl-dot';
+    const dia = 6 + i * 5;
+    dot.style.width = dia + 'px';
+    dot.style.height = dia + 'px';
+
+    const nm = el('span', '', DOTS[i]);
+    nm.className = 'lvl-nm';
+
+    const num = el('input') as HTMLInputElement;
+    num.type = 'number';
+    num.min = '0.1';
+    num.max = '60';
+    num.step = '0.1';
+    num.value = mmOf(lt, units).toFixed(2).replace(/0$/, '');
+    num.setAttribute('aria-label', DOTS[i] + ' thickness in millimetres');
+
+    const commit = () => {
+      const mm = Number(num.value);
+      if (!Number.isFinite(mm) || mm <= 0) {
+        num.value = mmOf(lt, steps(lt)[i]).toFixed(2).replace(/0$/, '');
+        return;
+      }
+      const next = steps(lt);
+      next[i] = unitsOf(lt, mm);
+      setSteps(lt, next);
+      paintPanel();
+      if (brushPop) paintBrushPop();
+      num.value = mmOf(lt, next[i]).toFixed(2).replace(/0$/, '');
+    };
+    num.onchange = commit;
+    num.onblur = commit;
+
+    const use = el('button', '', 'Use') as HTMLButtonElement;
+    use.type = 'button';
+    use.className = 'lvl-use';
+    use.title = 'Make this the current thickness';
+    use.onclick = () => {
+      setSizeFor(lt, unitsOf(lt, Number(num.value) || mmOf(lt, units)));
+      paintPenSheet();
+    };
+
+    const unit = el('span', '', 'mm');
+    unit.className = 'lvl-mm';
+
+    r.append(dot, nm, num, unit, use);
+    lvWrap.append(r);
+  });
+  bd.append(lvWrap);
 
   // Pen type and thickness live on the floating pill; only the things the pill
   // cannot show belong in here, so nothing is offered twice.
@@ -1334,33 +1568,79 @@ function paintBrushPop() {
   });
 
   bd.append(sec('Thickness'));
-  paintWidthRow(bd, WIDTHS.pen);
+  paintWidthRow(bd, 'pen');
 }
 
-function paintWidthRow(bd: HTMLElement, ws: number[]) {
+/**
+ * The thickness controls for one tool: its three levels, then a continuous
+ * slider for anything between them.
+ *
+ * `t` is the *tab's* tool, not the engine's. Opening this from the Pen button
+ * and switching to the Highlighter tab must move the highlighter, and it must do
+ * so even though a pen is the tool in hand — otherwise the Highlighter tab is a
+ * decoration, which is what it used to be.
+ */
+function paintWidthRow(bd: HTMLElement, t: InkTool) {
+  const ws = steps(t);
+  const size = sizeOf(t);
+  const near = nearestLevel(ws, size);
+
   const wr = el('div', '');
   wr.className = 'brush-w';
-  const size = currentSize();
-  let best = 0;
-  ws.forEach((w, i) => {
-    if (Math.abs(w - size) < Math.abs(ws[best] - size)) best = i;
-  });
   ws.forEach((w, i) => {
     const b = el('button') as HTMLButtonElement;
     b.type = 'button';
     b.className = 'bw';
-    b.title = ['Fine', 'Medium', 'Broad'][i] || String(w);
+    b.dataset.lvl = String(i);
+    b.title = (DOTS[i] || String(w)) + ' — ' + mmLabel(mmOf(t, w));
     const d = 5 + i * 5;
     b.innerHTML = '<i style="width:' + d + 'px;height:' + d + 'px"></i>';
-    b.classList.toggle('on', i === best);
-    b.onclick = () => {
-      setSize(w);
-      paintBrushPop();
-      if (brushPop) placePop(brushPop, brushAnchor || brushPop);
-    };
+    const exact = onLevel(w, size);
+    b.classList.toggle('on', exact);
+    b.classList.toggle('near', !exact && i === near);
+    b.onclick = () => setSizeFor(t, w);
     wr.append(b);
   });
   bd.append(wr);
+
+  // continuous: the levels are shortcuts, this is the whole range
+  const row = el('div', '');
+  row.className = 'brush-wm';
+  const mm = mmOf(t, size);
+  const range = el('input') as HTMLInputElement;
+  range.type = 'range';
+  range.min = '0';
+  range.max = '1000';
+  range.step = '1';
+  range.value = String(mmToSlider(mm));
+  range.setAttribute('aria-label', 'Thickness');
+  const out = el('code', '', mmLabel(mm));
+  out.className = 'wm-out';
+  range.oninput = () => {
+    const next = sliderToMm(Number(range.value));
+    out.textContent = mmLabel(next);
+    setSizeLive(t, unitsOf(t, next));
+  };
+  // settle on release: rebuild so the dots and the readout agree exactly
+  range.onchange = () => paintBrushPop();
+  row.append(range, out);
+  bd.append(row);
+}
+
+/* The slider is logarithmic: a 0.2 mm fineliner and a 20 mm marker both need
+   room, and a linear slider spends nine tenths of its travel above 1 mm. */
+const MM_MIN = 0.1;
+const MM_MAX = 40;
+
+function mmToSlider(mm: number): number {
+  const v = Math.max(MM_MIN, Math.min(MM_MAX, mm));
+  const t = (Math.log(v) - Math.log(MM_MIN)) / (Math.log(MM_MAX) - Math.log(MM_MIN));
+  return Math.round(t * 1000);
+}
+
+function sliderToMm(v: number): number {
+  const t = Math.max(0, Math.min(1, v / 1000));
+  return Math.exp(Math.log(MM_MIN) + t * (Math.log(MM_MAX) - Math.log(MM_MIN)));
 }
 
 /** The paper module owns the highlighter's alpha, so reach through it. */
@@ -1384,7 +1664,7 @@ function paintHighlighterTab(bd: HTMLElement) {
   const cur = String(p?.hlBlend || 'auto');
 
   bd.append(sec('Tip'));
-  paintWidthRow(bd, WIDTHS.hl);
+  paintWidthRow(bd, 'hl');
 
   bd.append(sec('Colour'));
   const cols = el('div', '');
@@ -1844,6 +2124,9 @@ function tick() {
   if (tool !== lastTool || open !== lastOpen) {
     lastTool = tool;
     lastOpen = open;
+    // each tool remembers its own nib, so switching from a 0.4 mm pen to the
+    // highlighter does not hand the highlighter the pen's width
+    if (isInkTool(tool)) applyActive();
     paintPanel();
     // switching inside the ink family must not close the settings you are in
     const ink = tool === 'pen' || tool === 'pe' || tool === 'hl' || tool === 'er';
@@ -1902,11 +2185,20 @@ function boot() {
   window.setInterval(tick, 220);
   paintPanel();
 
+  // the dock and the settings sheet write the same record, so follow it
+  onWidth((t) => {
+    paintPanel();
+    markLevels(t);
+    if (penSheet?.classList.contains('on')) paintPenSheet();
+  });
+
   (window as any).__inkpad_ink = {
     panel: () => penPanel,
     color: (hex: string) => setColor(hex),
     penType: (v: string) => setPenType(v),
     size: (v: number) => setSize(v),
+    widthFor: (t: InkTool, v: number) => setSizeFor(t, v),
+    widths: (t: InkTool) => ({ steps: steps(t), mm: mmOf(t) }),
     eraserMode: (m: 'all' | 'hl' | 'tape') => {
       eraserMode = m;
       pushEraserMode();

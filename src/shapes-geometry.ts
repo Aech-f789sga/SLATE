@@ -282,6 +282,11 @@ export function fitEllipse(P: Pt[]): EllipseRaw | null {
 /* Parabola                                                            */
 /* ------------------------------------------------------------------ */
 
+/*
+ * No longer part of recognition — see the note in `recogniseShape`. Kept
+ * because the maths is exact and a deliberate "fit a conic to this" tool would
+ * want it; nothing calls it today.
+ */
 export function fitParabola(P: Pt[]): ParabolaRaw | null {
   const b = bboxOf(P);
   const vert = b.h >= b.w;
@@ -643,41 +648,16 @@ export function recogniseShape(raw: Pt[], opts: RecogniseOptions = {}): ShapeDef
   const closed = gap < diag * 0.3;
 
   if (!closed) {
-    // open: line, parabola, hyperbola, or nothing
+    // Open strokes are lines or nothing. Conic fitting used to live here, and it
+    // was a bad trade: an arc, a bracket, a long 'c', the top of a '2' and a
+    // hand-drawn parabola are the same evidence, so the fit fired on ordinary
+    // handwriting far more often than on a deliberate conic — and when it fired
+    // it replaced the stroke with a curve the writer never drew. Parabola and
+    // hyperbola are still in the shape picker for anyone who wants one on
+    // purpose; they are simply never guessed at.
     const dev = maxDev(P, P[0], P[P.length - 1]);
     if (dev < diag * 0.075) {
       return { kind: 'line', a: P[0], b: P[P.length - 1], score: 0.95 };
-    }
-
-    const pb = fitParabola(P);
-    const hb = fitHyperbola(P);
-    const pbOk = !!pb && pb.resid < diag * 0.022;
-    // A parabola is the e -> 1 limit of a hyperbola, so a conic fit with two
-    // extra degrees of freedom will happily swallow one. Only accept a
-    // hyperbola that is actually curved away from its asymptote.
-    const hbEcc = hb ? Math.sqrt(1 + (hb.b * hb.b) / Math.max(1e-9, hb.a * hb.a)) : 0;
-    const hbOk = !!hb && hb.resid < diag * 0.04 && hbEcc > 1.25;
-    const w = Math.max(1, b.w);
-    const h = Math.max(1, b.h);
-
-    // a conic has two more degrees of freedom than a parabola, so the parabola
-    // wins unless the hyperbola is markedly better (as it is on a real branch)
-    if (pbOk && (!hbOk || hb!.resid > pb!.resid * 0.55)) {
-      const p = pb!;
-      const norm: ParabolaFit = p.vertical
-        ? { vertical: true, a: (p.a * w * w) / h, h: (p.h - b.x) / w, k: (p.k - b.y) / h }
-        : { vertical: false, a: (p.a * h * h) / w, h: (p.h - b.y) / h, k: (p.k - b.x) / w };
-      return { kind: 'parab', a: [b.x, b.y], b: [b.x2, b.y2], pb: norm, score: 0.82 };
-    }
-    if (hbOk) {
-      const q = hb!;
-      return {
-        kind: 'hyper',
-        a: [b.x, b.y],
-        b: [b.x2, b.y2],
-        hb: { cx: (q.cx - b.x) / w, cy: (q.cy - b.y) / h, a: q.a / w, b: q.b / h, rot: q.rot, axis: q.axis },
-        score: 0.74,
-      };
     }
     return null;
   }
