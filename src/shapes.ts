@@ -465,13 +465,14 @@ function installShapeEngine() {
 /**
  * How long the pen has to rest before a doodle becomes a shape.
  *
- * Two seconds by default. It used to be 420 ms, which reads as "the app
- * grabbed my stroke" to anyone drawing at a normal pace — a pause between two
- * strokes is easily half a second, and a straight line has no closed outline to
- * prove it was finished. Adjustable from Accessories.
+ * One second by default. It used to be 420 ms, which reads as "the app grabbed
+ * my stroke" to anyone drawing at a normal pace; two seconds then felt like
+ * waiting for permission. A second is long enough that a pause mid-letter does
+ * not fire and short enough that a deliberate hold is not a chore. Adjustable
+ * from Accessories.
  */
 const HOLD_KEY = 'inkpad-snap-hold';
-const HOLD_DEFAULT = 2000;
+const HOLD_DEFAULT = 1000;
 const HOLD_MIN = 300;
 const HOLD_MAX = 5000;
 
@@ -603,6 +604,24 @@ function hookRecognition() {
       path = [toPage(e, cv)];
       strokesBefore = (ev<any[]>('pg().strokes') || []).length;
       armHold(path[0]);
+    },
+    true
+  );
+
+  /**
+   * Take the release decision back from the engine.
+   *
+   * `end()` turns a paused pen stroke into a line or an oval by itself, on its
+   * own 450 ms clock — that is the "it snapped and I never held still" report,
+   * and it is invisible to `holdMs`. Touching `cur.lt` in the capture phase,
+   * before the canvas handler runs, makes the engine's own test fail so the
+   * stroke stays freehand; `finish()` then decides with the configured hold.
+   */
+  document.addEventListener(
+    'pointerup',
+    () => {
+      if (!drawing || snap) return;
+      ev('(function(){ try { if (cur) cur.lt = performance.now(); } catch(e){} })()');
     },
     true
   );
@@ -1664,6 +1683,8 @@ function boot() {
     last: () => lastRun,
     live: () => ({ drawing, snap, path: path.length, pts: path.map((q) => q.map(Math.round)), hold: !!holdTimer, tool: ev<string>('tool'), rec: style.recognise }),
     trySnap,
+    hold: snapHoldMs,
+    setHold: setSnapHoldMs,
   };
 }
 

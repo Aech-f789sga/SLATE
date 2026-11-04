@@ -699,7 +699,7 @@ function buildSnapSheet(): HTMLElement {
     <div class="acc-sh">Hold to snap</div>
     <div class="snap-body">
       <p class="acc-note">How long the pen has to rest before a doodle becomes a shape or a line. Nothing snaps while you are still moving.</p>
-      <div class="snap-val"><b id="snap-num">2.0 s</b><span>idle before it snaps</span></div>
+      <div class="snap-val"><b id="snap-num">1.0 s</b><span>idle before it snaps</span></div>
       <input type="range" id="snap-range" min="300" max="5000" step="100" aria-label="Hold time">
       <div class="snap-scale"><span>0.3 s</span><span>5 s</span></div>
     </div>
@@ -719,7 +719,7 @@ function buildSnapSheet(): HTMLElement {
   range.onchange = () => setSnapHoldMs(parseInt(range.value, 10));
 
   (node.querySelector('#snap-reset') as HTMLElement).onclick = () => {
-    setSnapHoldMs(2000);
+    setSnapHoldMs(1000);
     paintSnap();
   };
 

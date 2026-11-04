@@ -2243,6 +2243,8 @@ function placeFab() {
     if (r.height > 0) bottom = Math.max(bottom, Math.round(window.innerHeight - r.top) + 10);
   }
   fab.style.bottom = bottom + 'px';
+  // the focus-mode padlock sits on top of this button, so it has to move too
+  (window as any).__inkpad_focus?.place?.();
 }
 
 function edVisible(): boolean {

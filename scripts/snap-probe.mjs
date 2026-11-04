@@ -9,6 +9,9 @@ await page.goto('http://127.0.0.1:3000/', { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#grid', { timeout: 20000 });
 await page.waitForTimeout(1200);
 await page.evaluate(() => {
+  localStorage.removeItem('inkpad-snap-hold');
+  // whatever an older probe left in memory, put the shipped default back
+  window.__inkpad_shape.setHold(1000);
   const n = { id: Date.now(), name: 'S', upd: Date.now(), pages: [{ tpl: 'lined', col: '', strokes: [], pw: 800, ph: 1100 }] };
   window.lib.push(n); window.openNotebook(n);
 });
@@ -42,7 +45,7 @@ function loop(V, per = 9, wob = 3) {
   return out;
 }
 
-async function drawHold(name, path, hold = 700) {
+async function drawHold(name, path, hold = 1300) {
   await page.evaluate(() => { eval('pg().strokes.length=0; tool="pen"; setCol("#111"); setBrush(3); draw();'); });
   await page.waitForTimeout(150);
   const [first, ...rest] = path;
@@ -85,10 +88,13 @@ for (let i = 0; i <= 48; i++) {
 }
 results.circle = await drawHold('circle', circ);
 
+// the default is one second now: a 700 ms pause must leave the stroke alone
+results.tooQuick = await drawHold('too-quick', loop([[260, 300], [450, 300], [450, 490], [260, 490]]), 700);
+
 await page.screenshot({ path: 'shots/snap-all.png' });
 await browser.close();
 
-const want = { square: 'square', rect: 'rect', tri: 'tri', triR: 'tri', para: 'para', pent: 'poly', circle: 'circle' };
+const want = { square: 'square', rect: 'rect', tri: 'tri', triR: 'tri', para: 'para', pent: 'poly', circle: 'circle', tooQuick: 'pen' };
 console.log('\nsummary');
 let ok = 0, tot = 0;
 for (const [k, w] of Object.entries(want)) {

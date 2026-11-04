@@ -9,8 +9,21 @@
  * The slots are not fixed to "pen / highlighter / eraser / eraser". Each one is
  * a full tool preset — pen, brush, highlighter, eraser, laser — with its own
  * nib width in millimetres, its own colour, and its own brush engine. Slots can
- * be edited, reordered, removed, and added (up to eight) from the dock's own
- * settings sheet.
+ * be edited, removed, and added (up to eight) from the dock's own settings
+ * sheet.
+ *
+ * The two erasers and the two laser pointers are both represented: an eraser
+ * slot carries `erase` (whole stroke or pixel), a laser slot carries `laser`
+ * (stays while pressed, or fades). They are the engine's own two tools and two
+ * trail modes, exposed here rather than hidden behind the toolbar.
+ *
+ * The dock can lie on any edge. On the left it is a column with the nibs
+ * pointing right, and each side is the same idea rotated. Dragging is only
+ * offered in focus mode (the lock button), where the dock is the only chrome
+ * left on screen; the grip at the end of the rail moves it, and the nearest
+ * edge wins on release. Holding a pen for a second lifts it out of the rail so
+ * the order can be rearranged by hand — the arrows that used to live in the
+ * settings sheet are gone, because the pens are right there.
  *
  * Thickness is millimetres first: 0.1 mm to 100 mm, on a logarithmic slider
  * plus a typed value, so a mouse or a finger can pick a 0.3 mm fineliner just as
@@ -56,6 +69,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, css?: string, text?: 
 
 type Kind = 'pen' | 'highlighter' | 'eraser' | 'laser';
 type Brush = 'ball' | 'fountain' | 'brush' | 'pencil' | 'crayon' | 'marker';
+/** Which edge the rail lies against. */
+type Side = 'left' | 'right' | 'top' | 'bottom';
 
 interface Slot {
   id: string;
@@ -66,17 +81,28 @@ interface Slot {
   color: string;
   /** Eraser behaviour: whole stroke or pixel-level. */
   erase?: 'stroke' | 'pixel';
+  /** Laser trail: stays while pressed, or fades behind the pointer. */
+  laser?: 'hold' | 'fade';
 }
 
 /** Page units per millimetre: an A4 page is 800 × 1131 units for 210 × 297 mm. */
 const MIN_MM = 0.1;
 const MAX_MM = 100;
 
+/**
+ * The stock dock: three pens, a highlighter, an eraser and a pointer.
+ *
+ * The eraser and the pointer are here because they are the two tools people
+ * reach for mid-sentence, and because each has two behaviours worth choosing
+ * between — the sheet offers both.
+ */
 const DEFAULT_SLOTS: Slot[] = [
   { id: 'p1', kind: 'pen', brush: 'ball', mm: 0.4, color: '#111111' },
   { id: 'p2', kind: 'pen', brush: 'fountain', mm: 0.8, color: '#2f6df6' },
   { id: 'p3', kind: 'pen', brush: 'brush', mm: 2.2, color: '#e5383b' },
   { id: 'p4', kind: 'highlighter', brush: 'marker', mm: 4, color: '#ffd93d' },
+  { id: 'p5', kind: 'eraser', brush: 'ball', mm: 1.6, color: '#f2b6c2', erase: 'stroke' },
+  { id: 'p6', kind: 'laser', brush: 'ball', mm: 0.4, color: '#ff3b30', laser: 'hold' },
 ];
 
 const BRUSHES: { id: Brush; name: string }[] = [
@@ -99,6 +125,10 @@ const PALETTE = ['#111111', '#2f6df6', '#e5383b', '#2a9d4f', '#f4a300', '#8e44ad
 
 const KEY = 'inkpad-pen-dock';
 const ACTIVE_KEY = 'inkpad-pen-active';
+/** Where the dock sat last time focus mode was on. */
+const SIDE_KEY = 'inkpad-dock-focus-side';
+/** One-shot: docks saved before the eraser and pointer existed gain them. */
+const MIGRATED_KEY = 'inkpad-pen-dock-v2';
 
 let slots: Slot[] = DEFAULT_SLOTS.map((s) => ({ ...s }));
 let activeId = slots[0].id;
@@ -118,6 +148,7 @@ function load() {
             mm: Math.max(MIN_MM, Math.min(MAX_MM, Number(s.mm) || 0.5)),
             color: typeof s.color === 'string' ? s.color : '#111111',
             erase: (s.erase === 'pixel' ? 'pixel' : 'stroke') as Slot['erase'],
+            laser: (s.laser === 'fade' ? 'fade' : 'hold') as Slot['laser'],
           }))
           .slice(0, 8);
       }
@@ -129,6 +160,32 @@ function load() {
   }
   if (!slots.length) slots = DEFAULT_SLOTS.map((s) => ({ ...s }));
   if (!slots.some((s) => s.id === activeId)) activeId = slots[0].id;
+  migrate();
+}
+
+/**
+ * Give an older dock the eraser and the pointer it never had.
+ *
+ * A dock saved before those two existed is a pen case with no rubber in it, and
+ * the only way to get one was the "+" button followed by a trip through the
+ * sheet. This adds them once, at the end, and never again — a dock the user
+ * later trims down stays trimmed.
+ */
+function migrate() {
+  try {
+    if (localStorage.getItem(MIGRATED_KEY)) return;
+    const add: Slot[] = [];
+    if (!slots.some((s) => s.kind === 'eraser')) add.push(DEFAULT_SLOTS[4]);
+    if (!slots.some((s) => s.kind === 'laser')) add.push(DEFAULT_SLOTS[5]);
+    for (const s of add) {
+      if (slots.length >= 8) break;
+      slots.push({ ...s, id: s.id + '-' + Math.random().toString(36).slice(2, 5) });
+    }
+    if (add.length) save();
+    localStorage.setItem(MIGRATED_KEY, '1');
+  } catch {
+    /* a locked-down storage just means no migration */
+  }
 }
 
 function save() {
@@ -168,6 +225,7 @@ function apply(s: Slot, opts: { keepSelection?: boolean } = {}) {
     try{
       tool = ${JSON.stringify(tool)};
       ${opts.keepSelection ? '' : 'sel = [];'}
+      ${s.kind === 'laser' ? `LM = ${JSON.stringify(s.laser ?? 'hold')}; try{ localStorage.setItem('inkpad-laser', LM); }catch(e){}` : ''}
       if (typeof setCol === 'function') setCol(${JSON.stringify(s.color)});
       else { color = ${JSON.stringify(s.color)}; const c = document.getElementById('col'); if (c) c.value = ${JSON.stringify(s.color)}; }
       if (typeof setBrush === 'function') setBrush(${width}, 1);
@@ -290,6 +348,12 @@ function shade(hex: string, amount: number): string {
 let dock: HTMLElement | null = null;
 let sheet: HTMLElement | null = null;
 let editing = 0;
+/** Which edge the rail is on, and whether focus mode is what put it there. */
+let side: Side = 'left';
+let focus = false;
+
+/** Hold a pen this long and it comes out of the rail, ready to be reordered. */
+const HOLD_REORDER = 1000;
 
 function mmLabel(mm: number): string {
   return mm < 1 ? `${mm.toFixed(2)} mm` : `${mm.toFixed(mm < 10 ? 1 : 0)} mm`;
@@ -298,8 +362,47 @@ function mmLabel(mm: number): string {
 function kindName(s: Slot): string {
   if (s.kind === 'pen') return `${BRUSHES.find((b) => b.id === s.brush)?.name ?? 'Pen'} · ${mmLabel(s.mm)}`;
   if (s.kind === 'highlighter') return `Highlighter · ${mmLabel(s.mm)}`;
-  if (s.kind === 'eraser') return `Eraser · ${mmLabel(s.mm)}`;
-  return 'Laser pointer';
+  if (s.kind === 'eraser') return `${s.erase === 'pixel' ? 'Pixel eraser' : 'Stroke eraser'} · ${mmLabel(s.mm)}`;
+  return `Pointer · ${s.laser === 'fade' ? 'fades' : 'stays'}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Where the dock lies                                                 */
+/* ------------------------------------------------------------------ */
+
+function readSide(): Side {
+  try {
+    const v = localStorage.getItem(SIDE_KEY);
+    if (v === 'left' || v === 'right' || v === 'top' || v === 'bottom') return v;
+  } catch {
+    /* fall through */
+  }
+  // Focus mode puts the pens along the top: the page keeps its full height and
+  // the hand does not have to travel to the edge of a wide screen to change pen.
+  return 'top';
+}
+
+function saveSide() {
+  try {
+    localStorage.setItem(SIDE_KEY, side);
+  } catch {
+    /* ignore */
+  }
+}
+
+function applySide() {
+  if (!dock) return;
+  dock.dataset.side = side;
+  document.body.dataset.pd = side;
+}
+
+/** Focus mode owns the placement; the normal dock is always a left rail. */
+function setFocus(on: boolean) {
+  if (on === focus) return;
+  focus = on;
+  side = on ? readSide() : 'left';
+  dock?.classList.toggle('pd-focus', on);
+  applySide();
 }
 
 function buildDock() {
@@ -316,6 +419,15 @@ function buildDock() {
 
   const foot = el('div', '');
   foot.className = 'pd-foot';
+
+  const grip = el('button', '') as HTMLButtonElement;
+  grip.type = 'button';
+  grip.className = 'pd-grip';
+  grip.title = 'Drag to another edge';
+  grip.setAttribute('aria-label', 'Move the pens to another edge');
+  grip.innerHTML =
+    '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><circle cx="9" cy="7" r="1.5"/><circle cx="15" cy="7" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="17" r="1.5"/><circle cx="15" cy="17" r="1.5"/></svg>';
+  grip.onpointerdown = startDrag;
 
   const add = el('button', '') as HTMLButtonElement;
   add.type = 'button';
@@ -354,10 +466,11 @@ function buildDock() {
     openSheet(0);
   };
 
-  foot.append(add, gear);
+  foot.append(grip, add, gear);
   dock.append(foot);
   document.body.append(dock);
 
+  applySide();
   paint();
 }
 
@@ -373,6 +486,7 @@ function paint() {
     slot.style.setProperty('--pen', s.color);
     slot.setAttribute('role', 'button');
     slot.setAttribute('aria-label', kindName(s));
+    slot.title = `${kindName(s)} — hold to move it`;
 
     const art = el('div', '');
     art.className = 'pd-art';
@@ -384,8 +498,10 @@ function paint() {
 
     slot.append(art, tag);
 
+    slot.onpointerdown = (e) => armPress(i, slot, e);
     slot.onclick = (e) => {
       e.stopPropagation();
+      if (Date.now() < noClick) return;
       if (s.id === activeId && Date.now() - (lastTap.at ?? 0) < 420 && lastTap.i === i) {
         openSheet(i);
         return;
@@ -420,6 +536,213 @@ let lastTap: { at: number; i: number } = { at: 0, i: -1 };
 function clampMm(v: number): number {
   const r = Math.round(v * 100) / 100;
   return Math.max(MIN_MM, Math.min(MAX_MM, r));
+}
+
+/* ------------------------------------------------------------------ */
+/* Hold a pen to rearrange the rail                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A press that lasts a second lifts the pen out of the rail.
+ *
+ * The pens are the reorder control now, so the arrows that used to sit in the
+ * settings sheet are gone. The press is armed on pointerdown and dropped the
+ * moment the pointer travels more than a few pixels — otherwise every click
+ * would have to survive a second of standing still before it counted.
+ */
+let press: { x: number; y: number; i: number; node: HTMLElement; timer: number } | null = null;
+let reorder: { from: number; to: number; node: HTMLElement; grab: { x: number; y: number } } | null = null;
+let line: HTMLElement | null = null;
+/** Clicks that land inside this window are the tail of a reorder, not a pick. */
+let noClick = 0;
+
+function armPress(i: number, node: HTMLElement, e: PointerEvent) {
+  if (e.button !== 0 && e.pointerType === 'mouse') return;
+  cancelPress();
+  const p = { x: e.clientX, y: e.clientY, i, node, timer: 0 };
+  p.timer = window.setTimeout(() => {
+    if (press !== p) return;
+    beginReorder(p.i, p.node, p.x, p.y);
+  }, HOLD_REORDER);
+  press = p;
+}
+
+function cancelPress() {
+  if (!press) return;
+  window.clearTimeout(press.timer);
+  press = null;
+}
+
+function beginReorder(i: number, node: HTMLElement, x: number, y: number) {
+  cancelPress();
+  if (!dock || !slots[i]) return;
+  const box = node.getBoundingClientRect();
+  reorder = { from: i, to: i, node, grab: { x: x - box.left, y: y - box.top } };
+  dock.classList.add('pd-sorting');
+  node.classList.add('pd-lift');
+  // a short tick so the lift is felt, not only seen
+  try {
+    (window as any).__inkpad_sfx?.play?.('tap');
+  } catch {
+    /* sound is optional */
+  }
+}
+
+/** Carry the lifted pen with the pointer, so the gap it will fill is obvious. */
+function dragLifted(x: number, y: number) {
+  if (!reorder) return;
+  const node = reorder.node;
+  const rail = node.parentElement as HTMLElement;
+  // the rail is the offset parent, so this is the slot's home, not its carried
+  // position — measuring the live rect would feed the translation back in
+  const railBox = rail.getBoundingClientRect();
+  const dx = x - reorder.grab.x - (railBox.left + node.offsetLeft);
+  const dy = y - reorder.grab.y - (railBox.top + node.offsetTop);
+  node.style.transform = `translate(${dx}px,${dy}px) scale(1.06)`;
+}
+
+/** Where the lifted pen would land, counted against the slots still in place. */
+function dropIndex(x: number, y: number): number {
+  const rail = dock?.querySelector('.pd-rail') as HTMLElement | null;
+  if (!rail) return 0;
+  const horiz = side === 'top' || side === 'bottom';
+  let n = 0;
+  rail.querySelectorAll<HTMLElement>('.pd-slot').forEach((node, idx) => {
+    if (reorder && idx === reorder.from) return;
+    const r = node.getBoundingClientRect();
+    const mid = horiz ? r.left + r.width / 2 : r.top + r.height / 2;
+    if ((horiz ? x : y) > mid) n++;
+  });
+  return n;
+}
+
+function paintLine() {
+  const rail = dock?.querySelector('.pd-rail') as HTMLElement | null;
+  if (!rail || !reorder) return;
+  if (!line) {
+    line = el('div', '');
+    line.className = 'pd-line';
+    rail.append(line);
+  }
+  const horiz = side === 'top' || side === 'bottom';
+  const nodes = [...rail.querySelectorAll<HTMLElement>('.pd-slot')].filter((_, i) => i !== reorder!.from);
+  const railBox = rail.getBoundingClientRect();
+  const at = reorder.to;
+
+  if (!nodes.length) {
+    line.style.left = horiz ? '50%' : '0';
+    line.style.top = horiz ? '0' : '50%';
+    return;
+  }
+  if (at < nodes.length) {
+    const r = nodes[at].getBoundingClientRect();
+    if (horiz) {
+      line.style.left = `${r.left - railBox.left - 4}px`;
+      line.style.top = `${r.top - railBox.top}px`;
+      line.style.width = '2px';
+      line.style.height = `${r.height}px`;
+    } else {
+      line.style.left = `${r.left - railBox.left}px`;
+      line.style.top = `${r.top - railBox.top - 4}px`;
+      line.style.width = `${r.width}px`;
+      line.style.height = '2px';
+    }
+  } else {
+    const r = nodes[nodes.length - 1].getBoundingClientRect();
+    if (horiz) {
+      line.style.left = `${r.right - railBox.left + 2}px`;
+      line.style.top = `${r.top - railBox.top}px`;
+      line.style.width = '2px';
+      line.style.height = `${r.height}px`;
+    } else {
+      line.style.left = `${r.left - railBox.left}px`;
+      line.style.top = `${r.bottom - railBox.top + 2}px`;
+      line.style.width = `${r.width}px`;
+      line.style.height = '2px';
+    }
+  }
+}
+
+function endReorder(commit: boolean) {
+  if (!reorder) return;
+  const { from, to, node } = reorder;
+  node.classList.remove('pd-lift');
+  node.style.transform = '';
+  line?.remove();
+  line = null;
+  dock?.classList.remove('pd-sorting');
+  reorder = null;
+  noClick = Date.now() + 400;
+  if (!commit) return;
+  const [s] = slots.splice(from, 1);
+  slots.splice(Math.max(0, Math.min(slots.length, to)), 0, s);
+  save();
+  paint();
+}
+
+window.addEventListener(
+  'pointermove',
+  (e) => {
+    if (press && !reorder && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) cancelPress();
+    if (reorder) {
+      reorder.to = dropIndex(e.clientX, e.clientY);
+      dragLifted(e.clientX, e.clientY);
+      paintLine();
+    }
+  },
+  true
+);
+
+window.addEventListener(
+  'pointerup',
+  () => {
+    cancelPress();
+    if (reorder) endReorder(true);
+  },
+  true
+);
+
+window.addEventListener('pointercancel', () => {
+  cancelPress();
+  if (reorder) endReorder(false);
+});
+
+/* ------------------------------------------------------------------ */
+/* Drag the whole rail to another edge (focus mode only)               */
+/* ------------------------------------------------------------------ */
+
+function startDrag(e: PointerEvent) {
+  if (!focus || !dock) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const box = dock.getBoundingClientRect();
+  const cx = box.left + box.width / 2;
+  const cy = box.top + box.height / 2;
+  dock.classList.add('pd-dragging');
+
+  const move = (m: PointerEvent) => {
+    dock!.style.setProperty('--dx', `${m.clientX - startX}px`);
+    dock!.style.setProperty('--dy', `${m.clientY - startY}px`);
+  };
+  const up = (u: PointerEvent) => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    dock?.classList.remove('pd-dragging');
+    const x = cx + (u.clientX - startX);
+    const y = cy + (u.clientY - startY);
+    const gap = { left: x, right: window.innerWidth - x, top: y, bottom: window.innerHeight - y };
+    side = (Object.keys(gap) as Side[]).sort((a, b) => gap[a] - gap[b])[0];
+    saveSide();
+    applySide();
+    dock?.style.removeProperty('--dx');
+    dock?.style.removeProperty('--dy');
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
 }
 
 /* ------------------------------------------------------------------ */
@@ -540,7 +863,9 @@ function renderSheet() {
       row.append(brushes);
     }
 
-    // thickness: log slider + typed millimetres
+    // thickness: log slider + typed millimetres. A pointer has no nib, so the
+    // whole block is left out for it rather than shown and ignored.
+    const hasNib = s.kind !== 'laser';
     const th = el('div', '');
     th.className = 'ps-thick';
     const lab = el('label', '', 'Thickness');
@@ -577,7 +902,7 @@ function renderSheet() {
     const unit = el('span', '', 'mm');
     unit.className = 'ps-unit';
     th.append(lab, slider, num, unit);
-    row.append(th);
+    if (hasNib) row.append(th);
 
     // presets
     const presets = el('div', '');
@@ -588,7 +913,7 @@ function renderSheet() {
       b.onclick = () => setMm(mm);
       presets.append(b);
     });
-    row.append(presets);
+    if (hasNib) row.append(presets);
 
     // colour
     const colors = el('div', '');
@@ -626,6 +951,10 @@ function renderSheet() {
       er.className = 'ps-erase';
       (['stroke', 'pixel'] as const).forEach((mode) => {
         const b = el('button', '', mode === 'stroke' ? 'Whole stroke' : 'Pixel eraser') as HTMLButtonElement;
+        b.title =
+          mode === 'stroke'
+            ? 'Removes the whole stroke you touch'
+            : 'Wipes only the ink under the nib, like a real eraser';
         b.className = 'ps-b' + ((s.erase ?? 'stroke') === mode ? ' on' : '');
         b.onclick = () => {
           s.erase = mode;
@@ -639,32 +968,27 @@ function renderSheet() {
       row.append(er);
     }
 
-    // reorder
-    const order = el('div', '');
-    order.className = 'ps-order';
-    const up = el('button', '', '↑') as HTMLButtonElement;
-    const down = el('button', '', '↓') as HTMLButtonElement;
-    up.title = 'Move up';
-    down.title = 'Move down';
-    up.disabled = i === 0;
-    down.disabled = i === slots.length - 1;
-    up.onclick = () => move(i, -1);
-    down.onclick = () => move(i, 1);
-    order.append(up, down);
-    row.append(order);
+    if (s.kind === 'laser') {
+      const ls = el('div', '');
+      ls.className = 'ps-erase';
+      (['hold', 'fade'] as const).forEach((mode) => {
+        const b = el('button', '', mode === 'hold' ? 'Stays while pressed' : 'Fades as you draw') as HTMLButtonElement;
+        b.title = mode === 'hold' ? 'The trail stays put until you lift' : 'The trail chases the pointer and disappears';
+        b.className = 'ps-b' + ((s.laser ?? 'hold') === mode ? ' on' : '');
+        b.onclick = () => {
+          s.laser = mode;
+          save();
+          paint();
+          renderSheet();
+          if (s.id === activeId) apply(s);
+        };
+        ls.append(b);
+      });
+      row.append(ls);
+    }
 
     body.append(row);
   });
-}
-
-function move(i: number, dir: number) {
-  const j = i + dir;
-  if (j < 0 || j >= slots.length) return;
-  [slots[i], slots[j]] = [slots[j], slots[i]];
-  save();
-  paint();
-  editing = j;
-  renderSheet();
 }
 
 /**
@@ -724,6 +1048,10 @@ function tick() {
   dock.classList.toggle('on', open);
   document.body.classList.toggle('pd-open', open);
   if (!open) closeSheet();
+  // focus mode is a document-level fact, so read it rather than being told:
+  // whichever module loads first, the rail ends up on the right edge.
+  const want = document.documentElement.dataset.focus === '1';
+  if (want !== focus) setFocus(want);
 }
 
 /* ------------------------------------------------------------------ */
@@ -731,47 +1059,127 @@ function tick() {
 /* ------------------------------------------------------------------ */
 
 const CSS = `
+/* The rail is one object that lies against an edge. Each side is the same
+   idea rotated: the nib points at the page, the barrel runs off screen. */
 #pen-dock{
-  position:fixed;left:0;top:50%;transform:translateY(-50%) translateX(-8px);
-  z-index:34;display:none;flex-direction:column;gap:6px;
-  padding:8px 0 8px 0;pointer-events:none;
+  --slot-w:55px;--slot-h:30px;--pull:8px;--dx:0px;--dy:0px;
+  position:fixed;z-index:34;display:none;gap:6px;
+  padding:8px 0;pointer-events:none;
+  transition:transform .18s cubic-bezier(.22,.8,.3,1);
 }
-#pen-dock.on{display:flex;transform:translateY(-50%) translateX(0);pointer-events:auto}
-#pen-dock .pd-rail{display:flex;flex-direction:column;gap:6px}
+#pen-dock.on{display:flex;pointer-events:auto}
+#pen-dock[data-side=left]{left:0;top:50%;transform:translateY(-50%) translateX(-8px) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=left].on{transform:translateY(-50%) translateX(0) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=right]{right:0;top:50%;transform:translateY(-50%) translateX(8px) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=right].on{transform:translateY(-50%) translateX(0) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=top]{top:0;left:50%;transform:translateX(-50%) translateY(-8px) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=top].on{transform:translateX(-50%) translateY(0) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=bottom]{bottom:0;left:50%;transform:translateX(-50%) translateY(8px) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=bottom].on{transform:translateX(-50%) translateY(0) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=top],#pen-dock[data-side=bottom]{--slot-w:30px;--slot-h:55px;flex-direction:column;padding:0 8px}
+#pen-dock[data-side=left],#pen-dock[data-side=right]{flex-direction:column}
+#pen-dock.pd-dragging{transition:none;z-index:70;cursor:grabbing}
+#pen-dock.pd-dragging .pd-art{transition:none}
+
+#pen-dock .pd-rail{position:relative;display:flex;flex-direction:column;gap:6px}
+#pen-dock[data-side=top] .pd-rail,#pen-dock[data-side=bottom] .pd-rail{flex-direction:row}
 #pen-dock .pd-slot{
-  position:relative;height:30px;width:55px;display:flex;align-items:center;
+  position:relative;height:var(--slot-h);width:var(--slot-w);display:flex;align-items:center;
   cursor:pointer;overflow:hidden;border-radius:0 10px 10px 0;
-  transition:background .14s ease;
+  transition:background .14s ease,opacity .14s ease,transform .14s ease;
+  /* a held pen is dragged, so the browser must not claim the gesture for a
+     scroll or a text selection halfway through it */
+  touch-action:none;user-select:none;-webkit-user-select:none;
 }
+#pen-dock[data-side=right] .pd-slot{border-radius:10px 0 0 10px}
+#pen-dock[data-side=top] .pd-slot{border-radius:0 0 10px 10px}
+#pen-dock[data-side=bottom] .pd-slot{border-radius:10px 10px 0 0}
 #pen-dock .pd-slot:hover{background:color-mix(in srgb,var(--ac,#2f6df6) 8%,transparent)}
 #pen-dock .pd-art{
   position:absolute;left:0;top:50%;width:220px;height:24px;
-  transform:translate(-165px,-50%) rotate(0deg);
+  transform-origin:220px 12px;
   transition:transform .2s cubic-bezier(.22,.8,.3,1);
   filter:drop-shadow(0 2px 3px rgba(10,20,40,.26));
   will-change:transform;
 }
-#pen-dock .pd-slot:hover .pd-art{transform:translate(-157px,-50%)}
-#pen-dock .pd-slot.on .pd-art{transform:translate(-150px,-50%)}
+/* left: tip at the right, barrel off to the left */
+#pen-dock[data-side=left] .pd-art{transform:translate(-165px,-50%)}
+#pen-dock[data-side=left] .pd-slot:hover .pd-art{transform:translate(calc(-165px + var(--pull)),-50%)}
+#pen-dock[data-side=left] .pd-slot.on .pd-art{transform:translate(calc(-165px + var(--pull) * 2),-50%)}
+/* right: mirrored about the tip, so the nib points left into the page */
+#pen-dock[data-side=right] .pd-art{transform:translate(-220px,-50%) scaleX(-1)}
+#pen-dock[data-side=right] .pd-slot:hover .pd-art{transform:translate(calc(-220px - var(--pull)),-50%) scaleX(-1)}
+#pen-dock[data-side=right] .pd-slot.on .pd-art{transform:translate(calc(-220px - var(--pull) * 2),-50%) scaleX(-1)}
+/* top: tip at the bottom edge, barrel standing up out of the page */
+#pen-dock[data-side=top] .pd-art{
+  top:0;transform:translate(calc(var(--slot-w) / 2 - 220px),calc(var(--slot-h) - 12px)) rotate(90deg);
+}
+#pen-dock[data-side=top] .pd-slot:hover .pd-art{
+  transform:translate(calc(var(--slot-w) / 2 - 220px),calc(var(--slot-h) - 12px + var(--pull))) rotate(90deg);
+}
+#pen-dock[data-side=top] .pd-slot.on .pd-art{
+  transform:translate(calc(var(--slot-w) / 2 - 220px),calc(var(--slot-h) - 12px + var(--pull) * 2)) rotate(90deg);
+}
+/* bottom: the same, upside down */
+#pen-dock[data-side=bottom] .pd-art{
+  top:0;transform:translate(calc(var(--slot-w) / 2 - 220px),calc(-12px)) rotate(-90deg);
+}
+#pen-dock[data-side=bottom] .pd-slot:hover .pd-art{
+  transform:translate(calc(var(--slot-w) / 2 - 220px),calc(-12px - var(--pull))) rotate(-90deg);
+}
+#pen-dock[data-side=bottom] .pd-slot.on .pd-art{
+  transform:translate(calc(var(--slot-w) / 2 - 220px),calc(-12px - var(--pull) * 2)) rotate(-90deg);
+}
 #pen-dock .pd-slot.on{background:color-mix(in srgb,var(--ac,#2f6df6) 13%,transparent)}
 #pen-dock .pd-slot.on::after{
   content:"";position:absolute;left:0;top:6px;bottom:6px;width:2px;border-radius:2px;
   background:var(--pen,#111);
 }
+#pen-dock[data-side=right] .pd-slot.on::after{left:auto;right:0}
+#pen-dock[data-side=top] .pd-slot.on::after,#pen-dock[data-side=bottom] .pd-slot.on::after{
+  left:6px;right:6px;top:auto;bottom:auto;width:auto;height:2px;
+}
+#pen-dock[data-side=top] .pd-slot.on::after{top:0}
+#pen-dock[data-side=bottom] .pd-slot.on::after{bottom:0}
+
 #pen-dock .pd-tag{
   position:absolute;right:3px;bottom:2px;font:600 8px/1 ui-monospace,Menlo,monospace;
   color:var(--mu,#6e6e73);opacity:0;transition:opacity .16s ease;pointer-events:none;
 }
 #pen-dock:hover .pd-tag{opacity:.5}
 #pen-dock .pd-foot{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding-left:6px;margin-top:6px}
-#pen-dock .pd-add,#pen-dock .pd-gear{
+#pen-dock[data-side=top] .pd-foot,#pen-dock[data-side=bottom] .pd-foot{
+  flex-direction:row;align-items:center;padding-left:0;margin-top:0;margin-left:6px;justify-content:center;
+}
+#pen-dock[data-side=top] .pd-foot{margin:6px 0 0}
+#pen-dock[data-side=bottom] .pd-foot{margin:0 0 6px}
+#pen-dock .pd-add,#pen-dock .pd-gear,#pen-dock .pd-grip{
   width:24px;height:24px;border-radius:8px;border:1px solid var(--bd,#d9d9de);
   background:var(--sf,#fff);color:var(--mu,#6e6e73);display:grid;place-items:center;
   cursor:pointer;padding:0;
 }
 #pen-dock .pd-add:hover,#pen-dock .pd-gear:hover{color:var(--ac,#2f6df6);border-color:var(--ac,#2f6df6)}
+/* the grip only exists in focus mode, where moving the rail is a thing you do */
+#pen-dock .pd-grip{display:none;cursor:grab;touch-action:none}
+#pen-dock.pd-focus .pd-grip{display:grid}
+#pen-dock.pd-focus .pd-add,#pen-dock.pd-focus .pd-gear{display:none}
 
-body.pd-open #stage{padding-left:66px}
+/* holding a pen: it lifts out of the rail and follows the finger */
+#pen-dock.pd-sorting .pd-slot{opacity:.72}
+#pen-dock.pd-sorting .pd-slot.pd-lift{
+  opacity:1;z-index:3;transition:none;
+  background:color-mix(in srgb,var(--ac,#2f6df6) 16%,transparent);
+  box-shadow:0 6px 14px rgba(10,20,40,.22);
+}
+#pen-dock .pd-line{
+  position:absolute;background:var(--ac,#2f6df6);border-radius:2px;pointer-events:none;
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--ac,#2f6df6) 22%,transparent);
+}
+
+body.pd-open[data-pd=left] #stage{padding-left:66px}
+body.pd-open[data-pd=right] #stage{padding-right:66px}
+body.pd-open[data-pd=top] #stage{padding-top:72px}
+body.pd-open[data-pd=bottom] #stage{padding-bottom:72px}
 
 #pen-sheet{
   position:fixed;left:64px;top:50%;transform:translateY(-50%) scale(.97);
@@ -782,6 +1190,8 @@ body.pd-open #stage{padding-left:66px}
   padding:12px;font:13px/1.4 inherit;
 }
 #pen-sheet.on{display:block;opacity:1;transform:translateY(-50%) scale(1)}
+/* the sheet opens beside the rail, whichever edge that is */
+body[data-pd=right] #pen-sheet{left:auto;right:64px}
 #pen-sheet .ps-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 #pen-sheet .ps-head b{font-size:13px;letter-spacing:.01em}
 #pen-sheet .ps-x{border:0;background:transparent;cursor:pointer;font-size:14px;color:var(--mu,#6e6e73);padding:2px 4px}
@@ -835,18 +1245,16 @@ body.pd-open #stage{padding-left:66px}
 }
 #pen-sheet .ps-c.on{border-color:var(--ac,#2f6df6)}
 #pen-sheet .ps-custom{width:22px;height:22px;border:0;background:none;padding:0;cursor:pointer}
-#pen-sheet .ps-order{display:flex;gap:4px;justify-content:flex-end}
-#pen-sheet .ps-order button{
-  width:22px;height:20px;border:1px solid var(--bd,#e3e7ee);background:transparent;border-radius:6px;
-  cursor:pointer;color:var(--mu,#6e6e73);font-size:11px;padding:0;
-}
-#pen-sheet .ps-order button:disabled{opacity:.35;cursor:default}
 
 @media(max-width:640px){
-  #pen-dock .pd-slot{height:28px;width:44px}
+  #pen-dock{--slot-w:44px;--slot-h:28px}
+  #pen-dock[data-side=top],#pen-dock[data-side=bottom]{--slot-w:28px;--slot-h:44px}
   #pen-sheet{left:8px;right:8px;width:auto;top:auto;bottom:8px;transform:translateY(6px);max-height:64vh}
   #pen-sheet.on{transform:translateY(0)}
-  body.pd-open #stage{padding-left:38px}
+  body.pd-open[data-pd=left] #stage{padding-left:38px}
+  body.pd-open[data-pd=right] #stage{padding-right:38px}
+  body.pd-open[data-pd=top] #stage{padding-top:58px}
+  body.pd-open[data-pd=bottom] #stage{padding-bottom:58px}
 }
 `;
 
@@ -864,6 +1272,13 @@ function boot() {
 
   tick();
   window.setInterval(tick, 300);
+
+  // focus mode is announced as well as observed, so the rail moves on the same
+  // frame as the toolbars rather than up to a tick later
+  document.addEventListener('inkpad-focus', (e) => {
+    const detail = (e as CustomEvent).detail;
+    setFocus(!!detail?.on);
+  });
 
   // the width record is shared, so a change made in the pill lands here too
   onWidth(syncFromRecord);
@@ -892,6 +1307,20 @@ function boot() {
       save();
       paint();
       syncFromRecord(slotTool(s));
+    },
+    side: () => side,
+    setSide: (v: Side) => {
+      side = v;
+      saveSide();
+      applySide();
+    },
+    /** Reorder by index — the same splice a held-and-dragged pen performs. */
+    move: (from: number, to: number) => {
+      if (from === to || !slots[from]) return;
+      const [s] = slots.splice(from, 1);
+      slots.splice(Math.max(0, Math.min(slots.length, to)), 0, s);
+      save();
+      paint();
     },
     PX_PER_MM,
   };

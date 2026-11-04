@@ -1,0 +1,30 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 3 });
+await page.route('https://fonts.googleapis.com/**', (r) => r.abort());
+await page.route('https://fonts.gstatic.com/**', (r) => r.abort());
+await page.goto('http://127.0.0.1:3000/', { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('#grid', { timeout: 20000 });
+await page.waitForTimeout(1200);
+await page.evaluate(() => {
+  localStorage.removeItem('inkpad-pen-dock');
+  localStorage.removeItem('inkpad-pen-dock-v2');
+  localStorage.removeItem('inkpad-dock-focus-side');
+  const n = { id: Date.now(), name: 'F', upd: Date.now(), pages: [{ tpl: 'lined', col: '', strokes: [], pw: 800, ph: 1100 }] };
+  window.lib.push(n); window.openNotebook(n);
+});
+await page.waitForTimeout(1200);
+await page.evaluate(() => {
+  const s = [...document.querySelectorAll('button')].find((b) => /skip tour/i.test(b.textContent || ''));
+  s?.click();
+  document.getElementById('tour-root')?.remove();
+  window.__inkpad_focus.set(true, true);
+});
+await page.waitForTimeout(900);
+await page.screenshot({ path: 'shots/focus-top-zoom.png', clip: { x: 480, y: 0, width: 320, height: 110 } });
+await page.screenshot({ path: 'shots/focus-full.png' });
+await page.evaluate(() => document.querySelectorAll('#pen-dock .pd-slot')[3].dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+await page.mouse.move(590, 30);
+await page.waitForTimeout(400);
+await page.screenshot({ path: 'shots/focus-top-hover.png', clip: { x: 480, y: 0, width: 320, height: 110 } });
+await browser.close();
