@@ -22,6 +22,7 @@
 
 import { anySmart, onSmartChange, setSmart, smartOn, type SmartKey } from './smart';
 import { onnxCfg, onnxState, setOnnx, warmOnnx, type ModelKind } from './math/onnx';
+import { onSnapHold, setSnapHoldMs, snapHoldMs } from './shapes';
 
 function ev<T = any>(expr: string): T | null {
   try {
@@ -672,6 +673,77 @@ function paintSmart() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Hold to snap                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One number, and it is the one people actually want to change.
+ *
+ * The hold is a taste call: 300 ms suits someone sketching shapes on purpose,
+ * five seconds suits someone annotating a page who never wants the pen
+ * reinterpreted. The setting lives here rather than in a settings sheet for the
+ * same reason the smart-ink switches do — it is a pen behaviour, and you tune
+ * it while holding the pen.
+ */
+let snapSheet: HTMLElement | null = null;
+
+function secs(ms: number): string {
+  // the slider steps in 100 ms, so one decimal is always exact
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+function buildSnapSheet(): HTMLElement {
+  const node = div('acc-sheet');
+  node.id = 'acc-snap';
+  node.innerHTML = `
+    <div class="acc-sh">Hold to snap</div>
+    <div class="snap-body">
+      <p class="acc-note">How long the pen has to rest before a doodle becomes a shape or a line. Nothing snaps while you are still moving.</p>
+      <div class="snap-val"><b id="snap-num">2.0 s</b><span>idle before it snaps</span></div>
+      <input type="range" id="snap-range" min="300" max="5000" step="100" aria-label="Hold time">
+      <div class="snap-scale"><span>0.3 s</span><span>5 s</span></div>
+    </div>
+    <div class="acc-foot">
+      <span class="acc-hint" id="snap-hint">Shapes and lines</span>
+      <button class="acc-reset" id="snap-reset" type="button">Default</button>
+    </div>`;
+
+  const range = node.querySelector('#snap-range') as HTMLInputElement;
+  const num = node.querySelector('#snap-num') as HTMLElement;
+
+  range.oninput = () => {
+    setSnapHoldMs(parseInt(range.value, 10));
+    num.textContent = secs(snapHoldMs());
+  };
+  // pointerup ends the drag; commit there too so a keyboard user's change lands
+  range.onchange = () => setSnapHoldMs(parseInt(range.value, 10));
+
+  (node.querySelector('#snap-reset') as HTMLElement).onclick = () => {
+    setSnapHoldMs(2000);
+    paintSnap();
+  };
+
+  return node;
+}
+
+function paintSnap() {
+  if (!snapSheet) return;
+  const range = snapSheet.querySelector('#snap-range') as HTMLInputElement;
+  const num = snapSheet.querySelector('#snap-num') as HTMLElement;
+  const v = snapHoldMs();
+  if (document.activeElement !== range) range.value = String(v);
+  num.textContent = secs(v);
+}
+
+function openSnap() {
+  if (!snapSheet) return;
+  paintSnap();
+  const anchor = accPop?.querySelector('[data-acc="snap"]') as HTMLElement | null;
+  snapSheet.classList.add('on');
+  if (anchor) placeUnder(snapSheet, anchor);
+}
+
+/* ------------------------------------------------------------------ */
 /* Handwriting model                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -838,6 +910,11 @@ const MENU: MenuItem[] = [
     label: 'Smart ink',
     icon: '<path d="M5 19 12 5l7 14"/><path d="M8.5 13h7"/><path d="M19.5 4.5 20 6l1.5.5L20 7l-.5 1.5L19 7l-1.5-.5L19 6z"/>',
   },
+  {
+    id: 'snap',
+    label: 'Hold to snap',
+    icon: '<path d="M12 7.5V12l3 2"/><circle cx="12" cy="12" r="8.4"/><path d="M8 3.2h8"/>',
+  },
 ];
 
 const ICON_MORE =
@@ -876,14 +953,14 @@ function buildMenu() {
         openGuidePanel();
       };
       row.append(more);
-    } else if (item.id === 'tools' || item.id === 'smart') {
+    } else if (item.id === 'tools' || item.id === 'smart' || item.id === 'snap') {
       const go = el('i', '') as HTMLElement;
       go.className = 'acc-go';
       go.innerHTML = ICON_GO;
       row.append(go);
     }
 
-    if (item.id !== 'tools' && item.id !== 'smart') {
+    if (item.id !== 'tools' && item.id !== 'smart' && item.id !== 'snap') {
       const sw = div('acc-sw');
       row.append(sw);
     }
@@ -891,6 +968,7 @@ function buildMenu() {
     row.onclick = () => {
       if (item.id === 'tools') {
         smartSheet?.classList.remove('on');
+        snapSheet?.classList.remove('on');
         toolSheet?.classList.toggle('on');
         paintTools();
         // hang the sheet under the menu it came from, not under its own row,
@@ -900,9 +978,20 @@ function buildMenu() {
       }
       if (item.id === 'smart') {
         toolSheet?.classList.remove('on');
+        snapSheet?.classList.remove('on');
         paintSmart();
         smartSheet?.classList.toggle('on');
         if (smartSheet?.classList.contains('on')) placeUnder(smartSheet, accPop || row);
+        return;
+      }
+      if (item.id === 'snap') {
+        toolSheet?.classList.remove('on');
+        smartSheet?.classList.remove('on');
+        onnxSheet?.classList.remove('on');
+        snapSheet?.classList.toggle('on');
+        if (snapSheet?.classList.contains('on')) placeUnder(snapSheet, accPop || row);
+        else snapSheet?.classList.remove('on');
+        paintSnap();
         return;
       }
       toggle(item.id);
@@ -922,6 +1011,12 @@ function buildMenu() {
   onnxSheet = buildOnnxSheet();
   document.body.append(onnxSheet);
 
+  snapSheet = buildSnapSheet();
+  document.body.append(snapSheet);
+  // the sheet is the only place the value is shown, so it has to follow a
+  // change made anywhere else
+  onSnapHold(() => paintSnap());
+
   document.addEventListener(
     'pointerdown',
     (e) => {
@@ -932,13 +1027,15 @@ function buildMenu() {
         t.closest('#acc-trigger') ||
         t.closest('#acc-tools') ||
         t.closest('#acc-smart') ||
-        t.closest('#acc-onnx')
+        t.closest('#acc-onnx') ||
+        t.closest('#acc-snap')
       )
         return;
       accPop?.classList.remove('on');
       toolSheet?.classList.remove('on');
       smartSheet?.classList.remove('on');
       onnxSheet?.classList.remove('on');
+      snapSheet?.classList.remove('on');
     },
     true
   );
@@ -1015,12 +1112,14 @@ function hookTrigger() {
       toolSheet?.classList.remove('on');
       smartSheet?.classList.remove('on');
       onnxSheet?.classList.remove('on');
+      snapSheet?.classList.remove('on');
       return;
     }
     // the customization sheet is anchored to this menu; it must not outlive it
     toolSheet?.classList.remove('on');
     smartSheet?.classList.remove('on');
     onnxSheet?.classList.remove('on');
+    snapSheet?.classList.remove('on');
     paintMenu();
     placeUnder(accPop, accBtn!);
   };
@@ -1132,6 +1231,33 @@ const CSS = `
 }
 .onnx-st[data-s="failed"]{background:#fdf1f1;color:#c94b4b}
 .onnx-st[data-s="ready"]{background:#eef9f1;color:#2a9d4f}
+
+#acc-snap{
+  position:fixed;z-index:46;display:none;width:262px;padding:10px 10px 0;
+  background:#fff;border:1px solid #eef1f6;border-radius:14px;
+  box-shadow:0 16px 38px rgba(8,20,38,.20),0 2px 6px rgba(8,20,38,.08);
+  font-family:inherit;flex-direction:column;overflow:hidden;
+}
+#acc-snap.on{display:flex}
+#acc-snap .acc-sh{flex:none}
+#acc-snap .acc-note{font:500 10.5px/1.4 inherit;color:#9aa5b4;padding:0 4px 10px 7px;margin:0}
+.snap-body{display:flex;flex-direction:column;padding-bottom:10px}
+.snap-val{display:flex;align-items:baseline;gap:7px;padding:0 7px 6px}
+.snap-val b{font:700 19px/1 inherit;color:#2b3542;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.snap-val span{font:500 10.5px/1 inherit;color:#9aa5b4}
+#snap-range{
+  -webkit-appearance:none;appearance:none;width:calc(100% - 14px);margin:0 7px;
+  height:4px;border-radius:999px;background:#e6ecf5;outline:none;
+}
+#snap-range::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;
+  background:#2f6df6;border:2px solid #fff;box-shadow:0 1px 4px rgba(16,32,64,.35);cursor:pointer;
+}
+#snap-range::-moz-range-thumb{
+  width:16px;height:16px;border-radius:50%;background:#2f6df6;border:2px solid #fff;
+  box-shadow:0 1px 4px rgba(16,32,64,.35);cursor:pointer;
+}
+.snap-scale{display:flex;justify-content:space-between;padding:5px 9px 0;font:600 9.5px/1 inherit;color:#b3bcc8}
 .acc-list{display:flex;flex-direction:column;gap:1px;flex:1;overflow:auto;min-height:0;padding-bottom:4px}
 .acc-row{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 7px;border-radius:8px}
 .acc-row:hover{background:#f6f8fb}

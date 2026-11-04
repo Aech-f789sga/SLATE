@@ -401,19 +401,61 @@ function installShapeEngine() {
 /* Recognition hook                                                    */
 /* ------------------------------------------------------------------ */
 
-const HOLD_MS = 420;
-
 /**
- * A line waits far longer than a shape before it straightens.
+ * How long the pen has to rest before a doodle becomes a shape.
  *
- * A closed shape has already told you what it is — the stroke came back to
- * where it started — so a short stillness is enough to be sure. A straight
- * line has no such tell: every quick horizontal stroke inside a drawing pauses
- * for a moment, and straightening at 420 ms would steal the stroke before the
- * hand moved on. Two seconds of stillness is long enough that only a
- * deliberate hold counts.
+ * Two seconds by default. It used to be 420 ms, which reads as "the app
+ * grabbed my stroke" to anyone drawing at a normal pace — a pause between two
+ * strokes is easily half a second, and a straight line has no closed outline to
+ * prove it was finished. Adjustable from Accessories.
  */
-const LINE_HOLD_MS = 2000;
+const HOLD_KEY = 'inkpad-snap-hold';
+const HOLD_DEFAULT = 2000;
+const HOLD_MIN = 300;
+const HOLD_MAX = 5000;
+
+let holdMs = HOLD_DEFAULT;
+const holdListeners: ((ms: number) => void)[] = [];
+
+export function snapHoldMs(): number {
+  return holdMs;
+}
+
+export function setSnapHoldMs(ms: number) {
+  const next = Math.max(HOLD_MIN, Math.min(HOLD_MAX, Math.round(ms)));
+  if (next === holdMs) return;
+  holdMs = next;
+  try {
+    localStorage.setItem(HOLD_KEY, String(holdMs));
+  } catch {
+    /* ignore */
+  }
+  for (const f of holdListeners) {
+    try {
+      f(holdMs);
+    } catch {
+      /* a bad listener must not stop the rest */
+    }
+  }
+}
+
+export function onSnapHold(f: (ms: number) => void): () => void {
+  holdListeners.push(f);
+  return () => {
+    const i = holdListeners.indexOf(f);
+    if (i >= 0) holdListeners.splice(i, 1);
+  };
+}
+
+(function loadHold() {
+  try {
+    const raw = localStorage.getItem(HOLD_KEY);
+    const n = raw ? parseInt(raw, 10) : NaN;
+    if (Number.isFinite(n)) holdMs = Math.max(HOLD_MIN, Math.min(HOLD_MAX, n));
+  } catch {
+    /* default */
+  }
+})();
 
 /** Movement under this still counts as holding still — a hand is never frozen. */
 const JITTER = 2.6;
@@ -451,8 +493,14 @@ let pendingSnap: Snap | null = null;
 let rawA: Pt | null = null;
 let rawB: Pt | null = null;
 
-/** Previous pointer position, used to tell a hold from a slow drag. */
-let prevPoint: Pt | null = null;
+/**
+ * Where the hand was when the hold clock last restarted.
+ *
+ * This is an anchor, not the previous event: the clock restarts when the
+ * pointer has drifted `JITTER` away from *here*, so a slow hand still counts as
+ * moving even though no single event is far from the last one.
+ */
+let holdAnchor: Pt | null = null;
 
 function canvasEl(): HTMLCanvasElement | null {
   return document.getElementById('cv') as HTMLCanvasElement | null;
@@ -484,9 +532,8 @@ function hookRecognition() {
       if (ev<string>('tool') !== 'pen') return;
       drawing = true;
       path = [toPage(e, cv)];
-      prevPoint = path[0];
       strokesBefore = (ev<any[]>('pg().strokes') || []).length;
-      armHold();
+      armHold(path[0]);
     },
     true
   );
@@ -502,11 +549,13 @@ function hookRecognition() {
       }
       const last = path[path.length - 1];
       if (!last || dist(last, p) > 1.5) path.push(p);
-      // Restart the clock only on real movement, measured against the previous
-      // pointer position. Comparing against the last accepted point instead
-      // means a slow hand keeps resetting the timer and nothing ever snaps.
-      if (!prevPoint || dist(prevPoint, p) > JITTER) armHold();
-      prevPoint = p;
+      // Compare against the point the clock last restarted from, not the
+      // previous event. A slow hand takes many sub-threshold steps, so a
+      // per-event distance never looks like movement: the timer armed at
+      // pointerdown would fire in the middle of a stroke and — since a
+      // half-drawn stroke recognises as nothing — never restart. That is
+      // exactly why snapping only worked if you drew quickly.
+      if (!holdAnchor || dist(holdAnchor, p) > JITTER) armHold(p);
     },
     true
   );
@@ -537,7 +586,7 @@ function hookRecognition() {
         const s = all[all.length - 1];
         return !!s && s.t === 'shape' && s.k === 'ell';
       })();
-      if (pts.length >= 8 && (madeOval || performance.now() - lastMove > HOLD_MS)) {
+      if (pts.length >= 8 && (madeOval || performance.now() - lastMove > holdMs)) {
         window.setTimeout(() => commit(pts), 0);
       }
       return;
@@ -654,32 +703,27 @@ function snapBox(): [Pt, Pt] {
   ];
 }
 
-function armHold() {
+function armHold(at?: Pt) {
+  if (at) holdAnchor = at;
   lastMove = performance.now();
   window.clearTimeout(holdTimer);
-  holdTimer = window.setTimeout(trySnap, HOLD_MS);
+  holdTimer = window.setTimeout(trySnap, holdMs);
 }
 
 function trySnap() {
   if (!drawing || snap) return;
   const pts = path;
-  if (pts.length < 8) return;
-  const shape = recognise(pts);
-  if (!shape) return;
-
-  // Recognition is cheap, so the kind is known long before the hold ends: a
-  // line is recognised at the short hold and then waits out the rest of its
-  // own, longer one.
-  if (shape.k === 'line' || shape.k === 'arrow') {
-    const still = performance.now() - lastMove;
-    if (still < LINE_HOLD_MS) {
-      window.clearTimeout(holdTimer);
-      holdTimer = window.setTimeout(trySnap, LINE_HOLD_MS - still);
+  if (pts.length >= 8) {
+    const shape = recognise(pts);
+    if (shape) {
+      beginSnap(shape);
       return;
     }
   }
-
-  beginSnap(shape);
+  // Nothing to snap yet. Keep the clock running: a stroke that paused once
+  // before it was recognisable — the usual shape of a slow, deliberate draw —
+  // would otherwise never get a second chance.
+  if (drawing) armHold();
 }
 
 /** Turn the live pen stroke into the recognised shape, still under the finger. */
