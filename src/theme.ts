@@ -258,7 +258,7 @@ html[data-bar=compact] #tb #more{
 #md .box b,#auth-md .box b{font-size:18px!important;letter-spacing:-.01em}
 #md input[type=text],#auth-md input{
   border-radius:11px!important;padding:11px 13px!important;border:1px solid var(--gn-line)!important;
-  background:#f7f8fa!important;font-size:14px!important;
+  background:var(--bg)!important;color:var(--tx)!important;font-size:14px!important;
 }
 #cvs{display:flex!important;gap:9px!important;flex-wrap:wrap}
 #cvs .sw{
@@ -606,15 +606,22 @@ function ensureFooter() {
 /* ------------------------------------------------------------------ */
 
 function bindDrawer() {
-  const drw = Array.from(document.body.children).find((n) => {
-    const e = n as HTMLElement;
-    return (
-      n.tagName === 'DIV' &&
-      !n.id &&
-      e.style.position === 'fixed' &&
-      e.style.zIndex === '9'
-    );
-  }) as HTMLElement | undefined;
+  // The engine now gives its drawer a stable id, so look it up directly. The
+  // shape heuristic stays as a fallback for older builds: it only matched a
+  // drawer with *no* id, which meant adding one silently stopped the binding —
+  // and with it the positioning and the ink-tool suppression.
+  const byId = document.getElementById('gn-drw') as HTMLElement | null;
+  const drw =
+    byId ||
+    (Array.from(document.body.children).find((n) => {
+      const e = n as HTMLElement;
+      return (
+        n.tagName === 'DIV' &&
+        !n.id &&
+        e.style.position === 'fixed' &&
+        e.style.zIndex === '9'
+      );
+    }) as HTMLElement | undefined);
   if (!drw || drw.dataset.gnDrw) return;
 
   drw.id = 'gn-drw';

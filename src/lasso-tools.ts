@@ -17,6 +17,7 @@
  */
 
 import { readInk, type InkStroke } from './math/ocr';
+import { onSmartChange, smartOn } from './smart';
 
 /* ------------------------------------------------------------------ */
 /* Engine access                                                       */
@@ -311,11 +312,26 @@ function tick() {
   buildPill();
   if (!pill) return;
 
+  // With every conversion switched off there is nothing to offer, so the pill
+  // never appears. That is the default: select ink and you get the engine's own
+  // bar (duplicate / delete / animate), not an offer to read your writing.
+  const canText = smartOn('toText');
+  const canTex = smartOn('toLatex');
+  if (!canText && !canTex) {
+    hidePill();
+    return;
+  }
+
   const likeness = textLikeness(items, box);
-  const label = pill.querySelector('.lp-text .lp-lb') as HTMLElement;
-  if (label) label.textContent = likeness > 0.5 ? 'Text' : 'Convert';
-  const latex = pill.querySelector('.lp-latex') as HTMLElement;
-  if (latex) latex.style.display = likeness > 0.35 ? '' : 'none';
+  const textBtn = pill.querySelector('.lp-text') as HTMLElement | null;
+  if (textBtn) {
+    textBtn.style.display = canText ? '' : 'none';
+    const label = textBtn.querySelector('.lp-lb') as HTMLElement | null;
+    if (label) label.textContent = likeness > 0.5 ? 'Text' : 'Convert';
+  }
+  const latex = pill.querySelector('.lp-latex') as HTMLElement | null;
+  // a drawing is unlikely to be a formula, unless LaTeX is the only way in
+  if (latex) latex.style.display = canTex && (likeness > 0.35 || !canText) ? '' : 'none';
 
   const top = toScreen((box[0] + box[2]) / 2, box[1]);
   pill.classList.add('on');
@@ -402,6 +418,14 @@ function boot() {
   document.head.append(style);
 
   window.setInterval(tick, 260);
+
+  // switching the features off must take the pill away immediately
+  onSmartChange(() => {
+    if (!smartOn('toText') && !smartOn('toLatex')) {
+      hidePill();
+      closeCard();
+    }
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeCard();

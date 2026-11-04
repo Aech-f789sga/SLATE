@@ -425,12 +425,26 @@ function rdp(P: Pt[], eps: number): Pt[] {
 /** Corner extraction on a closed path, by turning-angle peaks. */
 export function corners(P: Pt[], diag: number): Pt[] {
   const n = P.length;
-  const win = Math.max(2, Math.round(n / 24));
+  if (n < 8) return [];
+
+  // Light smoothing first: a shaky hand must not manufacture corners, and one
+  // noisy sample would otherwise drag the measured angle with it.
+  const S: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = P[(i - 1 + n) % n];
+    const b = P[i];
+    const c = P[(i + 1) % n];
+    S.push([(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3]);
+  }
+
+  // Judge a corner over a fixed slice of the outline rather than a fixed number
+  // of samples, so sparse and dense strokes are measured the same way.
+  const win = Math.max(2, Math.round(n * 0.05));
   const angles: number[] = [];
   for (let i = 0; i < n; i++) {
-    const a = P[(i - win + n) % n];
-    const b = P[i];
-    const c = P[(i + win) % n];
+    const a = S[(i - win + n) % n];
+    const b = S[i];
+    const c = S[(i + win) % n];
     const u = [b[0] - a[0], b[1] - a[1]];
     const v = [c[0] - b[0], c[1] - b[1]];
     const lu = Math.hypot(u[0], u[1]) || 1;
@@ -439,39 +453,51 @@ export function corners(P: Pt[], diag: number): Pt[] {
     angles.push((Math.acos(cos) * 180) / Math.PI);
   }
 
-  const peaks: number[] = [];
+  // A sample sitting just before a corner already has its forward chord across
+  // that corner, so it reports a large angle too. Every real corner therefore
+  // throws a hump roughly +-win wide, and only the sample *at* the corner is a
+  // peak. Keeping just the local maxima of that hump is what removes the ghosts;
+  // the suppression pass after it only has to collapse near-duplicates.
+  //
+  // The window here has to stay narrow. An earlier version looked +-2*win wide
+  // and wrapped across the seam, so the first corner of a stroke outvoted the
+  // last one — which is exactly how a square came back with three corners and
+  // then fell through to the ellipse fit.
+  const mw = Math.max(1, Math.round(win / 2));
+  const cand: [number, number][] = [];
   for (let i = 0; i < n; i++) {
-    const a = angles[i];
-    if (a < 34) continue;
-    let isPeak = true;
-    for (let k = 1; k <= win * 2; k++) {
-      if (angles[(i + k) % n] > a || angles[(i - k + n) % n] > a) {
-        isPeak = false;
+    if (angles[i] < 34) continue;
+    let peak = true;
+    for (let k = 1; k <= mw && peak; k++) {
+      if (angles[(i - k + n) % n] > angles[i] || angles[(i + k) % n] > angles[i]) peak = false;
+    }
+    if (peak) cand.push([i, angles[i]]);
+  }
+  cand.sort((x, y) => y[1] - x[1]);
+
+  const radius = Math.max(3, Math.round(n * 0.04));
+  const picked: number[] = [];
+  for (const [i] of cand) {
+    let clash = false;
+    for (const j of picked) {
+      const d = Math.abs(i - j);
+      if (Math.min(d, n - d) < radius) {
+        clash = true;
         break;
       }
     }
-    if (isPeak) peaks.push(i);
+    if (!clash) picked.push(i);
+    if (picked.length >= 12) break;
   }
+  picked.sort((a, b) => a - b);
 
-  // merge peaks that are close together
-  const merged: number[] = [];
-  for (const i of peaks) {
-    const last = merged[merged.length - 1];
-    if (last !== undefined && (i - last + n) % n < win * 2) continue;
-    merged.push(i);
-  }
-  if (merged.length > 1) {
-    const gap = (merged[0] - merged[merged.length - 1] + n) % n;
-    if (gap < win * 2) merged.pop();
-  }
-
-  const out = merged.map((i) => P[i]);
+  const out = picked.map((i) => P[i]);
   // drop vertices that barely move the outline
   const kept: Pt[] = [];
   for (const v of out) {
-    if (!kept.length || dist(kept[kept.length - 1], v) > diag * 0.05) kept.push(v);
+    if (!kept.length || dist(kept[kept.length - 1], v) > diag * 0.04) kept.push(v);
   }
-  if (kept.length > 1 && dist(kept[0], kept[kept.length - 1]) < diag * 0.05) kept.pop();
+  if (kept.length > 1 && dist(kept[0], kept[kept.length - 1]) < diag * 0.04) kept.pop();
   return kept;
 }
 

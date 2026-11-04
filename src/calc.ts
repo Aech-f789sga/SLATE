@@ -18,6 +18,7 @@
 
 import { calculate, type AngleMode, type CalcOptions, type CalcResult } from './math/core';
 import { endsWithEquals, readInk, type InkStroke } from './math/ocr';
+import { onSmartChange, setSmart, smartOn } from './smart';
 
 /* ------------------------------------------------------------------ */
 /* Engine access                                                       */
@@ -55,7 +56,10 @@ const settings: Settings = {
   exact: true,
   decimals: 8,
   units: true,
-  auto: true,
+  // Off until asked for. Auto-calculation watches every stroke you draw, and a
+  // notebook that pops a calculator over your work uninvited is a notebook you
+  // stop trusting.
+  auto: false,
   ink: true,
 };
 
@@ -68,11 +72,12 @@ function load() {
     if (typeof s.exact === 'boolean') settings.exact = s.exact;
     if (Number(s.decimals) >= 2 && Number(s.decimals) <= 12) settings.decimals = Number(s.decimals);
     if (typeof s.units === 'boolean') settings.units = s.units;
-    if (typeof s.auto === 'boolean') settings.auto = s.auto;
     if (typeof s.ink === 'boolean') settings.ink = s.ink;
   } catch {
     /* defaults */
   }
+  // The master switch lives in Settings → Smart ink; it wins over the old key.
+  settings.auto = smartOn('calc');
 }
 
 function save() {
@@ -389,6 +394,8 @@ function calcSettings(d: HTMLElement) {
   const on = group(d, 'Auto calculation');
   chip(on, settings.auto ? 'On' : 'Off', settings.auto, () => {
     settings.auto = !settings.auto;
+    // the same switch as Settings → Smart ink → Auto-calculate
+    setSmart('calc', settings.auto);
     save();
     rebuild(d);
   });
@@ -510,6 +517,11 @@ function boot() {
   };
   (window as any).__calcSettings = calcSettings;
   (window as any).__calc = { settings, calculate: (s: string) => calculate(s, settings) };
+
+  // keep this drawer's view of the switch in step with the main Settings drawer
+  onSmartChange(() => {
+    settings.auto = smartOn('calc');
+  });
 
   const cv = document.getElementById('cv');
   if (cv) cv.addEventListener('pointerup', onStrokeEnd, true);

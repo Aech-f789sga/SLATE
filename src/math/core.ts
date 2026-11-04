@@ -15,6 +15,22 @@
  * reused by the OCR path, the calculator popup and the settings sheet.
  */
 
+import {
+  antiderivative,
+  diff,
+  integrateNumeric,
+  mentions,
+  prodOver,
+  render,
+  setLinearEvaluator,
+  simplify,
+  sumOver,
+} from './calculus';
+
+// calculus.ts needs to test whether an integrand is linear, and rather than
+// import this module back it takes the evaluator as an argument.
+setLinearEvaluator((n, env) => evalNode(n, 'rad', env));
+
 /* ------------------------------------------------------------------ */
 /* Public types                                                        */
 /* ------------------------------------------------------------------ */
@@ -33,7 +49,7 @@ export interface CalcOptions {
 
 export const DEFAULTS: CalcOptions = { mode: 'rad', exact: true, decimals: 10, units: true };
 
-export type CalcKind = 'value' | 'solutions' | 'identity' | 'compare' | 'units' | 'error';
+export type CalcKind = 'value' | 'solutions' | 'identity' | 'compare' | 'units' | 'expression' | 'error';
 
 export interface CalcResult {
   ok: boolean;
@@ -72,6 +88,8 @@ export function normalise(src: string): string {
   s = s.replace(/[，]/g, ',').replace(/[（]/g, '(').replace(/[）]/g, ')');
   s = s.replace(/[\[\{]/g, '(').replace(/[\]\}]/g, ')');
   s = s.replace(/√/g, 'sqrt').replace(/π/g, 'pi').replace(/∞/g, 'Infinity');
+  // calculus symbols, so "∑(k,k,1,n)" and "∫(x^2,x,0,1)" reach the reader below
+  s = s.replace(/∑/g, 'sum').replace(/∏/g, 'prod').replace(/∫/g, 'integral').replace(/[∂]/g, 'd');
   s = s.replace(/≤/g, '<=').replace(/≥/g, '>=').replace(/≠/g, '!=');
   // superscript runs → ^(...)
   s = s.replace(/([⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+)/g, (m) => '^(' + m.split('').map((c) => SUP[c] ?? c).join('') + ')');
@@ -88,6 +106,11 @@ const FUNCS = new Set([
   'asinh', 'acosh', 'atanh',
   'ln', 'log', 'log2', 'log10', 'lg', 'exp', 'sqrt', 'cbrt', 'abs',
   'floor', 'ceil', 'round', 'sign', 'sgn', 'fact', 'min', 'max', 'mod', 'gcd', 'lcm',
+  // engineering and statistics
+  'gamma', 'lgamma', 'erf', 'sinc', 'hypot', 'atan2', 'trunc', 'log1p', 'expm1',
+  'deg2rad', 'rad2deg', 'clamp', 'lerp', 'ncr', 'npr', 'cbrt',
+  'mean', 'avg', 'median', 'stdev', 'std', 'variance', 'var', 'rms',
+  'sum', 'sigma', 'prod', 'product',
 ]);
 
 const CONSTS: Record<string, number> = {
@@ -169,6 +192,13 @@ export function tokenise(src: string): Tok[] {
     if (/[A-Za-z_]/.test(c)) {
       let j = i;
       while (j < s.length && /[A-Za-z_]/.test(s[j])) j++;
+      // A few function names carry digits (log2, log10, deg2rad, rad2deg). Take
+      // the longest prefix that is really a function, so "log2" does not split
+      // into "log" times 2 — but "x2" still means x times 2.
+      for (let k = j + 1; k <= Math.min(s.length, j + 8); k++) {
+        const cand = s.slice(i, k);
+        if (/^[A-Za-z_][A-Za-z_0-9]*$/.test(cand) && FUNCS.has(cand.toLowerCase())) j = k;
+      }
       // allow log_2 and similar
       if (s[j] === '_') {
         j++;
@@ -458,6 +488,32 @@ function gamma(z: number): number {
   return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
 }
 
+function lgamma(z: number): number {
+  return Math.log(Math.abs(gamma(z)));
+}
+
+/** Error function — Abramowitz & Stegun 7.1.26, |error| < 1.5e-7. */
+function erf(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  const ax = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * ax);
+  const y =
+    1 -
+    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+      t *
+      Math.exp(-ax * ax);
+  return Math.abs(y) < 1e-8 ? 0 : sign * y;
+}
+
+/** Binomial coefficient, multiplicative so it stays exact well past 170!. */
+function binom(n: number, k: number): number {
+  if (k < 0 || n < 0 || k > n) return 0;
+  const kk = Math.min(k, n - k);
+  let acc = 1;
+  for (let i = 0; i < kk; i++) acc = (acc * (n - i)) / (i + 1);
+  return Math.round(acc * 1e9) / 1e9;
+}
+
 export function evalNode(n: Node, mode: AngleMode, env: Record<string, number> = {}): number {
   switch (n.k) {
     case 'num':
@@ -615,6 +671,92 @@ function evalFn(n: Extract<Node, { k: 'fn' }>, mode: AngleMode, env: Record<stri
       while (y) [x, y] = [y, x % y];
       return (a * b) / x;
     }
+
+    /* ---- engineering ---- */
+    case 'gamma':
+      return gamma(A(0));
+    case 'lgamma':
+      return lgamma(A(0));
+    case 'erf':
+      return erf(A(0));
+    case 'sinc': {
+      const x = A(0);
+      return Math.abs(x) < 1e-12 ? 1 : Math.sin(x) / x;
+    }
+    case 'hypot':
+      return Math.hypot(...n.args.map((_, i) => A(i)));
+    case 'trunc':
+      return Math.trunc(A(0));
+    case 'log1p':
+      return Math.log1p(A(0));
+    case 'expm1':
+      return Math.expm1(A(0));
+    case 'deg2rad':
+      return (A(0) * Math.PI) / 180;
+    case 'rad2deg':
+      return (A(0) * 180) / Math.PI;
+    case 'clamp':
+      return Math.min(Math.max(A(0), A(1)), A(2));
+    case 'lerp':
+      return A(0) + (A(1) - A(0)) * A(2);
+    case 'ncr':
+      return binom(Math.round(A(0)), Math.round(A(1)));
+    case 'npr': {
+      const k = Math.round(A(1));
+      let acc = 1;
+      for (let i = 0; i < k; i++) acc *= Math.round(A(0)) - i;
+      return acc;
+    }
+
+    /* ---- statistics over a list ---- */
+    case 'mean':
+    case 'avg': {
+      const xs = n.args.map((_, i) => A(i));
+      return xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+    }
+    case 'median': {
+      const xs = n.args.map((_, i) => A(i)).sort((a, b) => a - b);
+      if (!xs.length) return NaN;
+      const mid = xs.length >> 1;
+      return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
+    }
+    case 'variance':
+    case 'var': {
+      const xs = n.args.map((_, i) => A(i));
+      const m = xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+      // sample variance when there is more than one point, as a calculator does
+      const denom = Math.max(1, xs.length - 1);
+      return xs.reduce((a, b) => a + (b - m) * (b - m), 0) / denom;
+    }
+    case 'stdev':
+    case 'std':
+      return Math.sqrt(evalNode({ k: 'fn', name: 'variance', args: n.args }, mode, env));
+    case 'rms': {
+      const xs = n.args.map((_, i) => A(i));
+      return Math.sqrt(xs.reduce((a, b) => a + b * b, 0) / Math.max(1, xs.length));
+    }
+
+    /* ---- summation / product ---- */
+    case 'sum':
+    case 'sigma':
+    case 'prod':
+    case 'product': {
+      const isProd = name === 'prod' || name === 'product';
+      if (n.args.length === 4 && n.args[1].k === 'var') {
+        const v = n.args[1].name;
+        const from = A(2);
+        const to = A(3);
+        try {
+          return isProd
+            ? prodOver((node, e) => evalNode(node, mode, e), n.args[0], v, from, to)
+            : sumOver((node, e) => evalNode(node, mode, e), n.args[0], v, from, to);
+        } catch (e) {
+          throw new MathError(e instanceof Error ? e.message : 'Bad bounds');
+        }
+      }
+      const xs = n.args.map((_, i) => A(i));
+      return isProd ? xs.reduce((a, b) => a * b, 1) : xs.reduce((a, b) => a + b, 0);
+    }
   }
   throw new MathError('Unknown function "' + name + '"');
 }
@@ -627,6 +769,21 @@ function snap(v: number): number {
   const big = v * 1e12;
   if (Math.abs(big - Math.round(big)) < 1e-3) return Math.round(big) / 1e12;
   return v;
+}
+
+/** Variables a summation or product binds, so they are not treated as free. */
+function boundVars(n: Node, out = new Set<string>()): Set<string> {
+  if (n.k === 'fn') {
+    const isFold = n.name === 'sum' || n.name === 'sigma' || n.name === 'prod' || n.name === 'product';
+    if (isFold && n.args.length === 4 && n.args[1].k === 'var') out.add(n.args[1].name);
+    for (const a of n.args) boundVars(a, out);
+  } else if (n.k === 'bin') {
+    boundVars(n.l, out);
+    boundVars(n.r, out);
+  } else if (n.k === 'neg' || n.k === 'fact' || n.k === 'pct' || n.k === 'abs') {
+    boundVars(n.a, out);
+  }
+  return out;
 }
 
 export function varsIn(n: Node, out = new Set<string>()): Set<string> {
@@ -1654,10 +1811,159 @@ function compareSides(lhs: Node, rhs: Node, opts: CalcOptions): CalcResult {
   return { ok: true, kind: 'compare', text: 'Not an identity', latex: '' };
 }
 
+/* ------------------------------------------------------------------ */
+/* Calculus entry points                                               */
+/* ------------------------------------------------------------------ */
+
+/** Split "a, b, c" on commas that are not inside brackets. */
+function splitArgs(src: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const c of src) {
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    if (c === ',' && depth === 0) {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += c;
+  }
+  if (cur.trim()) out.push(cur);
+  return out.map((t) => t.trim()).filter(Boolean);
+}
+
+/** Remove brackets that wrap the whole expression, leaving "(a)+(b)" alone. */
+function stripOuterParens(src: string): string {
+  let t = src.trim();
+  for (;;) {
+    if (!t.startsWith('(') || !t.endsWith(')')) return t;
+    let depth = 0;
+    let wraps = true;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] === '(') depth++;
+      else if (t[i] === ')') {
+        depth--;
+        if (depth === 0 && i < t.length - 1) {
+          wraps = false;
+          break;
+        }
+      }
+    }
+    if (!wraps) return t;
+    t = t.slice(1, -1).trim();
+  }
+}
+
+function derivativeOf(body: string, v: string, opts: CalcOptions): CalcResult {
+  try {
+    const node = parse(body);
+    if (!mentions(node, v)) {
+      return { ok: true, kind: 'expression', text: '0', latex: '0', note: 'No ' + v + ' in there, so it is constant' };
+    }
+    const d = simplify(diff(node, v));
+    return {
+      ok: true,
+      kind: 'expression',
+      text: render(d),
+      latex: `\\frac{d}{d${v}}\\left(${toLatex(node)}\\right) = ${toLatex(d)}`,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      kind: 'error',
+      text: '',
+      error: e instanceof Error ? e.message : 'Could not differentiate that',
+    };
+  }
+}
+
+function integralOf(body: string, v: string, bounds: string[], opts: CalcOptions): CalcResult {
+  try {
+    const node = parse(body);
+    const anti = antiderivative(node, v);
+
+    if (bounds.length >= 2) {
+      const lo = parse(bounds[0]);
+      const hi = parse(bounds[1]);
+      const a = evalNode(lo, opts.mode);
+      const b = evalNode(hi, opts.mode);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) {
+        return { ok: false, kind: 'error', text: '', error: 'Bounds must be numbers' };
+      }
+      const value = integrateNumeric((x) => evalNode(node, opts.mode, { [v]: x }), a, b);
+      const shown = formatNumber(snap(value), opts);
+      return {
+        ok: true,
+        kind: 'value',
+        text: shown,
+        latex: `\\int_{${toLatex(lo)}}^{${toLatex(hi)}} ${toLatex(node)}\\,d${v} = ${shown}`,
+        note: anti ? 'Antiderivative: ' + render(simplify(anti)) : undefined,
+      };
+    }
+
+    if (!anti) {
+      return {
+        ok: false,
+        kind: 'error',
+        text: '',
+        error: 'No exact antiderivative for that — give it bounds to integrate numerically',
+      };
+    }
+    const clean = simplify(anti);
+    return {
+      ok: true,
+      kind: 'expression',
+      text: render(clean) + ' + C',
+      latex: `\\int ${toLatex(node)}\\,d${v} = ${toLatex(clean)} + C`,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      kind: 'error',
+      text: '',
+      error: e instanceof Error ? e.message : 'Could not integrate that',
+    };
+  }
+}
+
+/**
+ * "d/dx(…)", "diff(…, x)", "integral(…, x, a, b)". Returns null when the input
+ * is not calculus at all, so the caller falls through to ordinary arithmetic.
+ */
+function tryCalculus(text: string, opts: CalcOptions): CalcResult | null {
+  const src = text.trim();
+
+  const dm = /^d\s*\/\s*d\s*([a-zA-Z])\s*([\s\S]*)$/.exec(src);
+  if (dm) {
+    const body = stripOuterParens(dm[2]);
+    if (!body) return null;
+    return derivativeOf(body, dm[1].toLowerCase(), opts);
+  }
+
+  const call = /^([a-zA-Z]+)\s*\(([\s\S]*)\)\s*$/.exec(src);
+  if (!call) return null;
+  const name = call[1].toLowerCase();
+  const isDiff = name === 'diff' || name === 'derive' || name === 'differentiate';
+  const isInt = name === 'integral' || name === 'integrate' || name === 'int';
+  if (!isDiff && !isInt) return null;
+
+  const args = splitArgs(call[2]);
+  if (!args.length) return null;
+  const v = (args[1] || 'x').replace(/[^a-zA-Z]/g, '') || 'x';
+  return isDiff ? derivativeOf(args[0], v, opts) : integralOf(args[0], v, args.slice(2), opts);
+}
+
 export function calculate(raw: string, options: Partial<CalcOptions> = {}): CalcResult {
   const opts: CalcOptions = { ...DEFAULTS, ...options };
   const { text, intent } = stripPrefix(raw);
   if (!text) return { ok: false, kind: 'error', text: '', error: 'Nothing to calculate' };
+
+  // Calculus answers with an expression rather than a number, so it is handled
+  // before the numeric path rather than inside it.
+  const calculus = tryCalculus(text, opts);
+  if (calculus) return calculus;
 
   // units first — "5 cm to in" would otherwise parse as variables
   if (opts.units) {
@@ -1685,6 +1991,8 @@ export function calculate(raw: string, options: Partial<CalcOptions> = {}): Calc
 
     const node = parse(text);
     const vars = varsIn(node);
+    // "sum(k^2, k, 1, n)" binds k; it is not something the writer left blank
+    for (const b of boundVars(node)) vars.delete(b);
     if (vars.size) {
       return {
         ok: false,

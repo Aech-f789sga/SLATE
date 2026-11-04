@@ -214,6 +214,18 @@ const CSS = `
   box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);flex:none;
 }
 #ink-pen .sw.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12),0 0 0 2px #fff,0 0 0 3.5px #2f6df6}
+.ink-sheet .sw{
+  width:22px!important;height:22px!important;border-radius:50%!important;padding:0!important;
+  border:0!important;background:var(--swc,#111)!important;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);flex:none;cursor:pointer;
+}
+.ink-sheet .sw.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12),0 0 0 2px #fff,0 0 0 3.5px #2f6df6}
+.ink-sheet .swplus{
+  width:24px!important;height:24px!important;border-radius:50%!important;padding:0!important;
+  border:0!important;background:conic-gradient(#f66,#fc6,#6c6,#6cf,#c6f,#f66)!important;
+  box-shadow:inset 0 0 0 2px #fff,0 0 0 1px #d7dce5;
+  display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;cursor:pointer;
+}
 #ink-pen .swplus{
   width:24px!important;height:24px!important;border-radius:50%!important;
   background:conic-gradient(#f66,#fc6,#6c6,#6cf,#c6f,#f66)!important;
@@ -276,6 +288,20 @@ const CSS = `
 }
 .ink-sheet.on{display:block}
 .ink-sheet .hd{padding:13px 16px 10px;font-size:13.5px;font-weight:700;text-align:center;border-bottom:1px solid #f1f3f7}
+.ink-sheet .hd-tabs{display:flex;gap:4px;padding:8px;justify-content:center}
+.ink-sheet .hd-tab{
+  flex:1;max-width:130px;padding:7px 10px;border:0;border-radius:9px;background:transparent;
+  font:600 12.5px/1 inherit;color:#69747f;cursor:pointer;transition:background .14s,color .14s;
+}
+.ink-sheet .hd-tab:hover{background:#f2f5fa;color:#3a4450}
+.ink-sheet .hd-tab.on{background:#e8f0ff;color:#1f4fbf}
+.ink-sheet .bw.hw i{border-radius:999px;background:currentColor;display:block}
+.ink-sheet .chipbtn{
+  padding:6px 11px;border-radius:9px;border:1px solid #e3e8f0;background:#fff;
+  font:600 11.5px/1 inherit;color:#5b6673;cursor:pointer;
+}
+.ink-sheet .chipbtn.on{border-color:#2f6df6;background:#eaf1ff;color:#1f4fbf}
+.ink-sheet .hlnote{padding:10px 16px 14px;font-size:11.5px;line-height:1.4;color:#8b95a3}
 .ink-sheet .bd{padding:6px 0 4px;max-height:min(62vh,420px);overflow:auto}
 .ink-sheet .row{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
@@ -606,12 +632,17 @@ function paintPanel() {
   if (!penPanel) return;
   const tool = ev<string>('tool') || 'pen';
   const isEr = tool === 'er';
-  const show = editorOpen() && (tool === 'pen' || tool === 'pe' || tool === 'hl' || isEr);
+  const inkTool = tool === 'pen' || tool === 'pe' || tool === 'hl' || isEr;
+  const show = editorOpen() && !panelLock && !drawerLock && inkTool;
   penPanel.classList.toggle('on', show);
   document.documentElement.dataset.inkpen = show ? '1' : '0';
   if (!show) {
-    hidePop();
-    hideSheets();
+    // Suppressed because a popover owns the screen: leave the popover alone.
+    // Suppressed because the tool is no longer an ink tool: close everything.
+    if (!inkTool) {
+      hidePop();
+      hideSheets();
+    }
     return;
   }
   penPanel.textContent = '';
@@ -952,13 +983,40 @@ function setTab(t: 'presets' | 'custom' | 'recent') {
  */
 type PanelKind = 'color' | 'pen' | 'er' | 'brush';
 let activePanel: PanelKind | '' = '';
+/**
+ * While a popover is up the floating tool row is hidden. The row sits at the
+ * same height as the popovers and they used to stack — one in front, one
+ * behind — which is what made the brushes button look like it opened twice.
+ */
+let panelLock = false;
+/** True while the engine's own drawer is up; the tool row steps aside for it. */
+let drawerLock = false;
 
-function closePanels() {
+/** Drop every popover without touching the floating tool row. */
+function closePopovers() {
   colorPop?.classList.remove('on');
   penSheet?.classList.remove('on');
   erSheet?.classList.remove('on');
   brushPop?.classList.remove('on');
   activePanel = '';
+  panelLock = false;
+}
+
+/** Close every panel — popovers, the tool row and the engine's drawer. */
+function closePanels() {
+  closePopovers();
+  closeDrawer();
+  paintPanel();
+}
+
+/** Close everything, then take ownership of the screen for one panel. */
+function beginPanel(kind: PanelKind) {
+  closePopovers();
+  closeDrawer();
+  activePanel = kind;
+  panelLock = true;
+  penPanel?.classList.remove('on');
+  document.documentElement.dataset.inkpen = '0';
 }
 
 function openColorPopover(anchor: HTMLElement) {
@@ -968,18 +1026,17 @@ function openColorPopover(anchor: HTMLElement) {
   }
   buildColorPopover();
   if (!colorPop) return;
-  closePanels();
+  beginPanel('color');
   popAnchor = anchor;
   tab = 'presets';
   wheelTouched = false;
   paintColorPop();
   placePop(colorPop, anchor);
   colorPop.classList.add('on');
-  activePanel = 'color';
 }
 
 function hidePop() {
-  closePanels();
+  closePopovers();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1094,12 +1151,11 @@ function openPenSettings(anchor: HTMLElement) {
   }
   buildPenSheet();
   if (!penSheet) return;
-  closePanels();
+  beginPanel('pen');
   paintPenSheet();
   placePop(penSheet, anchor);
   penSheet.classList.add('on');
   penSheet.dataset.kind = 'pen';
-  activePanel = 'pen';
 }
 
 /* ------------------------------------------------------------------ */
@@ -1183,16 +1239,43 @@ function buildBrushPop() {
   brushPop = p;
 }
 
+/**
+ * Which face of the brush panel is showing. The Highlighter button used to
+ * open the pen list, which is why pressing it looked like it opened "Brushes".
+ * Both buttons open the same sheet now, each on its own tab.
+ */
+let brushTab: 'pen' | 'hl' = 'pen';
+
+const HL_SWATCHES = ['#f7e463', '#7ee0a8', '#7fc8ff', '#ff9ec7', '#c3a6ff', '#ffb570'];
+
 function paintBrushPop() {
   if (!brushPop) return;
   brushPop.textContent = '';
 
-  const hd = el('div', '', 'Brushes');
-  hd.className = 'hd';
+  const hd = el('div', '');
+  hd.className = 'hd hd-tabs';
+  (['pen', 'hl'] as const).forEach((k) => {
+    const b = el('button', '', k === 'pen' ? 'Pen' : 'Highlighter') as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'hd-tab';
+    b.classList.toggle('on', brushTab === k);
+    b.onclick = () => {
+      brushTab = k;
+      paintBrushPop();
+      if (brushPop) placePop(brushPop, brushAnchor || brushPop);
+    };
+    hd.append(b);
+  });
   brushPop.append(hd);
 
   const bd = el('div', '');
   bd.className = 'bd';
+  brushPop.append(bd);
+
+  if (brushTab === 'hl') {
+    paintHighlighterTab(bd);
+    return;
+  }
 
   const grid = el('div', '');
   grid.className = 'brush-grid';
@@ -1251,9 +1334,12 @@ function paintBrushPop() {
   });
 
   bd.append(sec('Thickness'));
+  paintWidthRow(bd, WIDTHS.pen);
+}
+
+function paintWidthRow(bd: HTMLElement, ws: number[]) {
   const wr = el('div', '');
   wr.className = 'brush-w';
-  const ws = WIDTHS[ev<string>('tool') || 'pen'] || WIDTHS.pen;
   const size = currentSize();
   let best = 0;
   ws.forEach((w, i) => {
@@ -1263,36 +1349,131 @@ function paintBrushPop() {
     const b = el('button') as HTMLButtonElement;
     b.type = 'button';
     b.className = 'bw';
-    b.title = ['Thin', 'Medium', 'Thick'][i];
+    b.title = ['Fine', 'Medium', 'Broad'][i] || String(w);
     const d = 5 + i * 5;
     b.innerHTML = '<i style="width:' + d + 'px;height:' + d + 'px"></i>';
     b.classList.toggle('on', i === best);
     b.onclick = () => {
       setSize(w);
       paintBrushPop();
+      if (brushPop) placePop(brushPop, brushAnchor || brushPop);
     };
     wr.append(b);
   });
   bd.append(wr);
-
-  brushPop.append(bd);
 }
 
-function toggleBrush(anchor: HTMLElement) {
+/** The paper module owns the highlighter's alpha, so reach through it. */
+function hlPrefs(): any {
+  return (window as any).__inkpad_paper?.prefs || null;
+}
+
+function setHlOpacity(v: number) {
+  const p = hlPrefs();
+  if (!p) return;
+  p.hlOpacity = v;
+  try {
+    (window as any).__inkpad_paper?.save?.();
+    (window as any).__inkpad_paper?.invalidate?.();
+  } catch {}
+  ev('(function(){ try { draw(); } catch(e){} })()');
+}
+
+function paintHighlighterTab(bd: HTMLElement) {
+  const p = hlPrefs();
+  const cur = String(p?.hlBlend || 'auto');
+
+  bd.append(sec('Tip'));
+  paintWidthRow(bd, WIDTHS.hl);
+
+  bd.append(sec('Colour'));
+  const cols = el('div', '');
+  cols.className = 'brush-w';
+  const now = currentColor().toLowerCase();
+  HL_SWATCHES.forEach((c) => {
+    const b = el('button') as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'sw';
+    b.style.setProperty('--swc', c);
+    b.title = c;
+    b.classList.toggle('on', c === now);
+    b.onclick = () => {
+      setColor(c);
+      paintBrushPop();
+    };
+    cols.append(b);
+  });
+  const plus = el('button') as HTMLButtonElement;
+  plus.type = 'button';
+  plus.className = 'swplus';
+  plus.title = 'Any colour';
+  plus.textContent = '+';
+  plus.onclick = () => openColorPopover(plus);
+  cols.append(plus);
+  bd.append(cols);
+
+  bd.append(sec('Opacity'));
+  const op = el('div', '');
+  op.className = 'brush-w';
+  [0.18, 0.26, 0.34, 0.46, 0.6].forEach((v) => {
+    const b = el('button') as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'bw hw';
+    b.title = Math.round(v * 100) + '%';
+    b.innerHTML = '<i style="width:18px;height:18px;opacity:' + v + '"></i>';
+    b.classList.toggle('on', p ? Math.abs((p.hlOpacity ?? 0.34) - v) < 0.03 : false);
+    b.onclick = () => {
+      setHlOpacity(v);
+      paintBrushPop();
+    };
+    op.append(b);
+  });
+  bd.append(op);
+
+  bd.append(sec('Blend'));
+  const bl = el('div', '');
+  bl.className = 'brush-w';
+  ([['auto', 'Auto'], ['multiply', 'Multiply'], ['normal', 'Normal']] as const).forEach(([k, label]) => {
+    const b = el('button', '', label) as HTMLButtonElement;
+    b.type = 'button';
+    b.className = 'chipbtn';
+    b.classList.toggle('on', cur === k);
+    b.onclick = () => {
+      const pp = hlPrefs();
+      if (pp) {
+        pp.hlBlend = k;
+        try {
+          (window as any).__inkpad_paper?.save?.();
+          (window as any).__inkpad_paper?.invalidate?.();
+        } catch {}
+      }
+      ev('(function(){ try { draw(); } catch(e){} })()');
+      paintBrushPop();
+    };
+    bl.append(b);
+  });
+  bd.append(bl);
+
+  const note = el('div', '', 'Highlights sit under the ink and never hide it.');
+  note.className = 'hlnote';
+  bd.append(note);
+}
+
+function toggleBrush(anchor: HTMLElement, want: 'pen' | 'hl' = 'pen') {
   // a second press on the same button puts it away again
-  if (activePanel === 'brush' && brushAnchor === anchor) {
+  if (activePanel === 'brush' && brushAnchor === anchor && brushTab === want) {
     closePanels();
     return;
   }
   buildBrushPop();
   if (!brushPop) return;
-  closePanels();
+  brushTab = want;
+  beginPanel('brush');
   paintBrushPop();
   placePop(brushPop, anchor);
   brushPop.classList.add('on');
   brushPop.dataset.kind = 'brush';
   brushAnchor = anchor;
-  activePanel = 'brush';
 }
 
 /* ------------------------------------------------------------------ */
@@ -1394,26 +1575,55 @@ function openEraserSettings(anchor: HTMLElement) {
 }
 
 function hideSheets() {
-  closePanels();
+  closePopovers();
 }
 
 /* ------------------------------------------------------------------ */
 /* Popover placement                                                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Bottom edge of the whole toolbar block. Panels used to be placed relative to
+ * the button that opened them, which put them *inside* the toolbar band — the
+ * top of the panel ended up behind the page-settings row, which is why it
+ * looked cut off. Every popover now docks below this line instead.
+ */
+function toolbarFloor(): number {
+  let bottom = 0;
+  const tb = document.getElementById('tb');
+  if (tb) bottom = tb.getBoundingClientRect().bottom;
+  const sbar = document.getElementById('sbar');
+  if (sbar && getComputedStyle(sbar).display !== 'none') {
+    bottom = Math.max(bottom, sbar.getBoundingClientRect().bottom);
+  }
+  return Math.round(bottom) + 8;
+}
+
 function placePop(node: HTMLElement, anchor: HTMLElement) {
   node.classList.add('on');
   const r = anchor.getBoundingClientRect();
   const w = node.offsetWidth;
+  const floor = toolbarFloor();
   const h = node.offsetHeight;
-  let left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left - w / 2 + r.width / 2));
-  let top = r.bottom + 8;
+  const left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left - w / 2 + r.width / 2));
+  let top = Math.max(floor, r.bottom + 8);
   if (top + h > window.innerHeight - 8) {
     const above = r.top - h - 8;
-    top = above > 8 ? above : Math.max(8, window.innerHeight - h - 8);
+    top = above >= floor ? above : floor;
   }
   node.style.left = Math.round(left) + 'px';
   node.style.top = Math.round(top) + 'px';
+
+  // if it still does not fit, take the height out of the scrolling body rather
+  // than letting the sheet run off the bottom of the window
+  const bd = node.querySelector('.bd') as HTMLElement | null;
+  if (bd) {
+    const over = top + node.offsetHeight - (window.innerHeight - 8);
+    if (over > 0) {
+      const cur = bd.getBoundingClientRect().height;
+      bd.style.maxHeight = Math.max(140, Math.round(cur - over)) + 'px';
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1563,7 +1773,18 @@ function hookDrawer() {
     const drw = document.getElementById('gn-drw');
     if (!drw) return false;
     new MutationObserver(() => {
-      if (drw.style.display !== 'block') return;
+      if (drw.style.display !== 'block') {
+        if (drawerLock) {
+          drawerLock = false;
+          paintPanel();
+        }
+        return;
+      }
+      // the drawer and our tool row sit at the same height, so only one of
+      // them may be up: the row steps aside while the drawer is showing
+      drawerLock = true;
+      closePopovers();
+      paintPanel();
       // only a drawer opened by an ink-tool click is ours to close; anything
       // else (Settings, Guides, Layers) must survive. The `ink-nodrw` class is
       // set for the duration of exactly that click, so it is the precise test —
@@ -1593,10 +1814,12 @@ function hookDrawer() {
       document.body.classList.add('ink-nodrw');
       window.setTimeout(() => document.body.classList.remove('ink-nodrw'), 320);
 
-      // ...and put our own brush dropdown in its place, on the same press
+      // ...and put our own brush dropdown in its place, on the same press.
+      // The highlighter opens the same sheet on its own tab: it used to open
+      // the pen list, which read as "the highlighter shows the brushes window".
       if (tool === 'pen' || tool === 'hl') {
         const btn = hit;
-        window.setTimeout(() => toggleBrush(btn), 0);
+        window.setTimeout(() => toggleBrush(btn, tool === 'hl' ? 'hl' : 'pen'), 0);
       }
     },
     true,

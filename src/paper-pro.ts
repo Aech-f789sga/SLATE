@@ -23,6 +23,8 @@
 /* Engine access                                                       */
 /* ------------------------------------------------------------------ */
 
+import { loadSmart, setSmart, smartOn, type SmartKey } from './smart';
+
 function ev<T = any>(expr: string): T | null {
   try {
     return (window as any).eval(expr) as T | null;
@@ -426,6 +428,30 @@ function chip(g: HTMLElement, label: string, on: boolean, fn: () => void) {
 /** Appended to the engine's own Settings drawer. */
 function paperSettings(d: HTMLElement) {
   d.append(el('div', 'height:1px;background:var(--bd);margin:12px 0 2px'));
+
+  // Off by default, all three. Nothing in the app reads your ink until you say
+  // it may, and the switch that turns it on is here rather than on the canvas.
+  d.append(el('div', 'font-weight:600;margin:10px 0 2px;font-size:12px;color:var(--mu)', 'Smart ink'));
+  d.append(
+    el(
+      'div',
+      'font-size:11px;line-height:1.45;color:var(--mu);margin-bottom:6px',
+      'All off by default. Each one watches what you draw, so it only runs when you turn it on.'
+    )
+  );
+  const smartG = el('div', 'display:flex;flex-wrap:wrap;gap:6px;align-items:center');
+  d.append(smartG);
+  const smartChips: [SmartKey, string][] = [
+    ['calc', 'Auto-calculate'],
+    ['toText', 'Ink → text'],
+    ['toLatex', 'Ink → LaTeX'],
+  ];
+  for (const [key, label] of smartChips) {
+    chip(smartG, label, smartOn(key), () => {
+      setSmart(key, !smartOn(key));
+      rerenderDrawer(d);
+    });
+  }
 
   const ruleG = group(d, 'Paper ruling (mm)');
   [5, 6, 7, 8, 9, 10].forEach((mm) => {

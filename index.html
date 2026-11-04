@@ -90,6 +90,7 @@ html[data-bar=compact] #bar{padding-right:0}
 <script type="module" src="/src/notes.ts"></script>
 <script type="module" src="/src/scribble.ts"></script>
 <script type="module" src="/src/paper-pro.ts"></script>
+<script type="module" src="/src/themes.ts"></script>
 <script type="module" src="/src/pen-dock.ts"></script>
 <script type="module" src="/src/calc.ts"></script>
 <script type="module" src="/src/lasso-tools.ts"></script>
@@ -635,7 +636,7 @@ function updBar(){const b=$('#sbar');if(b){anLbl(b);b.style.display=sel.length&&
 function dupSel(){if(!sel.length)return;snap();const C=JSON.parse(JSON.stringify(sel));mv(C,24,24);C.forEach(s=>{if(s.fl)s.ts=Date.now()});pg().strokes.push(...C);sel=C;draw();save();thumbs()}
 function saveFig(sc){if(!sel.length)return;const b=selBox(),C=JSON.parse(JSON.stringify(sel));mv(C,-b[0],-b[1]);const f={id:Date.now(),w:b[2]-b[0],h:b[3]-b[1],items:C};if(sc==='g'){GL.push(f);try{localStorage.setItem('inkpad-gl',JSON.stringify(GL))}catch(e){toast('Library storage is full')}}else{(nb.lib=nb.lib||[]).push(f);save()}toast(sc==='g'?'Saved to the general library':'Saved to this notebook\u2019s library')}
 function addFig(f){snap();const C=JSON.parse(JSON.stringify(f.items));mv(C,(W-f.w)/2,160);C.forEach(s=>{if(s.fl)s.ts=Date.now()});pg().strokes.push(...C);sel=C;draw();save();thumbs()}
-const DRW=el('div','position:fixed;z-index:9;display:none;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:10px;max-width:min(94vw,440px);max-height:62vh;overflow:auto');DRW.id='drw';document.body.append(DRW);
+const DRW=el('div','position:fixed;z-index:9;display:none;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:10px;max-width:min(94vw,440px);max-height:62vh;overflow:auto');DRW.id='gn-drw';document.body.append(DRW);
 function closeDr(){DRW.style.display='none';dOwn=null}
 function openDr(b,fill){if(dOwn===b){closeDr();return}DRW.innerHTML='';fill(DRW);DRW.style.display='block';const r=b.getBoundingClientRect();DRW.style.left=Math.max(8,Math.min(innerWidth-DRW.offsetWidth-8,r.left))+'px';{const top=r.bottom+6;DRW.style.top=(top+DRW.offsetHeight>innerHeight-8?Math.max(8,r.top-DRW.offsetHeight-6):top)+'px'}if(DEV==='phone')Object.assign(DRW.style,{left:'8px',right:'8px',top:'auto',bottom:'calc(8px + env(safe-area-inset-bottom,0px))',maxWidth:'none',maxHeight:'55vh'});else Object.assign(DRW.style,{right:'auto',bottom:'auto',maxWidth:'min(94vw,440px)',maxHeight:'62vh'});dOwn=b}
 document.addEventListener('pointerdown',e=>{if(dOwn&&!DRW.contains(e.target)&&!dOwn.contains(e.target))closeDr()},true);

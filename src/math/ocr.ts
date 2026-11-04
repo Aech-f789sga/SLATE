@@ -118,8 +118,16 @@ function skeletonField(ch: string): Field | null {
   return buildDist(f);
 }
 
-const MATH_CHARS = '0123456789+-=()/xyzabnt.^%π√';
-const WORD_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-=+()/\'"';
+/**
+ * The maths bank used to be digits and operators only, so a handwritten "cos"
+ * had nowhere to land and came back as "003" — the nearest digits. Every letter
+ * a formula can contain has to be in here, even though it costs comparisons.
+ */
+const LOWER = 'abcdefghijklmnopqrstuvwxyz';
+const GREEK = 'πθαβγδφλμσωΣΔ';
+const MATH_CHARS = '0123456789+-=()[]<>/|.,^*%_' + LOWER + GREEK + '√∞∫∑';
+const WORD_CHARS = LOWER + LOWER.toUpperCase() + '0123456789.,!?-=+()/\'"';
+
 
 function bboxOf(strokes: InkStroke[], ids: number[]): [number, number, number, number] {
   let x0 = Infinity;
@@ -257,7 +265,7 @@ export function segment(strokes: InkStroke[]): Glyph[] {
 /* Raster + distance field                                             */
 /* ------------------------------------------------------------------ */
 
-const G = 32; // glyph grid
+const G = 40; // glyph grid
 
 interface Field {
   ink: Uint8Array;
@@ -290,7 +298,42 @@ function buildDist(f: Field): Field {
   return f;
 }
 
-function rasterStrokes(strokes: InkStroke[], ids: number[], box: [number, number, number, number], pad = 3): Field {
+/**
+ * Rasterise a glyph into the comparison grid.
+ *
+ * `rot` spins the ink about the glyph's own centre first, and the box is
+ * recomputed afterwards so the rotated shape is still normalised to fill the
+ * grid. Without that step a letter drawn on a tilted page is compared against
+ * upright templates and loses to whichever upright character happens to be
+ * blunter — which is how a slanted "s" turns into a "3".
+ */
+function rasterStrokes(strokes: InkStroke[], ids: number[], box: [number, number, number, number], pad = 3, rot = 0): Field {
+  let pts: number[][][] = ids.map((id) => strokes[id].p.map((q) => [q[0], q[1]]));
+
+  if (rot) {
+    const cx = (box[0] + box[2]) / 2;
+    const cy = (box[1] + box[3]) / 2;
+    const cs = Math.cos(rot);
+    const sn = Math.sin(rot);
+    pts = pts.map((sp) =>
+      sp.map((q) => {
+        const dx = q[0] - cx;
+        const dy = q[1] - cy;
+        return [cx + dx * cs - dy * sn, cy + dx * sn + dy * cs];
+      })
+    );
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const sp of pts) {
+      for (const q of sp) {
+        if (q[0] < x0) x0 = q[0];
+        if (q[1] < y0) y0 = q[1];
+        if (q[0] > x1) x1 = q[0];
+        if (q[1] > y1) y1 = q[1];
+      }
+    }
+    if (isFinite(x0)) box = [x0, y0, x1, y1];
+  }
+
   const c = document.createElement('canvas');
   c.width = G;
   c.height = G;
@@ -303,14 +346,15 @@ function rasterStrokes(strokes: InkStroke[], ids: number[], box: [number, number
   const oy = (G - h * k) / 2;
   g.lineCap = 'round';
   g.lineJoin = 'round';
-  for (const id of ids) {
+  ids.forEach((id, si) => {
     const s = strokes[id];
+    const sp = pts[si];
     g.lineWidth = Math.max(1.6, (s.w || 2) * k * 0.8);
     g.beginPath();
-    s.p.forEach((q, i) => (i ? g.lineTo(ox + (q[0] - box[0]) * k, oy + (q[1] - box[1]) * k) : g.moveTo(ox + (q[0] - box[0]) * k, oy + (q[1] - box[1]) * k)));
-    if (s.p.length === 1) g.lineTo(ox + (s.p[0][0] - box[0]) * k + 0.5, oy + (s.p[0][1] - box[1]) * k + 0.5);
+    sp.forEach((q, i) => (i ? g.lineTo(ox + (q[0] - box[0]) * k, oy + (q[1] - box[1]) * k) : g.moveTo(ox + (q[0] - box[0]) * k, oy + (q[1] - box[1]) * k)));
+    if (sp.length === 1) g.lineTo(ox + (sp[0][0] - box[0]) * k + 0.5, oy + (sp[0][1] - box[1]) * k + 0.5);
     g.stroke();
-  }
+  });
   const data = g.getImageData(0, 0, G, G).data;
   const f = emptyField();
   for (let i = 0; i < G * G; i++) f.ink[i] = data[i * 4 + 3] > 40 ? 1 : 0;
@@ -413,67 +457,421 @@ function score(a: Field, b: Field): number {
 }
 
 /** Characters that look alike get a small prior nudge when the context agrees. */
+const PRIMARY_FONTS = ['Caveat', MATH_FONT, SKEL, '"Comic Sans MS"'];
+
+/**
+ * Two-stage match. The bank is now large enough that scoring every character
+ * against every font is wasteful, so the whole set is first tried against a few
+ * representative fonts and only the shortlist gets the full handwriting bank.
+ * Costs about a third of the naive version and picks the same winner.
+ */
 function classify(field: Field, charset: string, fonts: string[]): { ch: string; conf: number } {
-  let best = { ch: '', conf: 0 };
-  let bestScore = Infinity;
+  const coarse: [string, number][] = [];
   for (const ch of charset) {
+    let best = Infinity;
+    for (const font of PRIMARY_FONTS) {
+      const s = score(field, template(ch, font));
+      if (s < best) best = s;
+    }
+    coarse.push([ch, best]);
+  }
+  coarse.sort((a, b) => a[1] - b[1]);
+
+  let bestCh = coarse.length ? coarse[0][0] : '';
+  let bestScore = Infinity;
+  for (const [ch] of coarse.slice(0, 7)) {
     for (const font of fonts) {
-      const t = template(ch, font);
-      const s = score(field, t);
+      const s = score(field, template(ch, font));
       if (s < bestScore) {
         bestScore = s;
-        best = { ch, conf: s };
+        bestCh = ch;
       }
     }
   }
-  return { ch: best.ch, conf: bestScore };
+  return { ch: bestCh, conf: bestScore };
+}
+
+/**
+ * Tilts tried when upright does not fit. ±30° covers a page written on your
+ * knee or a formula scrawled along a margin; past that the letters themselves
+ * stop being letters and the extra range only invents matches.
+ */
+const TILTS = [0, -0.175, 0.175, -0.35, 0.35, -0.52, 0.52];
+
+function classifyGlyph(
+  strokes: InkStroke[],
+  ids: number[],
+  box: [number, number, number, number],
+  charset: string,
+  fonts: string[]
+): { ch: string; conf: number; tilt: number } {
+  const upright = classify(rasterStrokes(strokes, ids, box, 3, 0), charset, fonts);
+  let best = { ch: upright.ch, conf: upright.conf, tilt: 0 };
+  if (upright.conf < 1.2) return best;
+
+  for (const tilt of TILTS) {
+    if (!tilt) continue;
+    const r = classify(rasterStrokes(strokes, ids, box, 3, tilt), charset, fonts);
+    // A spun match has to win clearly. Without the margin the search simply
+    // finds new ways to be wrong — a "c" turned far enough scores as a "0".
+    if (r.conf < best.conf * 0.82) best = { ch: r.ch, conf: r.conf, tilt };
+  }
+  return best;
 }
 
 /* ------------------------------------------------------------------ */
 /* Post-processing                                                     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Superscripts are rendered from a token stream rather than from the finished
+ * string. The old version glued a unicode superscript onto the text and then
+ * guessed the LaTeX back out of it, which is why an "x" exponent could come out
+ * of the round trip as something else entirely.
+ */
 const SUPERS: Record<string, string> = {
   '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
-  n: 'ⁿ', x: 'ˣ', '-': '⁻',
+  '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+  a: 'ᵃ', b: 'ᵇ', c: 'ᶜ', d: 'ᵈ', e: 'ᵉ', f: 'ᶠ', g: 'ᵍ', h: 'ʰ', i: 'ⁱ', j: 'ʲ', k: 'ᵏ',
+  l: 'ˡ', m: 'ᵐ', n: 'ⁿ', o: 'ᵒ', p: 'ᵖ', r: 'ʳ', s: 'ˢ', t: 'ᵗ', u: 'ᵘ', v: 'ᵛ', w: 'ʷ',
+  x: 'ˣ', y: 'ʸ', z: 'ᶻ',
 };
 
+const SUBS: Record<string, string> = {
+  '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+  '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
+  a: 'ₐ', e: 'ₑ', o: 'ₒ', x: 'ₓ', i: 'ᵢ', n: 'ₙ', u: 'ᵤ',
+};
+
+const TEX_CH: Record<string, string> = {
+  π: '\\pi', θ: '\\theta', α: '\\alpha', β: '\\beta', γ: '\\gamma', δ: '\\delta',
+  φ: '\\phi', λ: '\\lambda', μ: '\\mu', σ: '\\sigma', ω: '\\omega', Σ: '\\Sigma',
+  Δ: '\\Delta', '∞': '\\infty', '∫': '\\int', '∑': '\\sum',
+  '×': '\\times', '÷': '\\div', '·': '\\cdot',
+  '≤': '\\le', '≥': '\\ge', '≠': '\\ne', '→': '\\to',
+};
+
+/**
+ * Function names are matched with a confusion table, because a hand "c" reads
+ * as a "0" far more often than a machine OCR would ever admit. Without this,
+ * "c0s" stays "c0s" instead of becoming cos.
+ */
+const FNS = [
+  'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'coth',
+  'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'log', 'ln', 'exp',
+  'lim', 'max', 'min', 'det', 'mod', 'abs', 'gcd', 'deg', 'arg', 'sgn',
+];
+
+const CONFUSE: Record<string, string> = {
+  '0': 'o', '1': 'l', '2': 'z', '3': 'e', '4': 'a', '5': 's', '6': 'b', '7': 't', '8': 'b', '9': 'g',
+  '|': 'l', 'I': 'l',
+};
+
+const normCh = (c: string) => CONFUSE[c] ?? c.toLowerCase();
+
+/** Edit distance where a digit standing in for its lookalike letter is free. */
+function fnDist(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      const same = normCh(a[i - 1]) === b[j - 1];
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (same ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function bestFn(run: string): string | null {
+  const low = run.toLowerCase();
+  let best: string | null = null;
+  let bestD = Infinity;
+  for (const f of FNS) {
+    // Only same-length runs compete. Allowing a deletion let "gln" become "ln",
+    // which silently ate a character the writer really drew.
+    if (f.length !== low.length) continue;
+    const d = fnDist(low, f);
+    if (d < bestD) {
+      bestD = d;
+      best = f;
+    }
+  }
+  return bestD <= 1 ? best : null;
+}
+
+interface Tok {
+  ch: string;
+  script?: 'sup' | 'sub';
+  word?: boolean;
+}
+
+function markScripts(glyphs: Glyph[]) {
+  const hs = glyphs.map((g) => g.box[3] - g.box[1]).sort((a, b) => a - b);
+  const medianH = hs[Math.floor(hs.length / 2)] || 20;
+
+  // Measure the line from its full-height glyphs only. Including a superscript
+  // in the average pulls the baseline up and then nothing looks raised any more.
+  const body = glyphs.filter((g) => g.box[3] - g.box[1] >= medianH * 0.8);
+  const bodyH = body.length ? body.reduce((a, g) => a + (g.box[3] - g.box[1]), 0) / body.length : medianH;
+
+  // Superscripts are judged against a line fitted through the glyph centres, not
+  // against a horizontal baseline. A formula written on a tilted page has glyph
+  // bottoms at wildly different heights, and a flat baseline would read the end
+  // of the line as an exponent.
+  const cx = glyphs.map((g) => (g.box[0] + g.box[2]) / 2);
+  const cy = glyphs.map((g) => (g.box[1] + g.box[3]) / 2);
+
+  let slope = 0;
+  let icept = cy.length ? cy.slice().sort((a, b) => a - b)[Math.floor(cy.length / 2)] : 0;
+  let keep = glyphs.map((_, i) => i);
+  for (let pass = 0; pass < 2 && keep.length >= 3; pass++) {
+    let sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (const i of keep) {
+      sx += cx[i];
+      sy += cy[i];
+      sxx += cx[i] * cx[i];
+      sxy += cx[i] * cy[i];
+    }
+    const n = keep.length;
+    const den = n * sxx - sx * sx;
+    slope = Math.abs(den) > 1e-6 ? (n * sxy - sx * sy) / den : 0;
+    icept = (sy - slope * sx) / n;
+    // drop the worst offender once, so a single raised mark cannot tilt the line
+    let worst = -1;
+    let worstD = 0;
+    for (const i of keep) {
+      const d = Math.abs(cy[i] - (slope * cx[i] + icept));
+      if (d > worstD) {
+        worstD = d;
+        worst = i;
+      }
+    }
+    if (worst >= 0 && worstD > bodyH * 0.5) keep = keep.filter((i) => i !== worst);
+    else break;
+  }
+
+  glyphs.forEach((g, i) => {
+    g.script = undefined;
+    const h = g.box[3] - g.box[1];
+    if (h >= bodyH * 0.82) return;
+    const off = cy[i] - (slope * cx[i] + icept);
+    if (off < -bodyH * 0.22) g.script = 'sup';
+    else if (off > bodyH * 0.12) g.script = 'sub';
+  });
+}
+
+function toTokens(glyphs: Glyph[]): Tok[] {
+  const toks: Tok[] = glyphs.map((g) => ({ ch: g.ch, script: g.script }));
+  // An explicit caret is the writer telling us the next mark is an exponent.
+  for (let i = 0; i < toks.length - 1; i++) {
+    if (toks[i].ch === '^' && !toks[i].script) {
+      toks[i].ch = '';
+      toks[i + 1].script = 'sup';
+    }
+  }
+  return toks;
+}
+
+/** Collapse runs of letters into words so function names can be recognised. */
+function snapFns(toks: Tok[]): Tok[] {
+  const out: Tok[] = [];
+  let buf: Tok[] = [];
+  const flush = () => {
+    if (!buf.length) return;
+    const s = buf.map((t) => t.ch).join('');
+    if (buf.length >= 2 && /[a-z]/i.test(s)) {
+      const hit = bestFn(s);
+      if (hit) {
+        out.push({ ch: hit, word: true });
+        buf = [];
+        return;
+      }
+    }
+    out.push(...buf);
+    buf = [];
+  };
+  for (const t of toks) {
+    if (t.ch && !t.script && t.ch.length === 1 && /[a-z0-9|]/i.test(t.ch)) {
+      buf.push(t);
+      continue;
+    }
+    flush();
+    if (t.ch) out.push(t);
+  }
+  flush();
+  return out;
+}
+
+/** Context fixes applied to tokens, so text and LaTeX can never disagree. */
+function tidyToks(toks: Tok[], math: boolean): Tok[] {
+  const out = toks.map((t) => ({ ...t }));
+  for (let i = 1; i < out.length - 1; i++) {
+    const t = out[i];
+    if (t.script || t.word) continue;
+    const prev = out[i - 1];
+    const next = out[i + 1];
+    const prevDigit = !prev.script && /[0-9+\-(]/.test(prev.ch);
+    const nextDigit = !next.script && /[0-9+\-)=/]/.test(next.ch);
+    if (t.ch === 'l' || t.ch === 'I' || t.ch === '|') {
+      if (prevDigit && nextDigit) t.ch = '1';
+    } else if (t.ch === 'o' || t.ch === 'O') {
+      if (prevDigit && nextDigit) t.ch = '0';
+    } else if (t.ch === 'x' || t.ch === '×') {
+      if (!prev.script && !next.script && /[0-9]/.test(prev.ch) && /[0-9]/.test(next.ch)) t.ch = '×';
+    }
+  }
+  // In a formula a lone vertical is a one. The letter l and the digit 1 share a
+  // skeleton, so the tie has to be broken by what the line is made of — and a
+  // maths line almost never contains a bare "l" variable.
+  if (math) {
+    for (const t of out) {
+      if (!t.word && !t.script && (t.ch === 'l' || t.ch === 'I' || t.ch === '|')) t.ch = '1';
+    }
+  }
+  // "--" is a single minus
+  for (let i = 1; i < out.length; i++) {
+    if (out[i].ch === '-' && out[i - 1].ch === '-' && !out[i].script && !out[i - 1].script) {
+      out[i].ch = '';
+    }
+  }
+  return out.filter((t) => t.ch);
+}
+
+function supText(s: string): string | null {
+  let out = '';
+  for (const c of s) {
+    const u = SUPERS[c];
+    if (!u) return null;
+    out += u;
+  }
+  return out;
+}
+
+function renderText(toks: Tok[]): string {
+  let out = '';
+  let i = 0;
+  while (i < toks.length) {
+    const t = toks[i];
+    if (!t.ch) {
+      i++;
+      continue;
+    }
+    if (!t.script) {
+      out += t.ch;
+      i++;
+      continue;
+    }
+    const kind = t.script;
+    let run = '';
+    while (i < toks.length && toks[i].script === kind && toks[i].ch) {
+      run += toks[i].ch;
+      i++;
+    }
+    if (kind === 'sup') out += supText(run) ?? '^(' + run + ')';
+    else out += (run.split('').map((c) => SUBS[c] ?? c).join('')) ;
+  }
+  return out;
+}
+
+function plainTex(t: Tok): string {
+  if (t.word) return FNS.includes(t.ch) ? '\\' + t.ch : t.ch;
+  return TEX_CH[t.ch] ?? t.ch;
+}
+
+const OPS = new Set(['+', '-', '=', '<', '>', '×', '÷', '·', ',']);
+
+interface Unit {
+  base: string;
+  sup?: string;
+  sub?: string;
+  op: boolean;
+}
+
+/** Consume the atom after a √, unwrapping one level of brackets. */
+function takeGroup(toks: Tok[], i: number): { tex: string; next: number } {
+  if (i >= toks.length) return { tex: '', next: i };
+  if (toks[i].ch !== '(') return { tex: plainTex(toks[i]), next: i + 1 };
+  let depth = 0;
+  let tex = '';
+  let j = i;
+  for (; j < toks.length; j++) {
+    const c = toks[j].ch;
+    if (!c) continue;
+    if (c === '(') {
+      depth++;
+      if (depth === 1) continue;
+    } else if (c === ')') {
+      depth--;
+      if (depth === 0) {
+        j++;
+        break;
+      }
+    }
+    tex += plainTex(toks[j]);
+  }
+  return { tex, next: j };
+}
+
+function renderLatex(toks: Tok[]): string {
+  const units: Unit[] = [];
+  let i = 0;
+  while (i < toks.length) {
+    const t = toks[i];
+    if (!t.ch) {
+      i++;
+      continue;
+    }
+    if (t.script) {
+      const kind = t.script;
+      let run = '';
+      while (i < toks.length && toks[i].script === kind && toks[i].ch) {
+        run += plainTex(toks[i]);
+        i++;
+      }
+      const last = units[units.length - 1];
+      if (!last) {
+        units.push({ base: '', sup: kind === 'sup' ? run : undefined, sub: kind === 'sub' ? run : undefined, op: false });
+      } else if (kind === 'sup') last.sup = (last.sup || '') + run;
+      else last.sub = (last.sub || '') + run;
+      continue;
+    }
+    if (t.ch === '√') {
+      const g = takeGroup(toks, i + 1);
+      units.push({ base: '\\sqrt{' + g.tex + '}', op: false });
+      i = g.next;
+      continue;
+    }
+    units.push({ base: plainTex(t), op: OPS.has(t.ch) });
+    i++;
+  }
+
+  // a/b → \frac{a}{b}, but never across an operator
+  for (let k = 1; k < units.length - 1; k++) {
+    if (units[k].base !== '/') continue;
+    const l = units[k - 1];
+    const r = units[k + 1];
+    if (l.op || r.op) continue;
+    units.splice(k - 1, 3, { base: `\\frac{${l.base}}{${r.base}}`, sup: r.sup, sub: r.sub, op: false });
+    k--;
+  }
+
+  const parts: string[] = [];
+  for (const u of units) {
+    let s = u.base;
+    if (u.sub) s += '_{' + u.sub + '}';
+    if (u.sup) s += '^{' + u.sup + '}';
+    if (s) parts.push(s);
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+
 function looksMath(glyphs: Glyph[], text: string): boolean {
-  const mathy = /[0-9+\-=^/()]/;
+  const mathy = /[0-9+\-=^/()×÷·√π]|\b(sin|cos|tan|log|ln|exp|lim)\b/;
   const digits = (text.match(/[0-9]/g) || []).length;
   return mathy.test(text) && digits >= 1 && glyphs.length <= 18;
-}
-
-function toLatex(text: string): string {
-  let s = text
-    .replace(/π/g, '\\pi ')
-    .replace(/√/g, '\\sqrt')
-    .replace(/×/g, '\\times ')
-    .replace(/÷/g, '\\div ')
-    .replace(/·/g, '\\cdot ')
-    .replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻ⁿˣ]+/g, (m) => {
-      const plain = m
-        .split('')
-        .map((c) => Object.entries(SUPERS).find(([, v]) => v === c)?.[0] ?? c)
-        .join('');
-      return '^{' + plain + '}';
-    });
-  // simple a/b → \frac{a}{b}
-  s = s.replace(/(\d+|[a-z])\s*\/\s*(\d+|[a-z])/g, (_, a, b) => `\\frac{${a}}{${b}}`);
-  return s;
-}
-
-/** Common handwriting confusions, fixed by context. */
-function tidy(text: string): string {
-  let s = text;
-  s = s.replace(/\s+/g, '');
-  // a lone "l" or "I" between digits is a 1
-  s = s.replace(/(?<=[0-9+\-(])\s*[lI|]\s*(?=[0-9+\-)=])/g, '1');
-  s = s.replace(/(?<=[0-9])\s*[oO]\s*(?=[0-9+\-=])/g, '0');
-  // "x" between digits is a multiplication sign
-  s = s.replace(/(?<=[0-9])\s*[x×]\s*(?=[0-9])/g, '×');
-  s = s.replace(/--/g, '-');
-  return s;
 }
 
 /* ------------------------------------------------------------------ */
@@ -495,47 +893,37 @@ export function readInk(strokes: InkStroke[], opts: OcrOptions = {}): OcrResult 
   if (!strokes.length) return { text: '', latex: '', glyphs: [], confidence: 0, math: false };
 
   const glyphs = segment(strokes);
-  const heights = glyphs.map((g) => g.box[3] - g.box[1]).sort((a, b) => a - b);
-  const medianH = heights[Math.floor(heights.length / 2)] || 20;
-  const baseline = glyphs.length
-    ? glyphs.map((g) => g.box[3]).sort((a, b) => a - b)[Math.floor(glyphs.length * 0.75)]
-    : 0;
-
-  // Superscripts sit high and small; subscripts low and small.
-  for (const g of glyphs) {
-    const h = g.box[3] - g.box[1];
-    if (h < medianH * 0.68) {
-      if (g.box[3] < baseline - medianH * 0.25) g.script = 'sup';
-      else if (g.box[1] > baseline + medianH * 0.1) g.script = 'sub';
-    }
-  }
+  markScripts(glyphs);
 
   const charset = (opts.math === true ? MATH_CHARS : opts.math === false ? WORD_CHARS : MATH_CHARS + WORD_CHARS) + (opts.extra || '');
   const fonts = [...HAND_FONTS, MATH_FONT, SKEL];
 
   let total = 0;
   for (const g of glyphs) {
-    const field = rasterStrokes(strokes, g.strokes, g.box);
-    const { ch, conf } = classify(field, charset, fonts);
+    const { ch, conf } = classifyGlyph(strokes, g.strokes, g.box, charset, fonts);
     g.ch = ch;
     g.conf = conf;
     total += conf;
   }
 
-  let raw = '';
+  // A bracket has to be wide enough to hold something. A near-vertical mark that
+  // scores as one is a "1" with its little flag — and at 32x32 the flag and the
+  // bracket's top serif are the same few pixels.
   for (const g of glyphs) {
-    if (g.script === 'sup' && SUPERS[g.ch]) raw += SUPERS[g.ch];
-    else if (g.script === 'sub') raw += '₍' + g.ch + '₎';
-    else raw += g.ch;
+    if (g.ch !== '[' && g.ch !== ']') continue;
+    const w = g.box[2] - g.box[0];
+    const h = Math.max(1, g.box[3] - g.box[1]);
+    if (w / h < 0.26) g.ch = '1';
   }
 
-  const math = opts.math ?? looksMath(glyphs, raw);
-  const text = math ? tidy(raw) : raw.replace(/\s+/g, ' ').trim();
+  const math = opts.math ?? looksMath(glyphs, glyphs.map((g) => g.ch).join(''));
+  const toks = tidyToks(snapFns(toTokens(glyphs)), math);
+  const text = math ? renderText(toks) : renderText(toks).trim();
   const confidence = glyphs.length ? Math.max(0, 1 - total / glyphs.length / 12) : 0;
 
   return {
     text,
-    latex: toLatex(text),
+    latex: math ? renderLatex(toks) : renderText(toks),
     glyphs,
     confidence,
     math,

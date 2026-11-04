@@ -735,12 +735,12 @@ function buildSheet(force = false) {
   /* header */
   const head = el('div', 'display:flex;align-items:center;justify-content:space-between;gap:10px');
   const title = el('div', '', mode === 'edit' ? 'Notebook settings' : 'New notebook');
-  title.style.cssText = 'font-size:20px;font-weight:800;letter-spacing:-.02em;color:#141c26';
+  title.style.cssText = 'font-size:20px;font-weight:800;letter-spacing:-.02em;color:var(--tx)';
   const close = el('button', '', '✕') as HTMLButtonElement;
   close.type = 'button';
   close.setAttribute('aria-label', 'Close');
   close.style.cssText =
-    'border:0;background:transparent;font-size:17px;color:#8b95a3;cursor:pointer;padding:2px 6px;border-radius:8px';
+    'border:0;background:transparent;font-size:17px;color:var(--mu);cursor:pointer;padding:2px 6px;border-radius:8px';
   close.onclick = () => cancelBtn.click();
   head.append(title, close);
 
@@ -1500,10 +1500,10 @@ const CSS = `
   display:flex;align-items:center;justify-content:center;
 }
 .gn-prevcover canvas{border-radius:2px;box-shadow:0 3px 10px rgba(0,0,0,.25);background:#fff}
-.gn-prevcap{font-size:10.5px;color:#8b95a3;text-align:center;line-height:1.4}
+.gn-prevcap{font-size:10.5px;color:var(--mu);text-align:center;line-height:1.4}
 .gn-fields{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px;max-height:min(64vh,520px);overflow:auto;padding-right:4px}
 .gn-field{display:flex;flex-direction:column;gap:5px}
-.gn-label{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#8b95a3;line-height:1.25}
+.gn-label{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--mu);line-height:1.25}
 .gn-name{width:100%}
 .gn-studio input:focus,.gn-studio select:focus,.gn-studio textarea:focus,
 .gn-studio input:focus-visible,.gn-studio select:focus-visible,.gn-studio textarea:focus-visible{
@@ -1529,23 +1529,23 @@ const CSS = `
 #gn-colrow #cvs .sw.on::after{font-size:12px}
 .gn-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 #gn-size{
-  border:1px solid var(--gn-line)!important;border-radius:10px!important;background:#f7f8fa!important;
-  padding:9px 11px!important;font-size:13.5px!important;color:#1c2430!important;min-width:130px;cursor:pointer;
+  border:1px solid var(--gn-line)!important;border-radius:10px!important;background:var(--bg)!important;
+  padding:9px 11px!important;font-size:13.5px!important;color:var(--tx)!important;min-width:130px;cursor:pointer;
 }
-.gn-seg{display:flex;background:#eceae6;border-radius:10px;padding:2px;gap:2px}
+.gn-seg{display:flex;background:color-mix(in srgb, var(--bd) 72%, transparent);border-radius:10px;padding:2px;gap:2px}
 .gn-seg button{
   border:0!important;background:transparent!important;border-radius:8px!important;
-  padding:8px 12px!important;font-size:12.5px!important;color:#5b6673!important;cursor:pointer;font-weight:600;
+  padding:8px 12px!important;font-size:12.5px!important;color:var(--mu)!important;cursor:pointer;font-weight:600;
 }
-.gn-seg button.on{background:#fff!important;color:#1f3a63!important;box-shadow:0 1px 3px rgba(16,32,64,.16)}
+.gn-seg button.on{background:var(--sf)!important;color:var(--ac)!important;box-shadow:0 1px 3px rgba(16,32,64,.16)}
 
 /* ---- cover / paper tabs (edit mode) ---- */
-.gn-tabbar{display:flex;gap:4px;background:#eceae6;border-radius:11px;padding:3px;margin:0 22px 10px}
+.gn-tabbar{display:flex;gap:4px;background:color-mix(in srgb, var(--bd) 72%, transparent);border-radius:11px;padding:3px;margin:0 22px 10px}
 .gn-tabbar button{
   flex:1;border:0!important;background:transparent!important;border-radius:9px!important;
-  padding:7px 10px!important;font-size:12.5px!important;font-weight:600;color:#5b6673!important;cursor:pointer;
+  padding:7px 10px!important;font-size:12.5px!important;font-weight:600;color:var(--mu)!important;cursor:pointer;
 }
-.gn-tabbar button.on{background:#fff!important;color:#1f3a63!important;box-shadow:0 1px 3px rgba(16,32,64,.16)}
+.gn-tabbar button.on{background:var(--sf)!important;color:var(--ac)!important;box-shadow:0 1px 3px rgba(16,32,64,.16)}
 
 /* ---- paper colour ---- */
 #gn-tintrow{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
@@ -1561,7 +1561,7 @@ const CSS = `
 }
 .gn-tint.on::after{
   content:"✓";position:absolute;inset:0;display:grid;place-items:center;
-  font-size:12px;font-weight:800;color:var(--swc-ink,#1c2430);
+  font-size:12px;font-weight:800;color:var(--swc-ink,var(--tx));
 }
 .gn-customwrap{
   width:30px;height:30px;border-radius:9px;flex:none;cursor:pointer;position:relative;
@@ -1579,10 +1579,10 @@ const CSS = `
 
 /* ---- custom size ---- */
 .gn-num{
-  width:78px;border:1px solid var(--gn-line)!important;border-radius:9px!important;background:#f7f8fa!important;
-  padding:8px 9px!important;font-size:13px!important;color:#1c2430!important;
+  width:78px;border:1px solid var(--gn-line)!important;border-radius:9px!important;background:var(--bg)!important;
+  padding:8px 9px!important;font-size:13px!important;color:var(--tx)!important;
 }
-.gn-num-lbl{font-size:12px;color:#8b95a3;font-weight:600}
+.gn-num-lbl{font-size:12px;color:var(--mu);font-weight:600}
 
 /* ---- per-template colour variants ---- */
 .gn-dots{display:flex;gap:2px;align-items:center;justify-content:center;margin-top:1px;min-height:8px}
@@ -1593,7 +1593,7 @@ const CSS = `
 .gn-dot.on{box-shadow:0 0 0 1.5px #fff,0 0 0 3px var(--gn-acc)}
 .gn-more{
   border:0!important;background:transparent!important;padding:0 1px 0 2px!important;
-  font-size:9.5px!important;font-weight:800;color:#9aa4b0!important;cursor:pointer;line-height:1;
+  font-size:9.5px!important;font-weight:800;color:var(--mu)!important;cursor:pointer;line-height:1;
   letter-spacing:-.02em;
 }
 .gn-more:hover{color:var(--gn-acc)!important}
@@ -1606,32 +1606,32 @@ const CSS = `
 .gn-cfg:hover{color:var(--gn-acc)!important}
 .gn-tabs2{display:flex;gap:5px;flex-wrap:wrap}
 .gn-tabs2 button{
-  border:1px solid var(--gn-line)!important;background:#fff!important;border-radius:999px!important;
-  padding:6px 12px!important;font-size:12px!important;color:#4a5568!important;cursor:pointer;font-weight:600;
+  border:1px solid var(--gn-line)!important;background:var(--sf)!important;border-radius:999px!important;
+  padding:6px 12px!important;font-size:12px!important;color:var(--mu)!important;cursor:pointer;font-weight:600;
 }
-.gn-tabs2 button.on{background:#e8f0ff!important;border-color:var(--gn-acc)!important;color:#1f4fbf!important}
+.gn-tabs2 button.on{background:color-mix(in srgb, var(--ac) 16%, transparent)!important;border-color:var(--gn-acc)!important;color:var(--ac)!important}
 #gn-paperrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
 .gn-paper{
-  border:2px solid transparent!important;background:#fff!important;border-radius:10px!important;
+  border:2px solid transparent!important;background:var(--sf)!important;border-radius:10px!important;
   padding:4px 3px 3px!important;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;
   box-shadow:0 1px 3px rgba(16,32,64,.12);width:64px;
 }
-.gn-paper canvas{border-radius:5px;display:block;border:1px solid #e6e2dc}
-.gn-paper span{font-size:10px;color:#5b6673;font-weight:600;white-space:nowrap}
+.gn-paper canvas{border-radius:5px;display:block;border:1px solid var(--bd)}
+.gn-paper span{font-size:10px;color:var(--mu);font-weight:600;white-space:nowrap}
 .gn-paper.on{border-color:var(--gn-acc)!important;box-shadow:0 0 0 2px rgba(47,109,246,.18)}
 /* import tile — dashed, at the end of the writing / styles grids */
 .gn-paper.gn-import{
-  border:2px dashed #d5dbe3!important;background:transparent!important;
-  justify-content:center;min-height:76px;color:#8b95a3!important;
+  border:2px dashed var(--bd)!important;background:transparent!important;
+  justify-content:center;min-height:76px;color:var(--mu)!important;
 }
 .gn-paper.gn-import:hover{border-color:var(--gn-acc)!important;color:var(--gn-acc)!important}
 .gn-paper.gn-import .gn-plus{font-size:17px;font-weight:400;line-height:1;display:block;margin-bottom:1px}
 .gn-st-foot{
   display:flex;justify-content:flex-end;gap:9px;padding:14px 22px 18px;
-  border-top:1px solid #efece7;background:#fafafa;margin-top:6px;
+  border-top:1px solid var(--bd);background:var(--sf);margin-top:6px;
 }
 .gn-cancel{
-  border:1px solid var(--gn-line)!important;background:#fff!important;color:#3b4654!important;
+  border:1px solid var(--gn-line)!important;background:var(--sf)!important;color:var(--tx)!important;
   border-radius:11px!important;padding:10px 20px!important;font-weight:600!important;font-size:13.5px!important;cursor:pointer;
 }
 .gn-create{
