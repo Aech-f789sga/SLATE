@@ -123,9 +123,25 @@ await page.mouse.down();
 for (let i = 1; i <= 24; i++) {
   await page.mouse.move(...S(200 + i * 8, 620 + Math.sin(i / 3) * 9), { steps: 1 });
 }
-await jitter([392, 620], 900);
+
+// A line waits for its own, longer hold. The nudge has to stay well under the
+// jitter threshold or it re-arms the timer and the hold never completes.
+const still = async (base, ms) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    await page.mouse.move(...S(base[0] + Math.random(), base[1] + Math.random()), { steps: 1 });
+    await page.waitForTimeout(45);
+  }
+};
+
+await still([392, 620], 900);
+const early = await cur();
+console.log('at 900ms     ', JSON.stringify(early));
+
+await still([392, 620], 1500);
 const lineSnap = await cur();
-console.log('during hold  ', JSON.stringify(lineSnap));
+console.log('at 2400ms    ', JSON.stringify(lineSnap));
+
 await page.mouse.move(...S(300, 760), { steps: 6 });
 const lineMoved = await cur();
 console.log('after drag   ', JSON.stringify(lineMoved));

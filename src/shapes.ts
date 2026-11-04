@@ -403,6 +403,18 @@ function installShapeEngine() {
 
 const HOLD_MS = 420;
 
+/**
+ * A line waits far longer than a shape before it straightens.
+ *
+ * A closed shape has already told you what it is — the stroke came back to
+ * where it started — so a short stillness is enough to be sure. A straight
+ * line has no such tell: every quick horizontal stroke inside a drawing pauses
+ * for a moment, and straightening at 420 ms would steal the stroke before the
+ * hand moved on. Two seconds of stillness is long enough that only a
+ * deliberate hold counts.
+ */
+const LINE_HOLD_MS = 2000;
+
 /** Movement under this still counts as holding still — a hand is never frozen. */
 const JITTER = 2.6;
 
@@ -654,6 +666,19 @@ function trySnap() {
   if (pts.length < 8) return;
   const shape = recognise(pts);
   if (!shape) return;
+
+  // Recognition is cheap, so the kind is known long before the hold ends: a
+  // line is recognised at the short hold and then waits out the rest of its
+  // own, longer one.
+  if (shape.k === 'line' || shape.k === 'arrow') {
+    const still = performance.now() - lastMove;
+    if (still < LINE_HOLD_MS) {
+      window.clearTimeout(holdTimer);
+      holdTimer = window.setTimeout(trySnap, LINE_HOLD_MS - still);
+      return;
+    }
+  }
+
   beginSnap(shape);
 }
 
