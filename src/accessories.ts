@@ -21,6 +21,7 @@
 /* ------------------------------------------------------------------ */
 
 import { anySmart, onSmartChange, setSmart, smartOn, type SmartKey } from './smart';
+import { onnxCfg, onnxState, setOnnx, warmOnnx, type ModelKind } from './math/onnx';
 
 function ev<T = any>(expr: string): T | null {
   try {
@@ -639,6 +640,18 @@ function buildSmartSheet(): HTMLElement {
     r.append(wrap, tg);
     list.append(r, note);
   }
+
+  // a fourth row that opens a sheet rather than flipping a flag — the model is
+  // configuration, not a mode
+  const more = div('acc-row');
+  more.id = 'acc-onnx-open';
+  more.append(div('acc-name', 'Handwriting model'));
+  const go = div('acc-go');
+  go.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+  more.append(go);
+  more.onclick = () => openOnnx();
+  list.append(more);
+
   node.append(list);
 
   const foot = div('acc-foot');
@@ -656,6 +669,144 @@ function paintSmart() {
   smartSheet
     .querySelectorAll<HTMLElement>('.acc-row')
     .forEach((r) => r.classList.toggle('off', !smartOn(r.dataset.smart as SmartKey)));
+}
+
+/* ------------------------------------------------------------------ */
+/* Handwriting model                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The door to the optional ONNX reader.
+ *
+ * It sits at the bottom of Smart ink because that is the only thing it can
+ * affect: the two conversion actions. Everything about it is opt-in, including
+ * the download — a notebook that never turns it on never fetches a wasm
+ * runtime, and turning it on with a bad URL leaves the built-in reader exactly
+ * as it was.
+ */
+let onnxSheet: HTMLElement | null = null;
+
+function buildOnnxSheet(): HTMLElement {
+  const node = div('acc-sheet');
+  node.id = 'acc-onnx';
+  node.innerHTML = `
+    <div class="acc-sh">Handwriting model</div>
+    <div class="onnx-body">
+      <div class="acc-row" id="onnx-on-row">
+        <span class="acc-name">Use an ONNX model</span>
+        <button class="acc-tg" id="onnx-on" type="button" role="switch" aria-label="Use an ONNX model"></button>
+      </div>
+      <p class="acc-note">Off is the built-in reader. On, onnxruntime-web is fetched the first time you convert — and the built-in read is still the fallback.</p>
+      <label class="onnx-f">Model (.onnx)
+        <input id="onnx-model" type="text" spellcheck="false" placeholder="https://…/model.onnx">
+      </label>
+      <label class="onnx-f">Shape
+        <select id="onnx-kind">
+          <option value="ctc">CTC — one graph</option>
+          <option value="seq2seq">Encoder + decoder</option>
+        </select>
+      </label>
+      <label class="onnx-f" id="onnx-dec-f">Decoder (.onnx)
+        <input id="onnx-dec" type="text" spellcheck="false" placeholder="https://…/decoder.onnx">
+      </label>
+      <label class="onnx-f">Labels (JSON)
+        <input id="onnx-vocab" type="text" spellcheck="false" placeholder="optional — ASCII by default">
+      </label>
+      <div class="onnx-st" id="onnx-st"></div>
+    </div>
+    <div class="acc-foot">
+      <span class="acc-hint" id="onnx-hint">Not loaded</span>
+      <button class="acc-reset" id="onnx-load" type="button">Load</button>
+    </div>`;
+
+  const q = <T extends HTMLElement>(s: string) => node.querySelector(s) as T;
+
+  q<HTMLElement>('#onnx-on').onclick = () => {
+    setOnnx({ on: !onnxCfg().on });
+    paintOnnx();
+  };
+
+  const bind = (id: string, key: 'model' | 'decoder' | 'vocab' | 'kind') => {
+    const el = q<HTMLInputElement>(id);
+    el.onchange = () => {
+      setOnnx({ [key]: el.value.trim() } as any);
+      paintOnnx();
+    };
+  };
+  bind('#onnx-model', 'model');
+  bind('#onnx-dec', 'decoder');
+  bind('#onnx-vocab', 'vocab');
+  bind('#onnx-kind', 'kind');
+
+  q<HTMLElement>('#onnx-load').onclick = async () => {
+    const hint = q<HTMLElement>('#onnx-hint');
+    const btnEl = q<HTMLElement>('#onnx-load');
+    hint.textContent = 'Loading…';
+    btnEl.classList.add('idle');
+    const msg = await warmOnnx();
+    hint.textContent = msg;
+    btnEl.classList.remove('idle');
+    paintOnnx();
+  };
+
+  return node;
+}
+
+function paintOnnx() {
+  if (!onnxSheet) return;
+  const c = onnxCfg();
+  const q = <T extends HTMLElement>(s: string) => onnxSheet!.querySelector(s) as T;
+
+  q<HTMLElement>('#onnx-on').classList.toggle('on', c.on);
+  q<HTMLElement>('#onnx-on-row').classList.toggle('off', !c.on);
+
+  const set = (id: string, v: string) => {
+    const el = q<HTMLInputElement>(id);
+    if (el && document.activeElement !== el) el.value = v;
+  };
+  set('#onnx-model', c.model);
+  set('#onnx-dec', c.decoder);
+  set('#onnx-vocab', c.vocab);
+  q<HTMLSelectElement>('#onnx-kind').value = c.kind;
+
+  // the decoder is only a thing for the two-graph shape
+  q<HTMLElement>('#onnx-dec-f').style.display = c.kind === 'seq2seq' ? '' : 'none';
+
+  const st = onnxState();
+  const line = q<HTMLElement>('#onnx-st');
+  line.dataset.s = st.state;
+  line.textContent =
+    st.state === 'failed'
+      ? st.note
+      : st.state === 'ready'
+        ? 'Model loaded'
+        : c.on && !c.model
+          ? 'Add a model URL to use this'
+          : c.on
+            ? 'Ready to load'
+            : 'Off — the built-in reader handles everything';
+}
+
+function openOnnx() {
+  if (!onnxSheet || !smartSheet) return;
+  if (onnxSheet.classList.contains('on')) {
+    onnxSheet.classList.remove('on');
+    return;
+  }
+  paintOnnx();
+  onnxSheet.classList.add('on');
+
+  // Sit beside the Smart ink sheet rather than under it: the row that opens
+  // this is the last one in that sheet, so "under" is off the bottom of the
+  // screen and the generic placer would flip it up on top of its own parent.
+  const s = smartSheet.getBoundingClientRect();
+  const w = onnxSheet.offsetWidth;
+  const h = onnxSheet.offsetHeight;
+  let left = s.left - w - 8;
+  if (left < 8) left = Math.min(window.innerWidth - w - 8, s.left);
+  const top = Math.max(8, Math.min(s.top, window.innerHeight - h - 8));
+  onnxSheet.style.left = Math.round(left) + 'px';
+  onnxSheet.style.top = Math.round(top) + 'px';
 }
 
 interface MenuItem {
@@ -768,16 +919,26 @@ function buildMenu() {
   smartSheet = buildSmartSheet();
   document.body.append(smartSheet);
 
+  onnxSheet = buildOnnxSheet();
+  document.body.append(onnxSheet);
+
   document.addEventListener(
     'pointerdown',
     (e) => {
       const t = e.target as HTMLElement;
       if (!t.closest) return;
-      if (t.closest('#acc-pop') || t.closest('#acc-trigger') || t.closest('#acc-tools') || t.closest('#acc-smart'))
+      if (
+        t.closest('#acc-pop') ||
+        t.closest('#acc-trigger') ||
+        t.closest('#acc-tools') ||
+        t.closest('#acc-smart') ||
+        t.closest('#acc-onnx')
+      )
         return;
       accPop?.classList.remove('on');
       toolSheet?.classList.remove('on');
       smartSheet?.classList.remove('on');
+      onnxSheet?.classList.remove('on');
     },
     true
   );
@@ -853,11 +1014,13 @@ function hookTrigger() {
       accPop.classList.remove('on');
       toolSheet?.classList.remove('on');
       smartSheet?.classList.remove('on');
+      onnxSheet?.classList.remove('on');
       return;
     }
     // the customization sheet is anchored to this menu; it must not outlive it
     toolSheet?.classList.remove('on');
     smartSheet?.classList.remove('on');
+    onnxSheet?.classList.remove('on');
     paintMenu();
     placeUnder(accPop, accBtn!);
   };
@@ -940,6 +1103,35 @@ const CSS = `
 #acc-smart .acc-note{
   font:500 10.5px/1.35 inherit;color:#9aa5b4;padding:0 4px 4px 7px;margin-top:-2px;
 }
+
+#acc-onnx{
+  position:fixed;z-index:46;display:none;width:292px;padding:10px 10px 0;
+  background:#fff;border:1px solid #eef1f6;border-radius:14px;
+  box-shadow:0 16px 38px rgba(8,20,38,.20),0 2px 6px rgba(8,20,38,.08);
+  font-family:inherit;flex-direction:column;overflow:hidden;
+}
+#acc-onnx.on{display:flex}
+#acc-onnx .acc-sh{flex:none}
+#acc-onnx .acc-row{margin-top:2px;cursor:pointer}
+#acc-onnx .acc-note{font:500 10.5px/1.35 inherit;color:#9aa5b4;padding:0 4px 8px 7px;margin:0}
+#acc-onnx .acc-go svg{width:13px;height:13px;display:block}
+.onnx-body{display:flex;flex-direction:column;gap:7px;padding-bottom:8px}
+.onnx-f{
+  display:flex;flex-direction:column;gap:3px;padding:0 4px;
+  font:600 10.5px/1 inherit;color:#8b96a5;letter-spacing:.02em;
+}
+.onnx-f input,.onnx-f select{
+  width:100%;font:500 11.5px/1.3 inherit;color:#2b3542;padding:6px 8px;border-radius:8px;
+  border:1px solid #e2e8f0;background:#f8fafc;outline:none;box-sizing:border-box;
+}
+.onnx-f input:focus,.onnx-f select:focus{border-color:#2f6df6;background:#fff}
+.onnx-st{
+  min-height:26px;margin:2px 4px 0;padding:6px 8px;border-radius:8px;background:#f6f8fb;
+  font:500 10.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#8b96a5;
+  word-break:break-word;
+}
+.onnx-st[data-s="failed"]{background:#fdf1f1;color:#c94b4b}
+.onnx-st[data-s="ready"]{background:#eef9f1;color:#2a9d4f}
 .acc-list{display:flex;flex-direction:column;gap:1px;flex:1;overflow:auto;min-height:0;padding-bottom:4px}
 .acc-row{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 7px;border-radius:8px}
 .acc-row:hover{background:#f6f8fb}

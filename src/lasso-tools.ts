@@ -17,6 +17,7 @@
  */
 
 import { readInk, type InkStroke } from './math/ocr';
+import { onnxOn, readWithOnnx } from './math/onnx';
 import { onSmartChange, smartOn } from './smart';
 
 /* ------------------------------------------------------------------ */
@@ -196,6 +197,7 @@ function buildCard() {
       (card!.querySelector('.lc-conf') as HTMLElement).textContent = confLabel(read.confidence);
       (card!.querySelector('.lc-conf') as HTMLElement).dataset.v = String(Math.round(read.confidence * 100));
       paintPreview(true);
+      if (mode === 'latex') refineWithModel(++cardSeq);
     };
   });
 
@@ -274,6 +276,43 @@ function confLabel(c: number): string {
   return 'rough read';
 }
 
+/* ------------------------------------------------------------------ */
+/* Optional model                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Every open of the card gets a number, so an answer that arrives after you
+ * have closed it — or moved to another selection — is dropped instead of
+ * overwriting whatever is on screen now.
+ */
+let cardSeq = 0;
+
+/**
+ * Ask the optional ONNX model, if one is configured.
+ *
+ * The built-in read is already on screen before this runs, so the model is a
+ * correction rather than a wait. If it fails, times out, or comes back stale,
+ * nothing happens at all — the guess you already had stands.
+ */
+function refineWithModel(seq: number) {
+  if (!onnxOn() || !current) return;
+  const strokes = current.strokes;
+  void readWithOnnx(strokes).then((r) => {
+    if (!r || !r.text || seq !== cardSeq) return;
+    if (!card || !card.classList.contains('on') || card.dataset.mode !== 'latex') return;
+    const area = card.querySelector('.lc-area') as HTMLTextAreaElement | null;
+    if (!area) return;
+    area.value = r.text;
+    const conf = card.querySelector('.lc-conf') as HTMLElement | null;
+    if (conf) {
+      const p = Math.max(0, Math.min(1, r.conf));
+      conf.textContent = p > 0.72 ? 'model · good' : p > 0.45 ? 'model · check' : 'model · rough';
+      conf.dataset.v = String(Math.round(p * 100));
+    }
+    paintPreview(true);
+  });
+}
+
 function readSelection(): { text: string; latex: string; confidence: number } | null {
   if (!current) return null;
   const read = readInk(current.strokes, { math: true });
@@ -291,6 +330,7 @@ function openCard(mode: Mode) {
   conf.textContent = confLabel(read.confidence);
   conf.dataset.v = String(Math.round(read.confidence * 100));
   paintPreview(true);
+  if (mode === 'latex') refineWithModel(++cardSeq);
 
   const at = toScreen(current.box[0], current.box[3]);
   card.classList.add('on');
@@ -305,6 +345,8 @@ function openCard(mode: Mode) {
 }
 
 function closeCard() {
+  // invalidates any model answer still in flight
+  cardSeq++;
   card?.classList.remove('on');
 }
 
