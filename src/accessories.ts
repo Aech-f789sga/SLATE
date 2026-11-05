@@ -1062,6 +1062,24 @@ const MENU: MenuItem[] = [
     label: 'Insert media',
     icon: '<rect x="3.5" y="5" width="17" height="14" rx="2.4"/><circle cx="9" cy="10" r="1.6"/><path d="m4.5 17 4.6-4.3 3.2 3 3.1-2.6 4.1 3.9"/>',
   },
+  // The three that used to sit in the toolbar as words next to the icons. They
+  // are not tools you switch to — you press one, something appears — so they
+  // belong with the other things that appear, not in the row you draw from.
+  {
+    id: 'stickers',
+    label: 'Stickers',
+    icon: '<path d="M12 3.4l2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8z"/>',
+  },
+  {
+    id: 'notes',
+    label: 'Sticky note',
+    icon: '<rect x="4" y="4" width="16" height="16" rx="2.2"/><path d="M8 9.2h8M8 13h5"/>',
+  },
+  {
+    id: 'osnap',
+    label: 'Object snap',
+    icon: '<path d="M6.5 4v7.5a5.5 5.5 0 0 0 11 0V4"/><path d="M6.5 8.5h3.6M13.9 8.5h3.6"/>',
+  },
 ];
 
 const ICON_MORE =
@@ -1100,19 +1118,57 @@ function buildMenu() {
         openGuidePanel();
       };
       row.append(more);
-    } else if (item.id === 'tools' || item.id === 'smart' || item.id === 'snap' || item.id === 'media') {
+    } else if (
+      item.id === 'tools' ||
+      item.id === 'smart' ||
+      item.id === 'snap' ||
+      item.id === 'media' ||
+      item.id === 'stickers' ||
+      item.id === 'notes'
+    ) {
       const go = el('i', '') as HTMLElement;
       go.className = 'acc-go';
       go.innerHTML = ICON_GO;
       row.append(go);
     }
 
-    if (item.id !== 'tools' && item.id !== 'smart' && item.id !== 'snap' && item.id !== 'media') {
+    if (
+      item.id !== 'tools' &&
+      item.id !== 'smart' &&
+      item.id !== 'snap' &&
+      item.id !== 'media' &&
+      item.id !== 'stickers' &&
+      item.id !== 'notes'
+    ) {
       const sw = div('acc-sw');
       row.append(sw);
     }
 
     row.onclick = () => {
+      // the three that moved out of the toolbar keep working exactly as they
+      // did, but they are anchored to this row now rather than to a button
+      // that is no longer on screen
+      if (item.id === 'stickers') {
+        accPop?.classList.remove('on');
+        closeSheets();
+        (window as any).__inkpad_stickers?.open?.();
+        return;
+      }
+      if (item.id === 'notes') {
+        // measure the row while it is still on screen: the popover hangs under
+        // its anchor, and a hidden row measures as the top-left corner
+        (window as any).__inkpad_notes?.toggle?.(row);
+        accPop?.classList.remove('on');
+        closeSheets();
+        return;
+      }
+      if (item.id === 'osnap') {
+        const snap = (window as any).__inkpad_snap;
+        if (snap) snap.set(!snap.on);
+        else document.getElementById('snap-btn')?.click();
+        paintMenu();
+        return;
+      }
       if (item.id === 'tools') {
         closeSheets();
         toolSheet?.classList.toggle('on');
@@ -1220,6 +1276,7 @@ function paintMenu() {
     else if (id === 'zoom') on = state.zoom;
     else if (id === 'timer') on = state.timer;
     else if (id === 'smart') on = anySmart();
+    else if (id === 'osnap') on = !!(window as any).__inkpad_snap?.on;
     n.classList.toggle('on', on);
     if (on) any = true;
   });

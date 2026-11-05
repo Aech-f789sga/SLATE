@@ -196,13 +196,25 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
 
   const top = 18 * mm;
 
+  /**
+   * The margin rule, drawn on any page that has a surface.
+   *
+   * It used to be painted inside the lined and Cornell branches only, so on a
+   * dotted or grid page the Margin chips changed a preference and nothing else
+   * — the control looked broken. A margin is a guide to where the text stops,
+   * which every page can use, so it is drawn once here and called from every
+   * branch.
+   */
+  const marginLine = () => {
+    if (!prefs.margin) return;
+    hair(marginCol, 1);
+    line(prefs.marginMm * mm, 0, prefs.marginMm * mm, H);
+  };
+
   if (tpl === 'lined') {
     hair(rule, 1);
     for (let y = top; y < H - 2 * px; y += prefs.ruling * mm) line(0, y, W, y);
-    if (prefs.margin) {
-      hair(marginCol, 1);
-      line(prefs.marginMm * mm, 0, prefs.marginMm * mm, H);
-    }
+    marginLine();
   } else if (tpl === 'grid') {
     const step = prefs.grid * mm;
     for (let x = 0; x < W; x += step) {
@@ -215,6 +227,7 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
       hair(major ? ruleMajor : rule, major ? 1.35 : 1);
       line(0, y, W, y);
     }
+    marginLine();
   } else if (tpl === 'dot') {
     const step = prefs.grid * mm;
     c.fillStyle = dotCol;
@@ -226,6 +239,7 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
         c.fill();
       }
     }
+    marginLine();
   } else if (tpl === 'cornell') {
     const cue = Math.min(W * 0.32, 62 * mm);
     const head = 42 * mm;
@@ -236,16 +250,14 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
     line(cue, head, cue, sum);
     line(0, sum, W, sum);
     line(0, head, W, head);
-    if (prefs.margin) {
-      hair(marginCol, 1);
-      line(prefs.marginMm * mm, 0, prefs.marginMm * mm, H);
-    }
+    marginLine();
   } else {
-    // blank: nothing but the grain, plus a whisper of a header rule
+    // blank: nothing but the grain, a whisper of a header rule, and the margin
     if (prefs.margin) {
       hair('rgba(84,116,158,0.14)', 1);
       line(0, top, W, top);
     }
+    marginLine();
   }
 
   // paper grain — cached tile, drawn once into the layer
@@ -408,14 +420,22 @@ function el(tag: string, css?: string, text?: string): HTMLElement {
   return e;
 }
 
-function group(d: HTMLElement, title: string) {
+function group(d: HTMLElement, title: string, note?: string) {
   d.append(el('div', 'font-weight:600;margin:10px 0 4px;font-size:12px;color:var(--mu)', title));
   const g = el('div', 'display:flex;flex-wrap:wrap;gap:6px;align-items:center');
+  if (note) {
+    const n = el(
+      'div',
+      'font-size:11px;color:var(--mu);opacity:.85;margin:-2px 0 4px',
+      note,
+    );
+    d.append(n);
+  }
   d.append(g);
   return g;
 }
 
-function chip(g: HTMLElement, label: string, on: boolean, fn: () => void) {
+function chip(g: HTMLElement, label: string, on: boolean, fn: () => void, off?: string) {
   const b = el('button', '', label) as HTMLButtonElement;
   b.style.cssText =
     'font-size:12px;padding:4px 9px;border-radius:9px;border:1px solid ' +
@@ -425,9 +445,31 @@ function chip(g: HTMLElement, label: string, on: boolean, fn: () => void) {
     ';color:' +
     (on ? 'var(--ac)' : 'var(--tx)') +
     ';cursor:pointer';
-  b.onclick = fn;
+  if (off) {
+    // a control that cannot do anything on this page says so instead of
+    // swallowing the click and looking broken
+    b.disabled = true;
+    b.title = off;
+    b.style.cssText +=
+      ';opacity:.38;cursor:default;border-style:dashed;background:transparent;color:var(--mu)';
+  } else {
+    b.onclick = fn;
+  }
   g.append(b);
   return b;
+}
+
+/** The template of the page on screen, as the paper renderer names it. */
+function currentTpl(): string {
+  const sel = document.getElementById('tpl') as HTMLSelectElement | null;
+  if (sel && sel.value) return sel.value;
+  try {
+    const p = ev<any>('pg && pg()');
+    if (p && p.tpl) return String(p.tpl);
+  } catch {
+    /* fall through */
+  }
+  return 'lined';
 }
 
 /**
@@ -439,22 +481,48 @@ function chip(g: HTMLElement, label: string, on: boolean, fn: () => void) {
  * blend are on its own tab, and paper detail belongs with the paper.
  */
 function paperDetail(d: HTMLElement) {
-  const ruleG = group(d, 'Paper ruling (mm)');
+  const tpl = currentTpl();
+  // which rows of a page a setting can actually reach — the same split the
+  // renderer makes, so nothing here is a control that paints nothing
+  const ruled = tpl === 'lined' || tpl === 'cornell';
+  const gridded = tpl === 'grid' || tpl === 'dot';
+
+  const ruleG = group(
+    d,
+    'Paper ruling (mm)',
+    ruled ? undefined : 'Rules are drawn on lined and Cornell pages.',
+  );
   [5, 6, 7, 8, 9, 10].forEach((mm) => {
-    chip(ruleG, String(mm), prefs.ruling === mm, () => {
-      prefs.ruling = mm;
-      savePrefs();
-      rerenderDrawer(d);
-    });
+    chip(
+      ruleG,
+      String(mm),
+      prefs.ruling === mm,
+      () => {
+        prefs.ruling = mm;
+        savePrefs();
+        rerenderDrawer(d);
+      },
+      ruled ? undefined : 'Not drawn on this paper',
+    );
   });
 
-  const gridG = group(d, 'Grid & dots (mm)');
+  const gridG = group(
+    d,
+    'Grid & dots (mm)',
+    gridded ? undefined : 'Spacing applies to grid and dotted pages.',
+  );
   [4, 5, 6, 8, 10].forEach((mm) => {
-    chip(gridG, String(mm), prefs.grid === mm, () => {
-      prefs.grid = mm;
-      savePrefs();
-      rerenderDrawer(d);
-    });
+    chip(
+      gridG,
+      String(mm),
+      prefs.grid === mm,
+      () => {
+        prefs.grid = mm;
+        savePrefs();
+        rerenderDrawer(d);
+      },
+      gridded ? undefined : 'Not drawn on this paper',
+    );
   });
 
   const marginG = group(d, 'Margin');
@@ -482,7 +550,6 @@ function paperDetail(d: HTMLElement) {
     savePrefs();
     rerenderDrawer(d);
   });
-
 }
 
 /** Rebuild the host in place so a chip reflects its new state immediately. */

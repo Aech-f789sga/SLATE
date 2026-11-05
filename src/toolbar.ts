@@ -398,6 +398,11 @@ const CSS = `
    for two file pickers, instead of two buttons in the middle of the tools. */
 #tb #img,#tb button[title="Insert video"]{display:none!important}
 
+/* Stickers, Note and Snap are Accessories rows too. They were three words in a
+   row of icons — the only buttons up there with a label, which is what made the
+   toolbar look crowded — and none of them is a tool you switch to. */
+#tb #gn-stk-btn,#tb #gn-note-btn,#tb #snap-btn{display:none!important}
+
 html[data-gnrail="1"] #tb [data-gnhide]{display:none!important}
 
 #tb .sep{width:1px;height:20px;background:rgba(255,255,255,.22);margin:0 4px;flex:none;align-self:center}

@@ -1,0 +1,16 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+await page.route('https://fonts.googleapis.com/**', (r) => r.abort());
+await page.goto('http://127.0.0.1:3000/', { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('#grid', { timeout: 20000 });
+await page.waitForTimeout(1200);
+await page.evaluate(() => { const n={id:Date.now(),name:'R',upd:Date.now(),pages:[{tpl:'lined',col:'',strokes:[],pw:800,ph:1100}]}; window.lib.push(n); window.openNotebook(n); });
+await page.waitForTimeout(1600);
+await page.evaluate(() => { const b=[...document.querySelectorAll('button')].find(x=>/skip tour/i.test(x.textContent||'')); b?.click(); document.getElementById('tour-root')?.remove(); });
+await page.waitForTimeout(500);
+await page.evaluate(() => document.getElementById('acc-trigger').click());
+await page.waitForTimeout(500);
+const box = await page.evaluate(() => { const r = document.getElementById('acc-pop').getBoundingClientRect(); return { x: Math.max(0, r.left - 10), y: Math.max(0, r.top - 10), width: r.width + 20, height: r.height + 20 }; });
+await page.screenshot({ path: 'shots/acc-menu.png', clip: box });
+await browser.close();

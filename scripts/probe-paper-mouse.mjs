@@ -1,0 +1,28 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+await page.route('https://fonts.googleapis.com/**', (r) => r.abort());
+page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
+await page.goto('http://127.0.0.1:3000/', { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('#grid', { timeout: 20000 });
+await page.waitForTimeout(1200);
+await page.evaluate(() => { const n={id:Date.now(),name:'R',upd:Date.now(),pages:[{tpl:'lined',col:'',strokes:[],pw:800,ph:1100}]}; window.lib.push(n); window.openNotebook(n); });
+await page.waitForTimeout(1500);
+await page.evaluate(() => { const b=[...document.querySelectorAll('button')].find(x=>/skip tour/i.test(x.textContent||'')); b?.click(); document.getElementById('tour-root')?.remove(); });
+await page.waitForTimeout(600);
+await page.click('#pgm');
+await page.waitForTimeout(400);
+const box = await page.evaluate(() => {
+  const d = document.querySelector('.pgm-detail');
+  const b = [...d.querySelectorAll('button')].find((x) => x.textContent === '6');
+  const r = b.getBoundingClientRect();
+  const cs = getComputedStyle(b);
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, bg: cs.backgroundColor, border: cs.borderTopColor, color: cs.color, fs: cs.fontSize };
+});
+console.log('chip 6 style', JSON.stringify(box));
+await page.mouse.click(box.x, box.y);
+await page.waitForTimeout(600);
+console.log('prefs', await page.evaluate(() => localStorage.getItem('inkpad-paper-prefs')));
+console.log('card still open', await page.evaluate(() => document.getElementById('bar2').classList.contains('open')));
+await page.screenshot({ path: 'shots/paper-detail.png', clip: { x: 380, y: 90, width: 700, height: 340 } });
+await browser.close();

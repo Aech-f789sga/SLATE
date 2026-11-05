@@ -792,13 +792,43 @@ function nearestLevel(ws: number[], size: number): number {
   return best;
 }
 
+/**
+ * Whether the pill is allowed on screen while the page is locked.
+ *
+ * Focus mode hides the toolbar, and the pill is part of it — which also took
+ * away width and colour, the two things you reach for right after picking a
+ * pen. So the rail can ask for it: the pill comes up on the pen you picked and
+ * goes away again a few seconds after you stop touching it.
+ */
+let peek = false;
+let peekTimer = 0;
+
+function peekPill(ms = 4000) {
+  peek = true;
+  paintPanel();
+  window.clearTimeout(peekTimer);
+  peekTimer = window.setTimeout(() => {
+    peek = false;
+    paintPanel();
+  }, ms);
+}
+
+function endPeek() {
+  window.clearTimeout(peekTimer);
+  if (!peek) return;
+  peek = false;
+  paintPanel();
+}
+
 function paintPanel() {
   if (!penPanel) return;
   const tool = ev<string>('tool') || 'pen';
   const isEr = tool === 'er';
   const inkTool = tool === 'pen' || tool === 'pe' || tool === 'hl' || isEr;
-  const show = editorOpen() && !panelLock && !drawerLock && inkTool;
+  const focusOn = document.documentElement.dataset.focus === '1';
+  const show = editorOpen() && !panelLock && !drawerLock && inkTool && (!focusOn || peek);
   penPanel.classList.toggle('on', show);
+  penPanel.classList.toggle('peek', focusOn && peek);
   document.documentElement.dataset.inkpen = show ? '1' : '0';
   if (!show) {
     // Suppressed because a popover owns the screen: leave the popover alone.
@@ -917,13 +947,30 @@ function divider(): HTMLElement {
 
 function place() {
   if (!penPanel || !penPanel.classList.contains('on')) return;
+  const w = penPanel.offsetWidth;
+  const left = Math.max(8, Math.round((window.innerWidth - w) / 2));
+  penPanel.style.left = left + 'px';
+
+  // With the page locked there is no toolbar to hang under, and the rail can be
+  // on any edge: sit under it when it is along the top, above it when it is
+  // along the bottom, and at the top of the window when it is down a side.
+  if (document.documentElement.dataset.focus === '1') {
+    const rail = document.getElementById('pen-dock');
+    const r = rail ? rail.getBoundingClientRect() : null;
+    const side = rail?.dataset.side || 'left';
+    let top = 10;
+    if (r && r.height) {
+      if (side === 'top') top = r.bottom + 8;
+      else if (side === 'bottom') top = Math.max(10, r.top - penPanel.offsetHeight - 8);
+    }
+    penPanel.style.top = Math.round(top) + 'px';
+    return;
+  }
+
   const tb = document.getElementById('tb');
   if (!tb) return;
   const r = tb.getBoundingClientRect();
   penPanel.style.top = Math.round(r.bottom + 8) + 'px';
-  const w = penPanel.offsetWidth;
-  const left = Math.max(8, Math.round((window.innerWidth - w) / 2));
-  penPanel.style.left = left + 'px';
 }
 
 /* ------------------------------------------------------------------ */
@@ -2201,6 +2248,16 @@ function boot() {
     hideSheets();
   });
 
+  // touching the pill is a reason to keep it up: picking a width or a colour
+  // resets the clock, so it never disappears from under a finger
+  penPanel?.addEventListener('pointerdown', () => {
+    if (peek) peekPill();
+  });
+  // unlocking brings the toolbar back, so the pill no longer needs asking for
+  document.addEventListener('inkpad-focus', () => {
+    if (document.documentElement.dataset.focus !== '1') endPeek();
+  });
+
   window.setInterval(tick, 220);
   paintPanel();
 
@@ -2213,6 +2270,9 @@ function boot() {
 
   (window as any).__inkpad_ink = {
     panel: () => penPanel,
+    /** Focus mode: bring the pill up for a few seconds (the rail calls this). */
+    peek: (ms?: number) => peekPill(ms),
+    endPeek: () => endPeek(),
     color: (hex: string) => setColor(hex),
     penType: (v: string) => setPenType(v),
     size: (v: number) => setSize(v),

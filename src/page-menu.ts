@@ -43,6 +43,11 @@ html[data-bar=compact] #pgm-head{display:none!important}
 /* The bar is its own stacking context and the ink pill (z 28) plus its
    popovers (z 34) sit right under it, so an open card has to win that fight. */
 html[data-pgm="1"] #tb{z-index:40!important}
+/* ...but anything the card *opens* has to win against the card. Guides,
+   Layers, Engineering symbols and the Figure library are all the engine's
+   drawer, which sits at z 30 — under the card at 60, so the window opened
+   behind the menu and you could only see the sliver that stuck out. */
+html[data-pgm="1"] #gn-drw{z-index:70!important}
 html[data-bar=full] #bar2.open{
   position:fixed!important;left:0;top:0;margin:0!important;
   display:flex!important;flex-wrap:wrap!important;align-items:center!important;
@@ -69,10 +74,12 @@ html[data-bar=full] #bar2.open #pgm .pgm-car{display:none}
    wrapping flex row without wrapping the controls in a container — and wrapping
    them is what breaks the engine's own insertions. */
 #bar2 .pgm-br{flex:0 0 100%;height:0;margin:0;padding:0;border:0}
-/* the paper detail rows, hosted from paper-pro */
+/* the paper detail rows, hosted from paper-pro. A column, not a wrapped row:
+   each setting gets its own line, and a row of chips cannot run into the title
+   of the next one. */
 #bar2 .pgm-detail{
-  flex:0 0 100%;display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;
-  padding:2px 0 0;
+  flex:0 0 100%;display:flex;flex-direction:column;align-items:stretch;gap:1px;
+  padding:6px 0 2px;margin-top:4px;border-top:1px solid #f0f3f8;
 }
 #bar2 .pgm-detail > div{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
 #bar2 .pgm-lab{
@@ -223,7 +230,13 @@ function build() {
 
   document.addEventListener('change', (e) => {
     const t = e.target as HTMLElement;
-    if (t && (t.id === 'tpl' || t.id === 'pc')) paint();
+    if (!t) return;
+    if (t.id === 'tpl' || t.id === 'pc') {
+      paint();
+      // the paper rows depend on which paper this is
+      mountDetail(true);
+      place();
+    }
   });
   document.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
@@ -306,7 +319,7 @@ function paint() {
 }
 
 /** Paper ruling, grid, margin and texture — the rows the drawer used to hold. */
-function mountDetail() {
+function mountDetail(force = false) {
   if (!bar2) return;
   let host = bar2.querySelector<HTMLElement>('.pgm-detail');
   if (!host) {
@@ -314,7 +327,9 @@ function mountDetail() {
     host.className = 'pgm-detail';
     bar2.append(host);
   }
-  if (host.childElementCount) return;
+  if (host.childElementCount && !force) return;
+  // which rows apply depends on the paper, so a template change rebuilds it
+  host.innerHTML = '';
   const fn = (window as any).__paperDetail;
   if (typeof fn === 'function') {
     try {

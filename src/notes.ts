@@ -71,6 +71,8 @@ const SKIN_KEY = 'inkpad-note-skin';
 const DESIGN_KEY = 'inkpad-note-design';
 let skinId = 'yellow';
 let designId = 'classic';
+/** The toolbar button, kept so the popover can still be anchored to it. */
+let noteBtn: HTMLElement | null = null;
 
 function currentSkin(): NoteSkin {
   return SKINS.find((s) => s.id === skinId) || SKINS[0];
@@ -1182,6 +1184,7 @@ function ensureButton() {
   b.setAttribute('aria-label', 'Sticky note');
   b.textContent = '🗒️ Note';
   b.onclick = () => toggle(b);
+  noteBtn = b;
   const stk = document.getElementById('gn-stk-btn');
   if (stk && stk.parentElement === bar) bar.insertBefore(b, stk.nextSibling);
   else bar.append(b);
@@ -1294,6 +1297,10 @@ function boot() {
 
   (window as any).__inkpad_notes = {
     add: () => insertNote(),
+    /** Open the note popover under something other than the toolbar button —
+        Accessories hosts the entry now, so the row is the anchor. */
+    toggle: (anchor?: HTMLElement) => toggle(anchor || noteBtn || document.body),
+    isOpen: () => !!document.getElementById('gn-note')?.classList.contains('on'),
     skins: SKINS,
     designs: DESIGNS,
     image: (d: string, s: string, w = 300, h = 232) =>

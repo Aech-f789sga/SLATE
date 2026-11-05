@@ -113,7 +113,6 @@ html[data-focus="1"] #pg,
 html[data-focus="1"] #side,
 html[data-focus="1"] #frb,
 html[data-focus="1"] #tour-fab,
-html[data-focus="1"] #ink-pen,
 html[data-focus="1"] #ink-brush,
 html[data-focus="1"] #ink-penset,
 html[data-focus="1"] #ink-erset,
@@ -141,6 +140,13 @@ html[data-focus="1"] #calc-pop{display:none!important}
 /* A locked page should feel like a page: no margin theatre, no scrollbar seam. */
 html[data-focus="1"] #stage{padding:10px}
 html[data-focus="1"] #ed{background:var(--bg,#eef1f5)}
+
+/* The pen pill is part of the toolbar, so it goes with it — except when the
+   rail asks for it. Picking a pen in focus mode puts the peek class on the
+   pill for a few seconds: width and colour are what you reach for next, and
+   with the toolbar gone there was no way to reach them at all. */
+html[data-focus="1"] #ink-pen:not(.peek){display:none!important}
+html[data-focus="1"] #ink-pen.peek{z-index:36}
 
 /* The rail's grip sits below a top-mounted rail, so leave room for it. */
 html[data-focus="1"] body.pd-open[data-pd=top] #stage{padding-top:96px}

@@ -529,6 +529,11 @@ function paint() {
       }
       lastTap = { at: Date.now(), i };
       apply(s);
+      // the toolbar is gone while the page is locked, and the pill is part of
+      // it — so picking a pen is what asks for the width and colour back
+      if (focus && s.kind !== 'laser' && s.kind !== 'bucket') {
+        (window as any).__inkpad_ink?.peek?.();
+      }
     };
     slot.oncontextmenu = (e) => {
       e.preventDefault();
@@ -818,30 +823,52 @@ window.addEventListener('pointercancel', () => {
 /* Drag the whole rail to another edge (focus mode only)               */
 /* ------------------------------------------------------------------ */
 
+/** The edge a point is closest to. */
+function sideFor(x: number, y: number): Side {
+  const gap = { left: x, right: window.innerWidth - x, top: y, bottom: window.innerHeight - y };
+  return (Object.keys(gap) as Side[]).sort((a, b) => gap[a] - gap[b])[0];
+}
+
+/** How close to an edge the finger has to be before the rail snaps to it. */
+const EDGE_PULL = 110;
+
 function startDrag(e: PointerEvent) {
   if (!focus || !dock) return;
   e.preventDefault();
   e.stopPropagation();
   const startX = e.clientX;
   const startY = e.clientY;
-  const box = dock.getBoundingClientRect();
-  const cx = box.left + box.width / 2;
-  const cy = box.top + box.height / 2;
   dock.classList.add('pd-dragging');
 
   const move = (m: PointerEvent) => {
-    dock!.style.setProperty('--dx', `${m.clientX - startX}px`);
-    dock!.style.setProperty('--dy', `${m.clientY - startY}px`);
+    const dx = m.clientX - startX;
+    const dy = m.clientY - startY;
+    const near = sideFor(m.clientX, m.clientY);
+    const dist = Math.min(m.clientX, window.innerWidth - m.clientX, m.clientY, window.innerHeight - m.clientY);
+
+    // Near an edge the rail turns to face it and rides along it, so the edge it
+    // will land on is the edge you can see *while* you are still holding it.
+    // Before this it kept its old orientation until the drop, and the only way
+    // to know where it would go was to let go and look.
+    if (dist < EDGE_PULL) {
+      if (near !== side) {
+        side = near;
+        applySide();
+      }
+      const alongX = near === 'left' || near === 'right';
+      dock!.style.setProperty('--dx', alongX ? '0px' : `${dx}px`);
+      dock!.style.setProperty('--dy', alongX ? `${dy}px` : '0px');
+      return;
+    }
+    dock!.style.setProperty('--dx', `${dx}px`);
+    dock!.style.setProperty('--dy', `${dy}px`);
   };
   const up = (u: PointerEvent) => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', up);
     dock?.classList.remove('pd-dragging');
-    const x = cx + (u.clientX - startX);
-    const y = cy + (u.clientY - startY);
-    const gap = { left: x, right: window.innerWidth - x, top: y, bottom: window.innerHeight - y };
-    side = (Object.keys(gap) as Side[]).sort((a, b) => gap[a] - gap[b])[0];
+    side = sideFor(u.clientX, u.clientY);
     saveSide();
     applySide();
     dock?.style.removeProperty('--dx');
