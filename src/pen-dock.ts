@@ -463,7 +463,9 @@ function buildDock() {
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></svg>';
   gear.onclick = (e) => {
     e.stopPropagation();
-    openSheet(0);
+    // the gear is a toggle, like every other panel button in the editor
+    if (sheet?.classList.contains('on')) closeSheet();
+    else openSheet(0);
   };
 
   foot.append(grip, add, gear);
