@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Slate</string>
+    <string name="gate_loading">Opening Slate…</string>
+    <string name="gate_offline">Offline — opening your last version</string>
+    <string name="update_ready">Update %1$s is ready</string>
+    <string name="restart_now">Restart</string>
+    <string name="later">Later</string>
+    <string name="exit_confirm">Press back again to leave Slate</string>
+    <string name="google_unavailable">Google sign-in needs one more setup step — use email, or open Slate in your browser.</string>
+</resources>

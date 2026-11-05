@@ -8,6 +8,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -39,6 +40,28 @@ export const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestore
 
 export const googleProvider = new GoogleAuthProvider();
 
+/**
+ * Google sign-in that also works inside the Android app.
+ *
+ * Google refuses to serve its OAuth flow to an embedded WebView, so
+ * `signInWithPopup` is a dead end there — the popup never opens and the button
+ * appears to do nothing. When the APK is hosting us it exposes
+ * `window.SlateNative.signInWithGoogle()`, which runs the real Android account
+ * picker and resolves with a Google ID token; we trade that token for a normal
+ * Firebase session. In a browser the native surface is absent and we fall back
+ * to the popup, so the web build is unchanged.
+ */
+export async function signInWithGoogleAnywhere(): Promise<any> {
+  const native = (window as any)?.SlateNative;
+
+  if (native?.signInWithGoogle && native?.hasGoogleSignIn?.()) {
+    const idToken: string = await native.signInWithGoogle();
+    return signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+  }
+
+  return signInWithPopup(auth, googleProvider);
+}
+
 // Test connection on boot per Firebase skill guidelines
 async function testConnection() {
   try {
@@ -53,6 +76,7 @@ testConnection();
 
 export {
   signInWithPopup,
+  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   firebaseSignOut,

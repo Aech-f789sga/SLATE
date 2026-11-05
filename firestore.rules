@@ -31,5 +31,17 @@ service cloud.firestore {
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
       allow write: if isAdmin();
     }
+
+    // Release channel — which web build every APK is allowed to load.
+    //
+    // World-readable on purpose: the APK has to know which build to open
+    // *before* the user signs in, so this document cannot require auth.
+    // It holds no user data, only version strings and public deploy URLs.
+    // Writable only by the admin, so a build reaches users only when the
+    // admin approves it.
+    match /app_config/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

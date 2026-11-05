@@ -1,0 +1,152 @@
+name: Release
+
+# Every push to main produces two things:
+#   1. a web build deployed to Vercel, recorded in Firestore as *pending*
+#   2. a signed APK, kept as a build artifact
+#
+# Nothing reaches users automatically. The pending build sits in Firestore until
+# the admin opens /release-admin.html and presses "Approve & distribute".
+# See android/README.md for the full picture.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Deploy the web build to production or as a preview
+        type: choice
+        options: [production, preview]
+        default: production
+      skip_apk:
+        description: Skip the Android build
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  web:
+    name: Web build → pending
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The repo ships bun.lock, so build with bun — npm would resolve fresh
+      # semver ranges and produce a build that differs from what you tested.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Version
+        id: meta
+        run: |
+          echo "version=$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Vercel
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          CHANNEL="${{ inputs.channel || 'production' }}"
+          if [ "$CHANNEL" = "preview" ]; then
+            FLAG=""
+          else
+            FLAG="--prod"
+          fi
+
+          URL="$(npx --yes vercel@latest deploy $FLAG \
+            --token="$VERCEL_TOKEN" \
+            --yes \
+            --meta githubCommitSha="$GITHUB_SHA" \
+            --meta githubCommitRef="$GITHUB_REF_NAME" 2>/dev/null | tail -n 1)"
+
+          case "$URL" in
+            https://*) ;;
+            *) echo "Vercel did not return a deployment URL (got: $URL)"; exit 1 ;;
+          esac
+
+          echo "Deployed: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Record as pending
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-sa.json
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$SA_JSON" > "$GOOGLE_APPLICATION_CREDENTIALS"
+          node scripts/publish-release.mjs \
+            --url "${{ steps.deploy.outputs.url }}" \
+            --version "${{ steps.meta.outputs.version }}" \
+            --commit "${GITHUB_SHA::7}" \
+            --notes "$(git log -1 --pretty=%s)"
+
+  apk:
+    name: Android APK
+    needs: web
+    if: ${{ inputs.skip_apk != true }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v3
+
+      - name: Restore signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SLATE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p android/keystore
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/keystore/slate-release.jks
+          cat > android/keystore.properties <<EOF
+          storeFile=keystore/slate-release.jks
+          storePassword=${{ secrets.SLATE_STORE_PASSWORD }}
+          keyAlias=${{ secrets.SLATE_KEY_ALIAS }}
+          keyPassword=${{ secrets.SLATE_KEY_PASSWORD }}
+          EOF
+
+      - name: Build
+        working-directory: android
+        run: |
+          gradle assembleRelease \
+            -PslateVersionCode=${{ github.run_number }} \
+            -PslateVersionName=${{ needs.web.outputs.version }} \
+            --no-daemon
+
+      - name: Rename
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk \
+             "dist/slate-${{ needs.web.outputs.version }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slate-apk-${{ needs.web.outputs.version }}
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk

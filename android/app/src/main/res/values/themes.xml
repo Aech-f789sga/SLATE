@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- The web app paints its own chrome, so the native theme only has to get
+         out of the way: no action bar, light status bar, brand background so
+         there is no white flash before the WebView paints. -->
+    <style name="Theme.Slate" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@color/slate_bg</item>
+        <item name="android:statusBarColor">@color/slate_bg</item>
+        <item name="android:navigationBarColor">@color/slate_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="colorPrimary">@color/slate_brand</item>
+        <item name="colorAccent">@color/slate_brand</item>
+    </style>
+
+</resources>

@@ -5,8 +5,7 @@
 
 import {
   auth,
-  googleProvider,
-  signInWithPopup,
+  signInWithGoogleAnywhere,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   firebaseSignOut,
@@ -191,7 +190,7 @@ export const cloudSync = {
 
   async signInWithGoogle() {
     try {
-      return await signInWithPopup(auth, googleProvider);
+      return await signInWithGoogleAnywhere();
     } catch (e) {
       throw friendlyAuthError(e);
     }
@@ -899,6 +898,7 @@ function buildAdminPanel(): HTMLElement {
     '<button class="ic" id="admin-close" style="font-size:16px;padding:2px 6px">✕</button>' +
     '</div>' +
     '<div id="admin-id" style="font-size:11px;color:var(--mu)"></div>' +
+    '<a href="/release-admin.html" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid var(--bd);border-radius:10px;font-size:13px;font-weight:600;color:var(--ac);text-decoration:none">📦 Release channel<span style="margin-left:auto;color:var(--mu);font-weight:400;font-size:12px">approve updates →</span></a>' +
     '<div id="admin-summary" style="font-size:12px;color:var(--mu)"></div>' +
     '<div id="admin-list" style="display:flex;flex-direction:column;gap:6px"></div>' +
     '<div style="font-size:11px;color:var(--mu);line-height:1.5">Blocking signs the account out on its next check and the client refuses to sync. Contact address shown to users: ' +

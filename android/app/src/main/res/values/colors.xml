@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="slate_bg">#E9EEF7</color>
+    <color name="slate_brand">#2F6DF6</color>
+    <color name="slate_ink">#12161F</color>
+    <color name="slate_muted">#5A6478</color>
+</resources>

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Slate — Release channel</title>
+<meta name="robots" content="noindex, nofollow" />
+<style>
+  :root {
+    --bg: #e9eef7;
+    --card: #ffffff;
+    --ink: #12161f;
+    --muted: #5a6478;
+    --line: #dbe3f0;
+    --brand: #2f6df6;
+    --brand-ink: #ffffff;
+    --ok: #147a4b;
+    --warn: #a85b00;
+    --warn-bg: #fff5e6;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 11px; flex: none;
+    background: var(--brand); color: #fff; display: grid; place-items: center;
+    font-weight: 700; font-size: 18px;
+  }
+  h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0; }
+  .spacer { flex: 1; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px; margin-bottom: 14px;
+  }
+  .card.pending { border-color: #bcd0f8; box-shadow: 0 1px 0 #d8e3fa, 0 8px 24px -18px #2f6df6; }
+  .row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
+  .version { font-size: 21px; font-weight: 650; letter-spacing: -0.02em; }
+  .meta { color: var(--muted); font-size: 12.5px; word-break: break-all; }
+  .notes { margin: 12px 0 0; padding-left: 18px; color: var(--ink); font-size: 13.5px; }
+  .notes li { margin: 3px 0; }
+  .actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 16px; }
+  button, .btn {
+    font: inherit; font-size: 13.5px; font-weight: 550; border-radius: 10px;
+    padding: 9px 15px; border: 1px solid var(--line); background: #fff; color: var(--ink);
+    cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+  }
+  button:hover, .btn:hover { border-color: #c3cfe4; }
+  button.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+  button.primary:hover { filter: brightness(1.06); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .badge {
+    font-size: 11px; font-weight: 650; padding: 3px 9px; border-radius: 999px;
+    background: var(--warn-bg); color: var(--warn); letter-spacing: 0.02em;
+  }
+  .badge.live { background: #e6f6ee; color: var(--ok); }
+  .empty { color: var(--muted); font-size: 13.5px; }
+  .history { list-style: none; margin: 0; padding: 0; }
+  .history li {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0; border-top: 1px solid var(--line);
+  }
+  .history li:first-child { border-top: 0; }
+  .history .v { font-weight: 600; font-size: 13.5px; }
+  .history .when { color: var(--muted); font-size: 12px; }
+  .history button { margin-left: auto; padding: 6px 11px; font-size: 12.5px; }
+  .warnbox {
+    background: var(--warn-bg); border: 1px solid #f2dcb8; color: #6b3d00;
+    border-radius: var(--radius); padding: 14px 16px; font-size: 13.5px; margin-bottom: 14px;
+  }
+  input[type="text"] {
+    width: 100%; font: inherit; font-size: 13.5px; padding: 9px 12px;
+    border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink);
+  }
+  .field { margin-top: 10px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    background: #12161f; color: #fff; padding: 11px 18px; border-radius: 11px;
+    font-size: 13.5px; opacity: 0; pointer-events: none; transition: opacity .18s;
+  }
+  .toast.show { opacity: 1; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">S</div>
+    <div>
+      <h1>Release channel</h1>
+      <p class="sub">Approve which web build the Slate app is allowed to load.</p>
+    </div>
+    <div class="spacer"></div>
+    <div id="who" class="meta"></div>
+  </header>
+
+  <div id="app"></div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import {
+  getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
+} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+import {
+  getFirestore, doc, onSnapshot, setDoc, serverTimestamp,
+} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+
+const ADMIN_EMAIL = 'derrickdarrack@gmail.com';
+
+const firebaseConfig = {
+  projectId: 'project-d6c1fcd0-76ec-4d52-b97',
+  appId: '1:87651980632:web:ec1f0a2bd6863e21bf012d',
+  apiKey: 'AIzaSyAh5C2jXdxXP_-DxzRQJicT7xuOyiQAIUo',
+  authDomain: 'project-d6c1fcd0-76ec-4d52-b97.firebaseapp.com',
+  storageBucket: 'project-d6c1fcd0-76ec-4d52-b97.firebasestorage.app',
+  messagingSenderId: '87651980632',
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app, 'ai-studio-slate-289ffd97-dd6b-4b1f-9f9d-93b8e9fea93e');
+const releaseRef = doc(db, 'app_config', 'release');
+
+const root = document.getElementById('app');
+const who = document.getElementById('who');
+
+let state = { loading: true, data: null, user: null, error: null };
+let unsubscribe = null;
+
+/* ---------------------------------------------------------------- helpers */
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function when(ms) {
+  const n = Number(ms);
+  if (!n) return '—';
+  const d = new Date(n);
+  const diff = (Date.now() - n) / 1000;
+  const rel = diff < 60 ? 'just now'
+    : diff < 3600 ? `${Math.floor(diff / 60)} min ago`
+    : diff < 86400 ? `${Math.floor(diff / 3600)} h ago`
+    : `${Math.floor(diff / 86400)} d ago`;
+  return `${d.toLocaleString()} · ${rel}`;
+}
+
+function toast(message) {
+  const el = document.getElementById('toast');
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+const isAdmin = (user) =>
+  !!user && (user.email || '').toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
+/* ----------------------------------------------------------------- render */
+
+function render() {
+  who.innerHTML = state.user
+    ? `${esc(state.user.email)} · <a href="#" id="out">sign out</a>`
+    : '';
+  const out = document.getElementById('out');
+  if (out) {
+    out.onclick = (e) => { e.preventDefault(); signOut(auth); };
+  }
+
+  if (state.loading) {
+    root.innerHTML = `<div class="card"><p class="empty">Loading release channel…</p></div>`;
+    return;
+  }
+
+  if (!state.user) {
+    root.innerHTML = `
+      <div class="card">
+        <p class="sub" style="margin:0 0 14px">
+          Sign in with the admin Google account to see and approve builds.
+        </p>
+        <button class="primary" id="in">Continue with Google</button>
+      </div>`;
+    document.getElementById('in').onclick = async () => {
+      try {
+        await signInWithPopup(auth, new GoogleAuthProvider());
+      } catch (err) {
+        toast(err?.message || 'Sign-in failed');
+      }
+    };
+    return;
+  }
+
+  if (!isAdmin(state.user)) {
+    root.innerHTML = `
+      <div class="warnbox">
+        <strong>${esc(state.user.email)}</strong> is not the admin account.
+        Only <code>${esc(ADMIN_EMAIL)}</code> can approve builds.
+      </div>`;
+    return;
+  }
+
+  const d = state.data || {};
+  const approved = d.approved || null;
+  const pending = d.pending || null;
+  const history = Array.isArray(d.history) ? d.history : [];
+  const apk = d.apk || null;
+  const pendingIsNew = pending && (!approved || pending.url !== approved.url);
+
+  const pendingCard = pendingIsNew ? `
+    <div class="card pending">
+      <div class="row">
+        <span class="label">Waiting for you</span>
+        <span class="badge">Not live</span>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <span class="version">${esc(pending.version)}</span>
+        <span class="meta">${esc(when(pending.at))}</span>
+      </div>
+      ${pending.commit ? `<p class="meta" style="margin:6px 0 0">commit <code>${esc(pending.commit)}</code></p>` : ''}
+      <p class="meta" style="margin:6px 0 0">${esc(pending.url)}</p>
+      ${pending.notes ? `<ul class="notes">${String(pending.notes).split('\n').filter(Boolean).map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
+      <div class="actions">
+        <button class="primary" id="approve">Approve &amp; distribute</button>
+        <a class="btn" href="${esc(pending.url)}" target="_blank" rel="noopener">Preview build</a>
+      </div>
+    </div>` : `
+    <div class="card">
+      <div class="row"><span class="label">Waiting for you</span></div>
+      <p class="empty" style="margin:8px 0 0">
+        Nothing pending. Push to <code>main</code> and the next build will appear here.
+      </p>
+    </div>`;
+
+  const approvedCard = `
+    <div class="card">
+      <div class="row">
+        <span class="label">Live for everyone</span>
+        ${approved ? '<span class="badge live">Live</span>' : ''}
+      </div>
+      ${approved ? `
+        <div class="row" style="margin-top:6px">
+          <span class="version">${esc(approved.version)}</span>
+          <span class="meta">${esc(when(approved.at))}</span>
+        </div>
+        <p class="meta" style="margin:6px 0 0">${esc(approved.url)}</p>
+        <div class="actions">
+          <a class="btn" href="${esc(approved.url)}" target="_blank" rel="noopener">Open live build</a>
+        </div>`
+      : `<p class="empty" style="margin:8px 0 0">
+           No build approved yet. Users fall back to the bundled URL until you approve one.
+         </p>`}
+    </div>`;
+
+  const historyCard = history.length ? `
+    <div class="card">
+      <div class="row"><span class="label">Previous builds</span></div>
+      <ul class="history" style="margin-top:8px">
+        ${history.slice(0, 12).map((h, i) => `
+          <li>
+            <div>
+              <div class="v">${esc(h.version)}</div>
+              <div class="when">${esc(when(h.at))}</div>
+            </div>
+            <button data-rollback="${i}">Roll back</button>
+          </li>`).join('')}
+      </ul>
+    </div>` : '';
+
+  const apkCard = `
+    <div class="card">
+      <div class="row"><span class="label">Android app</span></div>
+      <p class="empty" style="margin:8px 0 10px">
+        ${apk
+          ? `Published APK <strong>${esc(apk.version)}</strong> · ${esc(when(apk.at))}
+             <br><a href="${esc(apk.url)}" target="_blank" rel="noopener">${esc(apk.url)}</a>`
+          : 'No APK link published. The app updates its <em>content</em> through this page, so a new APK is only needed for native changes.'}
+      </p>
+      <div class="field">
+        <input type="text" id="apk-url" placeholder="https://github.com/…/releases/download/v1.2.0/slate.apk" />
+      </div>
+      <div class="field">
+        <input type="text" id="apk-ver" placeholder="1.2.0" />
+      </div>
+      <div class="actions">
+        <button id="apk-save">Publish APK link</button>
+      </div>
+    </div>`;
+
+  root.innerHTML = pendingCard + approvedCard + historyCard + apkCard;
+
+  const approveBtn = document.getElementById('approve');
+  if (approveBtn) approveBtn.onclick = () => approve(pending, approved, history);
+
+  root.querySelectorAll('[data-rollback]').forEach((btn) => {
+    btn.onclick = () => rollback(history[Number(btn.dataset.rollback)], approved, history);
+  });
+
+  const apkSave = document.getElementById('apk-save');
+  if (apkSave) {
+    apkSave.onclick = async () => {
+      const url = document.getElementById('apk-url').value.trim();
+      const version = document.getElementById('apk-ver').value.trim();
+      if (!url || !version) return toast('Both fields are required');
+      if (!/^https:\/\//.test(url)) return toast('The APK link must be https');
+      apkSave.disabled = true;
+      try {
+        await setDoc(releaseRef, {
+          apk: { version, url, at: Date.now() },
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        toast('APK link published');
+      } catch (err) {
+        toast(err?.message || 'Could not save');
+      } finally {
+        apkSave.disabled = false;
+      }
+    };
+  }
+}
+
+/* ---------------------------------------------------------------- actions */
+
+async function approve(pending, approved, history) {
+  if (!pending) return;
+  const btn = document.getElementById('approve');
+  btn.disabled = true;
+  try {
+    const nextHistory = [approved, ...history].filter(Boolean).slice(0, 20);
+    await setDoc(releaseRef, {
+      approved: pending,
+      pending: null,
+      history: nextHistory,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    toast(`${pending.version} is now live for every user`);
+  } catch (err) {
+    toast(err?.message || 'Approve failed');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function rollback(target, approved, history) {
+  if (!target) return;
+  if (!confirm(`Roll everyone back to ${target.version}?`)) return;
+  try {
+    const remaining = history.filter((h) => h.url !== target.url);
+    const nextHistory = [approved, ...remaining].filter(Boolean).slice(0, 20);
+    await setDoc(releaseRef, {
+      approved: target,
+      history: nextHistory,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    toast(`Rolled back to ${target.version}`);
+  } catch (err) {
+    toast(err?.message || 'Rollback failed');
+  }
+}
+
+/* ------------------------------------------------------------------- wire */
+
+onAuthStateChanged(auth, (user) => {
+  state.user = user;
+
+  if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+
+  if (user && isAdmin(user)) {
+    unsubscribe = onSnapshot(releaseRef, (snap) => {
+      state.data = snap.exists() ? snap.data() : {};
+      state.loading = false;
+      state.error = null;
+      render();
+    }, (err) => {
+      state.loading = false;
+      state.error = err;
+      root.innerHTML = `<div class="warnbox">Could not read the release document: ${esc(err.message)}</div>`;
+    });
+  } else {
+    state.loading = false;
+    state.data = null;
+    render();
+  }
+});
+</script>
+</body>
+</html>

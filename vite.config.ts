@@ -64,6 +64,10 @@ export default defineConfig(() => {
           // 4K wallpaper is bigger than this whole app. Precaching them would
           // mean downloading every theme on first visit.
           globIgnores: ['**/stickers/**', '**/themes/**', '**/mods/**'],
+          // release-admin.html is a plain page, not a route of the SPA. Without
+          // this the service worker would answer the navigation with the cached
+          // index.html shell and the admin console would never appear.
+          navigateFallbackDenylist: [/^\/release-admin\.html/],
           runtimeCaching: [
             {
               urlPattern: /\/stickers\/.*\.svg$/i,

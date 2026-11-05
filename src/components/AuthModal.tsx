@@ -6,8 +6,7 @@
 import React, { useState } from 'react';
 import {
   auth,
-  googleProvider,
-  signInWithPopup,
+  signInWithGoogleAnywhere,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -34,7 +33,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     setMessage(null);
     setLoading(true);
     try {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithGoogleAnywhere();
       if (onAuthSuccess) onAuthSuccess();
       onClose();
     } catch (err: any) {
