@@ -846,6 +846,15 @@ const EDITOR_STEPS: Step[] = [
     after: closeOverflow,
     pad: 6,
   },
+
+  /* ---- the two session switches, in their own pill ------------------- */
+  {
+    target: () => document.getElementById('edm'),
+    title: 'Pen only and sound',
+    body:
+      'The two you flip while writing, so they sit outside the page card. <b>Pen only</b> makes a resting hand scroll instead of smudging; <b>Sound</b> is the paper under the nib.',
+    pad: 6,
+  },
   {
     target: byTitle('Guides, symmetry and perspective'),
     title: 'Guides and symmetry',
