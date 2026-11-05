@@ -81,19 +81,55 @@ html[data-bar=compact] #tb{margin:0!important;border-radius:0!important;max-widt
 #tb #bar2 .sep{background:#e3e7ee}
 
 /* desktop and tablet: tools on row one, the white pill centred underneath.
-   The gate matches the one the engine uses to call a window "full" (1000x620),
-   because the second row is a single Page pill now — it costs 41 px, not a
-   strip of controls, so a landscape tablet can afford it and gets its page,
-   paper, zoom and share controls back out of the overflow menu. The 1024 floor
-   is where the tool row stops fitting on one line: below it the pill row would
-   push the tools onto a second line and cost more height than it saves. */
-@media (min-width:1024px) and (min-height:620px){
-  html[data-bar=full] #tb{flex-direction:column;align-items:stretch}
-  html[data-bar=full] #tb #bar{display:flex;flex-wrap:wrap;justify-content:center}
+   Fits on tablets from 640px upwards without horizontal scrolling. */
+@media (min-width:640px) and (min-height:480px){
+  html[data-bar=full] #tb{
+    flex-direction:column;align-items:stretch;
+    padding:4px 8px 6px!important;
+  }
+  html[data-bar=full] #tb #bar{
+    display:flex;flex-wrap:nowrap;justify-content:center;align-items:center;
+    gap:3px;overflow-x:visible;
+  }
+  html[data-bar=full] #tb #bar > *{flex:none}
+  html[data-bar=full] #tb #bar #title{
+    width:min(120px, 15vw);min-width:64px;
+  }
   html[data-bar=full] #tb #bar2{
-    display:flex;position:static;transform:none;margin:6px auto 0!important;
+    display:flex;position:static;transform:none;margin:4px auto 0!important;
     width:max-content;max-width:calc(100% - 12px);max-height:none;overflow:visible;
     justify-content:center;flex-wrap:wrap;
+  }
+}
+
+/* Tablet adjustments for shelf/library (widths between 641px and 1024px) */
+@media (min-width:641px) and (max-width:1024px){
+  #nav{
+    width:190px!important;padding:16px 8px!important;
+  }
+  #nav b{
+    font-size:19px!important;padding:0 4px!important;
+  }
+  #nav a{
+    padding:8px 8px!important;font-size:13.5px!important;
+  }
+  #gn-top{
+    padding:10px 10px!important;gap:6px!important;flex-wrap:nowrap!important;
+  }
+  #gn-top .grow{
+    gap:6px!important;
+  }
+  #gn-search{
+    min-width:60px!important;max-width:180px!important;padding:6px 8px!important;
+  }
+  #gn-board, #gn-study-btn{
+    padding:6px 8px!important;font-size:12px!important;
+  }
+  #gn-new{
+    padding:6px 12px!important;font-size:13px!important;
+  }
+  #libm > .gn-body{
+    padding:16px 16px 30px!important;
   }
 }
 
@@ -299,7 +335,7 @@ html[data-bar=compact] #tb #more{
 }
 #auth-login-btn:hover{background:#fafbfc!important;border-color:#cfd6e0!important}
 
-@media(max-width:760px){
+@media(max-width:640px){
   #gn-tabs{padding:0 4px}
   #gn-tab-home span{display:none}
   #libm{padding:0!important}

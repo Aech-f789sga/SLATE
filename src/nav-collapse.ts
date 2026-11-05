@@ -46,7 +46,7 @@ html[data-nav="off"] #nav {
   display: none !important;
 }
 
-@media(max-width:760px) {
+@media(max-width:640px) {
   html[data-nav="off"] #lib {
     flex-direction: column;
   }

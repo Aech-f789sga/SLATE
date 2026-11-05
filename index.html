@@ -2,6 +2,29 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Slate – Handwritten Notes</title>
+<script>
+// Suppress benign ResizeObserver loop limit and undelivered notifications messages
+(function(){
+  function isResizeError(msg){
+    return typeof msg==='string'&&(msg.indexOf('ResizeObserver loop')!==-1||msg.indexOf('undelivered notifications')!==-1);
+  }
+  window.addEventListener('error',function(e){
+    if(isResizeError(e.message)){
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return true;
+    }
+  },true);
+  window.addEventListener('unhandledrejection',function(e){
+    var m=(e&&e.reason&&(e.reason.message||String(e.reason)))||'';
+    if(isResizeError(m)){
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return true;
+    }
+  },true);
+})();
+</script>
 <style>
 :root{--bg:#e6e9ef;--sf:#fff;--tx:#1c1c1e;--mu:#6e6e73;--ac:#2f6df6;--bd:#d9d9de;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1a1a1c;--sf:#2a2a2d;--tx:#f2f2f5;--mu:#9a9aa0;--ac:#5b8cff;--bd:#3d3d42}}
@@ -613,12 +636,12 @@ html[data-bar=compact] #tb{margin:6px 6px 0;border-radius:14px;max-width:calc(10
 html[data-touch="1"] button{min-height:38px}html[data-touch="1"] .ic{min-width:40px}html[data-touch="1"] input,html[data-touch="1"] select{font-size:16px}html[data-touch="1"] .sw{min-height:0;width:28px;height:28px}
 html[data-dev=phone] #stage{padding:8px}html[data-dev=phone] #main{position:relative}html[data-dev=phone] #side{position:absolute;left:0;top:0;bottom:0;z-index:6;box-shadow:4px 0 16px rgba(0,0,0,.3)}html[data-dev=phone] #pg{gap:5px;padding:5px 6px}html[data-dev=phone] #pg button{padding:6px 9px;font-size:13px}html[data-dev=phone] .grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:14px}html[data-dev=phone] #lib h1{font-size:22px}html[data-dev=phone] #et,html[data-dev=phone] #find{max-width:none}
 html[data-bar=compact] #sbar{bottom:calc(56px + env(safe-area-inset-bottom,0px));max-width:96vw;flex-wrap:wrap;justify-content:center}html[data-short="1"] #stage{padding:6px}html[data-short="1"] #pg{position:absolute;right:8px;bottom:8px;z-index:5;border:1px solid var(--bd);border-radius:12px;padding:3px 6px;gap:4px}html[data-short="1"] #sbar{bottom:56px}html[data-short="1"] #tb{margin-top:4px}@media (max-width:700px) and (orientation:portrait){#lib{flex-direction:column}#nav{width:auto;flex-direction:row;align-items:center;gap:6px;padding:10px 12px;border-right:0;border-bottom:1px solid var(--bd);overflow-x:auto;white-space:nowrap}#nav b{margin:0 8px 0 0;padding:0;font-size:18px}#nav a{padding:7px 12px}#libm{min-height:0}}@media (max-height:520px) and (orientation:landscape){#lib #nav{width:150px;padding:12px 8px}#nav b{margin-bottom:8px}}`;
-function adapt(){const r=document.documentElement,w=innerWidth,h=innerHeight,m=Math.min(w,h),co=matchMedia('(pointer:coarse)').matches;DEV=m<600?'phone':(co?(m<1100?'tablet':'desktop'):'desktop');r.dataset.dev=DEV;r.dataset.ori=w>h?'landscape':'portrait';if(adapt.o&&adapt.o!==r.dataset.ori)z=1;adapt.o=r.dataset.ori;r.dataset.touch=co?'1':'0';r.dataset.short=h<520?'1':'0';r.dataset.bar=(w>=1000&&h>=620)?'full':'compact';{const tb=$('#tb');if(tb&&adapt.s!==(h<520)){adapt.s=h<520;tb.classList.toggle('more',false)}}if(nb&&$('#ed').style.display==='flex')layout()}
+function adapt(){const r=document.documentElement,w=innerWidth,h=innerHeight,m=Math.min(w,h),co=matchMedia('(pointer:coarse)').matches;DEV=m<600?'phone':(co?(m<1100?'tablet':'desktop'):'desktop');r.dataset.dev=DEV;r.dataset.ori=w>h?'landscape':'portrait';if(adapt.o&&adapt.o!==r.dataset.ori)z=1;adapt.o=r.dataset.ori;r.dataset.touch=co?'1':'0';r.dataset.short=h<520?'1':'0';r.dataset.bar=(w>=640&&h>=480)?'full':'compact';{const tb=$('#tb');if(tb&&adapt.s!==(h<520)){adapt.s=h<520;tb.classList.toggle('more',false)}}if(nb&&$('#ed').style.display==='flex')layout()}
 function setupBars(){if($('#tb'))return;const st=document.createElement('style');st.textContent=RS;document.head.append(st);const bar=$('#bar'),tb=el('div'),b2=el('div');tb.id='tb';b2.id='bar2';bar.before(tb);tb.append(bar,b2);
  const PRI=n=>['back','title','undo','redo','img','sws','col'].includes(n.id)||(n.dataset&&n.dataset.t)||/Insert video|Engineering symbols|Figure library|Layers|Guides|Animate next|Play animation/.test(n.title||'');
  [...bar.children].forEach(n=>{if(n.classList.contains('sep')){n.remove();return}if(!PRI(n))b2.append(n)});
  const mb=el('button');mb.id='more';mb.className='ic';mb.title='More controls';mb.innerHTML=ico("<circle cx='5' cy='12' r='1.6' fill='currentColor'/><circle cx='12' cy='12' r='1.6' fill='currentColor'/><circle cx='19' cy='12' r='1.6' fill='currentColor'/>");mb.onclick=()=>tb.classList.toggle('more');bar.append(mb);addEventListener('pointerdown',e=>{if(tb.classList.contains('more')&&!e.target.closest('#tb')&&!(typeof DRW!=='undefined'&&DRW.contains(e.target)))tb.classList.remove('more')},true);addEventListener('keydown',e=>{if(e.key==='Escape')tb.classList.remove('more')});tb.classList.toggle('more',false);
- adapt();addEventListener('resize',adapt);addEventListener('orientationchange',()=>setTimeout(adapt,250));try{new ResizeObserver(()=>{if(nb&&$('#ed').style.display==='flex')layout()}).observe($('#main'))}catch(e){}}
+ adapt();addEventListener('resize',adapt);addEventListener('orientationchange',()=>setTimeout(adapt,250));try{let _roRaf=0;new ResizeObserver(()=>{cancelAnimationFrame(_roRaf);_roRaf=requestAnimationFrame(()=>{if(nb&&$('#ed').style.display==='flex')layout()})}).observe($('#main'))}catch(e){}}
 const PT=new Map();let pinch=null;
 addEventListener('pointerdown',e=>{if(e.pointerType!=='touch'||!e.target.closest||!e.target.closest('#cv,#wrap'))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(PT.size===2){e.stopPropagation();if(cur){if(cur.it)pg().strokes=pg().strokes.filter(s=>s!==cur.it);if(cur.t!=='laser'&&undo.length)undo.pop();if(cur.s&&cur.t==='laser')cur.s.rt=performance.now();cur=null;sStop();draw()}const[a,b]=[...PT.values()];pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1])||1,z:z,mx:(a[0]+b[0])/2,my:(a[1]+b[1])/2}}else if(pinch)e.stopPropagation()},true);
 addEventListener('pointermove',e=>{if(!PT.has(e.pointerId))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(pinch&&PT.size>=2){e.stopPropagation();const[a,b]=[...PT.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,s=$('#stage');z=Math.min(8,Math.max(.5,pinch.z*d/pinch.d));layout();s.scrollLeft-=mx-pinch.mx;s.scrollTop-=my-pinch.my;pinch.mx=mx;pinch.my=my}},true);

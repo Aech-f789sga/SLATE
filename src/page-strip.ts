@@ -220,7 +220,11 @@ function build() {
 
   ro?.disconnect();
   if (typeof ResizeObserver === 'function') {
-    ro = new ResizeObserver(() => fitWidth());
+    let fitRaf = 0;
+    ro = new ResizeObserver(() => {
+      cancelAnimationFrame(fitRaf);
+      fitRaf = requestAnimationFrame(() => fitWidth());
+    });
     ro.observe(wrap);
     ro.observe(stage);
   }

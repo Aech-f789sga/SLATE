@@ -548,9 +548,13 @@ if (B.ok) {
   window.setInterval(ensureButton, 900);
 
   if (typeof ResizeObserver !== 'undefined') {
+    let snapRaf = 0;
     new ResizeObserver(() => {
-      if (marked) paintMarker(marked);
-      else clearMarker();
+      cancelAnimationFrame(snapRaf);
+      snapRaf = requestAnimationFrame(() => {
+        if (marked) paintMarker(marked);
+        else clearMarker();
+      });
     }).observe(B.canvas);
   }
 
