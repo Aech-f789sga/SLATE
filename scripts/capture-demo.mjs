@@ -10,10 +10,10 @@
  * The beats, in order:
  *
  *   1. the shelf, drifting                      ~4 s
- *   2. the theme panel, four themes, wallpaper  ~14 s
+ *   2. themes: pick, Load, then the playlist    ~20 s
  *   3. open a notebook                          ~4 s
  *   4. draw, change ink, highlight              ~14 s
- *   5. the page card, then the editor pill      ~12 s
+ *   5. the page card, then the editor card      ~14 s
  *   6. settle                                   ~4 s
  *
  *   node scripts/capture-demo.mjs [port]
@@ -50,6 +50,10 @@ const SEED = () => {
   });
   localStorage.setItem('inkpad-tour-editor-v5', '1');
   localStorage.setItem('inkpad-tour-home-v5', '1');
+  // a returning user has already read the storage notice. Left alone it drops
+  // over the shelf halfway through the theme beat and sits there, which is a
+  // real part of the app but not a thing worth filming.
+  localStorage.setItem('inkpad-guest-dismissed', '1');
   localStorage.setItem(
     'inkpad',
     JSON.stringify([
@@ -179,6 +183,59 @@ async function click(p, sel, settle = 420) {
 }
 
 /**
+ * Click a point rather than a selector.
+ *
+ * Some of the things worth showing have no stable selector — the preset chips
+ * inside the engine's drawer are a row of anonymous buttons whose only handle is
+ * their label — so they are measured once and clicked by coordinate.
+ */
+async function clickAt(p, x, y, settle = 420) {
+  await glide(p, x, y, 22, 260);
+  await wait(p, 90);
+  await p.mouse.down();
+  await wait(p, 70);
+  await p.mouse.up();
+  await wait(p, settle);
+}
+
+/** Centre of the first button inside `container` whose text is exactly `label`. */
+async function buttonByText(p, container, label) {
+  return p.evaluate(
+    ([sel, text]) => {
+      const n = Array.from(document.querySelectorAll(`${sel} button`)).find(
+        (b) => b.textContent.trim() === text
+      );
+      if (!n) return null;
+      const q = n.getBoundingClientRect();
+      if (!q.width) return null;
+      return { x: q.x + q.width / 2, y: q.y + q.height / 2 };
+    },
+    [container, label]
+  );
+}
+
+/**
+ * Wait until a button is actually pressable.
+ *
+ * The coordinate click helpers do not know about `disabled` — they press a point,
+ * and a disabled button swallows the press without a word. The Load button is
+ * disabled for the moment between picking a card and the panel working out that
+ * it has something to load, which is exactly when this script reaches for it.
+ */
+async function waitEnabled(p, sel, timeout = 4000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    const ok = await p.evaluate((s) => {
+      const n = document.querySelector(s);
+      return !!n && !n.disabled && n.getBoundingClientRect().width > 0;
+    }, sel);
+    if (ok) return true;
+    await wait(p, 60);
+  }
+  return false;
+}
+
+/**
  * Click a theme card, scrolling it into view first.
  *
  * The grid is taller than the panel, and a rect below the fold is a rect
@@ -275,11 +332,47 @@ const wallOn = await page.evaluate(() => {
   return !!t?.checked;
 });
 if (!wallOn) await click(page, '#gxp-wall-t', 1200);
+
+/*
+ * A card no longer applies on click — it is *picked*, and the Load button under
+ * the grid fetches the wallpaper and the first track before anything switches.
+ * So each theme here is two presses, and the second one is the one that waits.
+ * The last theme stays: it is the one the playlist beat needs.
+ */
 for (const id of ['cyberdeck', 'grand-theft-auto-san-andreas', 'anime']) {
-  const ok = await clickCard(page, `.gxp-card[data-id="${id}"]`, 1250);
-  if (!ok) console.log('  skipped', id);
+  const ok = await clickCard(page, `.gxp-card[data-id="${id}"]`, 520);
+  if (!ok) {
+    console.log('  skipped', id);
+    continue;
+  }
+  const ready = await waitEnabled(page, '.gxp-go');
+  if (!ready) {
+    console.log('  Load never became pressable for', id);
+    continue;
+  }
+  await click(page, '.gxp-go', 1700);
 }
 await click(page, '.gxp-x', 1100);
+
+/* ---- 2b. the playlist ---- */
+console.log('playlist');
+// anime is a four-track mod; the corner board gets ‹ › once there is more than
+// one track, and the next one starts on its own when a track ends
+await click(page, '#gxm .gxm-fab', 1500);
+const trackBefore = await page.textContent('#gxm .gxm-tnum').catch(() => null);
+const nextTrack = await centre(page, '#gxm [data-trk="1"]');
+if (nextTrack) {
+  await glide(page, nextTrack.x, nextTrack.y, 18, 320);
+  await wait(page, 200);
+  await clickAt(page, nextTrack.x, nextTrack.y, 900);
+  // hold on the new number: it is four characters in the corner of a 1080p
+  // frame, and a beat that lasts a second and a half may as well not be there
+  await glide(page, nextTrack.x - 40, nextTrack.y + 30, 14, 500);
+  await wait(page, 2400);
+}
+const trackAfter = await page.textContent('#gxm .gxm-tnum').catch(() => null);
+console.log(`  track ${trackBefore} -> ${trackAfter}`);
+await click(page, '#gxm .gxm-x', 700);
 
 /* ---- 3. open a notebook ---- */
 console.log('open');
@@ -343,9 +436,31 @@ if (tpl) {
 await page.selectOption('#tpl', 'grid').catch(() => {});
 await wait(page, 1000);
 await click(page, '.pgm-x', 1000);
+
 await click(page, '#edm', 1500);
-await click(page, '#edm-snd', 1300);
-await click(page, '#edm-card .edm-x', 1100);
+await click(page, '#edm-snd', 1200);
+
+/*
+ * The six tools now live in this card instead of the page card. Pressing one
+ * forwards the click to the engine's own button, so the drawer that opens is the
+ * real one — and the grid preset inside it lands on the paper behind.
+ *
+ * Pressing the preset is also what closes the card: a press outside the card is
+ * an outside press, and that is the card's own rule. So the drawer is dismissed
+ * separately, on the grey surround beside the page, where a press cannot ink.
+ */
+const tool = await centre(page, '#edm-card .edm-tools button');
+if (tool) await clickAt(page, tool.x, tool.y, 900);
+
+const gridChip = await buttonByText(page, '#gn-drw', 'Square grid');
+if (gridChip) await clickAt(page, gridChip.x, gridChip.y, 1200);
+
+const pageBox = await page.evaluate(() => {
+  const c = document.getElementById('cv');
+  const q = c.getBoundingClientRect();
+  return { x: q.x, y: q.y, h: q.height };
+});
+await clickAt(page, Math.max(6, pageBox.x - 26), pageBox.y + pageBox.h / 2, 900);
 
 /* ---- 6. settle ---- */
 console.log('settle');

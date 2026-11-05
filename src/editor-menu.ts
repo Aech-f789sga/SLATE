@@ -213,6 +213,95 @@ function toolButtons(): HTMLButtonElement[] {
   );
 }
 
+/**
+ * Put a drawer that a clone opened beside the clone.
+ *
+ * The engine anchors its drawer to the button it was handed, and the button it
+ * gets is the *original* — which `syncTools` hides, so it has no box at all.
+ * A boxless anchor measures 0×0 and the drawer lands in the top-left corner of
+ * the window, a long way from the hand that pressed it. The hand pressed the
+ * clone, so the drawer belongs under the clone. Same placement rules as the
+ * engine's own `openDr`: below the anchor, flipped above when it would run off
+ * the bottom, clamped to the window.
+ */
+function anchorDrawer(anchor: HTMLElement) {
+  const drw = document.getElementById('gn-drw');
+  if (!drw || drw.style.display !== 'block') return;
+  const r = anchor.getBoundingClientRect();
+  const w = drw.offsetWidth;
+  const h = drw.offsetHeight;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, r.left));
+
+  /*
+   * Prefer below, flip above only when below does not fit, and never let the
+   * flip land on the pen row. On a short window `r.top - h - 6` is negative, the
+   * clamp turns that into 8, and the drawer opens across the pen dock — which
+   * reads as the dropdown coming out of the wrong place entirely.
+   */
+  const below = r.bottom + 6;
+  const above = r.top - h - 6;
+  let top = below + h <= innerHeight - 8 ? below : above;
+
+  const pen = document.getElementById('ink-pen');
+  if (pen) {
+    const p = pen.getBoundingClientRect();
+    const hitsPen = p.width > 0 && left < p.right && left + w > p.left && top < p.bottom && top + h > p.top;
+    if (hitsPen) top = p.bottom + 8;
+  }
+  top = Math.max(8, Math.min(innerHeight - h - 8, top));
+
+  drw.style.left = `${left}px`;
+  drw.style.top = `${top}px`;
+  drw.style.right = 'auto';
+  drw.style.bottom = 'auto';
+}
+
+/**
+ * Which clone owns the dropdown that is on screen, and what was open when the
+ * press in progress began.
+ *
+ * A second press on the same icon has to close the dropdown, and the obvious
+ * implementation does not: the engine shuts any drawer on a pointerdown outside
+ * it — and the clone is outside it — so by the time the click arrives the drawer
+ * is already gone, the forwarded click finds no owner, and it opens again. The
+ * result is a dropdown that can be opened but never closed from its own button.
+ *
+ * The state has to be read before the engine reacts, and the engine's listener
+ * is on `document` in the capture phase. A capture listener on `window` runs
+ * before it — `window` is the one node above `document` on the way down — so the
+ * press is judged there: open-and-mine means this press is a close.
+ */
+let openedBy: HTMLElement | null = null;
+let pressWasOpen = false;
+let pressOwner: HTMLElement | null = null;
+
+function watchPress() {
+  window.addEventListener(
+    'pointerdown',
+    () => {
+      const drw = document.getElementById('gn-drw');
+      pressWasOpen = drw?.style.display === 'block';
+      pressOwner = openedBy;
+    },
+    true
+  );
+}
+
+/** Watch the drawer so `openedBy` cannot outlive it, whoever shut it. */
+let watchTries = 0;
+function watchDrawer() {
+  const drw = document.getElementById('gn-drw');
+  if (!drw) {
+    // the engine builds it during parse, so this is only a guard for a page that
+    // loaded its classic script late — give it a few seconds, then give up
+    if (watchTries++ < 10) window.setTimeout(watchDrawer, 300);
+    return;
+  }
+  new MutationObserver(() => {
+    if (drw.style.display !== 'block') openedBy = null;
+  }).observe(drw, { attributes: true, attributeFilter: ['style'] });
+}
+
 function syncTools() {
   const host = card?.querySelector<HTMLElement>('.edm-tools');
   if (!host) return;
@@ -225,12 +314,16 @@ function syncTools() {
       c.type = 'button';
       c.className = 'edm-tool';
       const idx = i;
+      const me = c;
       c.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (pressWasOpen && pressOwner === me) return; // this press closed it
         // look the original up again: the set can change between opens, and the
         // captured node may be a stale clone of a row the engine has rebuilt
         toolButtons()[idx]?.click();
+        anchorDrawer(me);
+        openedBy = document.getElementById('gn-drw')?.style.display === 'block' ? me : null;
         window.setTimeout(syncTools, 140);
       };
       host.append(c);
@@ -431,6 +524,8 @@ function tick() {
 function boot() {
   build();
   tick();
+  watchPress();
+  watchDrawer();
   window.setInterval(tick, 900);
 }
 

@@ -1,0 +1,25 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch();
+const c = await b.newContext({ viewport: { width: 1920, height: 1080 } });
+const p = await c.newPage();
+await p.route('https://fonts.googleapis.com/**', (r) => r.abort());
+await p.addInitScript(() => {
+  localStorage.setItem('inkpad-tour-editor-v5', '1');
+  localStorage.setItem('inkpad-tour-home-v5', '1');
+  localStorage.setItem('inkpad-guest-dismissed', '1');
+  localStorage.setItem('inkpad', JSON.stringify([{ id: 'nb-a', name: 'Algebra II', cover: '#2f6df6', upd: Date.now(), pages: [{ tpl: 'lined', col: '', strokes: [], pw: 800, ph: 1100 }] }]));
+});
+await p.goto('http://localhost:5188/', { waitUntil: 'domcontentloaded' });
+await p.waitForSelector('#grid');
+await p.waitForTimeout(1400);
+await p.evaluate(() => document.getElementById('tour-root')?.remove());
+await p.evaluate(() => window.openNotebook(JSON.parse(localStorage.getItem('inkpad'))[0]));
+await p.waitForTimeout(2200);
+await p.evaluate(() => document.getElementById('tour-root')?.remove());
+await p.click('#edm');
+await p.waitForTimeout(800);
+const t = await p.evaluate(() => { const q = document.querySelectorAll('#edm-card .edm-tools button')[0].getBoundingClientRect(); return { x: q.x + q.width / 2, y: q.y + q.height / 2 }; });
+await p.mouse.click(t.x, t.y);
+await p.waitForTimeout(700);
+await p.screenshot({ path: 'shots/tools-drawer-open.png' });
+await c.close(); await b.close();

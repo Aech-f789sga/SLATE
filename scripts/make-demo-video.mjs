@@ -21,7 +21,13 @@ const FFMPEG =
 
 /** The theme the capture ends on, so the track matches what is on screen. */
 const THEME = process.env.THEME || 'anime';
-const MUSIC = `public/mods/${THEME}/music/layer1.mp3`;
+/**
+ * Which of the theme's tracks. The playlist beat leaves the board reading
+ * "2 / 4", so the bed is track two — a soundtrack that contradicts the frame it
+ * is under is worse than no soundtrack.
+ */
+const TRACK = process.env.TRACK || 'layer2';
+const MUSIC = `public/mods/${THEME}/music/${TRACK}.mp3`;
 
 const rawArg = process.argv[2];
 const raw =
@@ -45,6 +51,29 @@ function duration(file) {
   return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0;
 }
 
+/**
+ * How far to lift the bed, in linear gain.
+ *
+ * The mod tracks are ambient masters and their levels are all over the place:
+ * anime's layer1 measures -32.9 dB mean and layer2, the same theme, -22.1 dB.
+ * A fixed multiplier tuned on one of them is either inaudible on the other or
+ * pinned against the limiter — which is exactly what happened when the
+ * soundtrack moved from track one to track two. So the target is fixed and the
+ * gain is measured: everything lands at the same bed level, and the limiter is
+ * a safety net rather than a working part.
+ */
+const BED_DB = -19;
+
+function gainTo(file, targetDb) {
+  const r = spawnSync(FFMPEG, ['-hide_banner', '-i', file, '-af', 'volumedetect', '-f', 'null', '-'], {
+    encoding: 'utf8',
+  });
+  const m = /mean_volume:\s*(-?[\d.]+) dB/.exec(String(r.stderr || ''));
+  if (!m) return 2.8; // the old default, if the measurement ever fails
+  const g = Math.pow(10, (targetDb - Number(m[1])) / 20);
+  return Math.min(6, Math.max(1, g));
+}
+
 const dur = duration(raw);
 if (!dur) {
   console.error('could not read the duration of', raw);
@@ -52,6 +81,8 @@ if (!dur) {
 }
 
 const fadeOut = Math.max(0, dur - 1.1);
+const gain = existsSync(MUSIC) ? gainTo(MUSIC, BED_DB) : 1;
+if (existsSync(MUSIC)) console.log(`  bed gain ${gain.toFixed(2)}x (${(20 * Math.log10(gain)).toFixed(1)} dB)`);
 const args = [
   '-hide_banner',
   '-y',
