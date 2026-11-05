@@ -93,6 +93,7 @@ html[data-bar=compact] #bar{padding-right:0}
 <script type="module" src="/src/themes.ts"></script>
 <script type="module" src="/src/themes-skin.ts"></script>
 <script type="module" src="/src/skin-material.ts"></script>
+<script type="module" src="/src/nav-collapse.ts"></script>
 <script type="module" src="/src/mod-panel.ts"></script>
 <script type="module" src="/src/pen-dock.ts"></script>
 <script type="module" src="/src/focus.ts"></script>
@@ -608,7 +609,7 @@ function setupBars(){if($('#tb'))return;const st=document.createElement('style')
  adapt();addEventListener('resize',adapt);addEventListener('orientationchange',()=>setTimeout(adapt,250));try{new ResizeObserver(()=>{if(nb&&$('#ed').style.display==='flex')layout()}).observe($('#main'))}catch(e){}}
 const PT=new Map();let pinch=null;
 addEventListener('pointerdown',e=>{if(e.pointerType!=='touch'||!e.target.closest||!e.target.closest('#cv,#wrap'))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(PT.size===2){e.stopPropagation();if(cur){if(cur.it)pg().strokes=pg().strokes.filter(s=>s!==cur.it);if(cur.t!=='laser'&&undo.length)undo.pop();if(cur.s&&cur.t==='laser')cur.s.rt=performance.now();cur=null;sStop();draw()}const[a,b]=[...PT.values()];pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1])||1,z:z,mx:(a[0]+b[0])/2,my:(a[1]+b[1])/2}}else if(pinch)e.stopPropagation()},true);
-addEventListener('pointermove',e=>{if(!PT.has(e.pointerId))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(pinch&&PT.size>=2){e.stopPropagation();const[a,b]=[...PT.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,s=$('#stage');z=Math.min(3,Math.max(.5,pinch.z*d/pinch.d));layout();s.scrollLeft-=mx-pinch.mx;s.scrollTop-=my-pinch.my;pinch.mx=mx;pinch.my=my}},true);
+addEventListener('pointermove',e=>{if(!PT.has(e.pointerId))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(pinch&&PT.size>=2){e.stopPropagation();const[a,b]=[...PT.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,s=$('#stage');z=Math.min(8,Math.max(.5,pinch.z*d/pinch.d));layout();s.scrollLeft-=mx-pinch.mx;s.scrollTop-=my-pinch.my;pinch.mx=mx;pinch.my=my}},true);
 const pEnd=e=>{PT.delete(e.pointerId);if(PT.size<2)pinch=null};addEventListener('pointerup',pEnd,true);addEventListener('pointercancel',pEnd,true);
 function zEnd(s){const L=Math.max(Math.abs(s.b[0]-s.a[0]),Math.abs(s.b[1]-s.a[1]))*.6;return[s.a[0]-L*.7,s.a[1]+L*.7]}
 function shp(c,s){c.save();c.strokeStyle=c.fillStyle=s.c;c.lineWidth=s.w;c.lineCap=c.lineJoin='round';if(s.ds){if(s.dm==="dot"){c.lineCap="round";c.setLineDash([0.1,Math.max(5,s.w*2.8)])}else{c.lineCap="butt";c.setLineDash([Math.max(7,s.w*4),Math.max(6,s.w*3)])}}const[x0,y0]=s.a,[x1,y1]=s.b,k=s.k;
@@ -691,7 +692,7 @@ let te=null,z=1,tt;const tx=$("#tx");
 function setCol(c){color=c;$("#col").value=c;if(sel.length){snap();sel.forEach(s=>{if(s.c)s.c=c});draw();save()}}
 $("#col").oninput=e=>{setCol(e.target.value);document.querySelectorAll(".sw").forEach(x=>x.classList.remove("on"))};
 function layout(){{const s=$("#stage"),pw=DEV==='phone'?14:40,aw=s.clientWidth-pw,ah=s.clientHeight-pw;let b=Math.min(aw,Math.max(260,ah*W/H));b=Math.min(b,(DEV==='desktop'?1100:1000)*W/800);$("#wrap").style.width=Math.max(200,b*z)+"px"}if(!fitting){const dd=wantD();if(Math.abs(dd-cvD)/cvD>.2){clearTimeout(rtm);rtm=setTimeout(fit,150)}}}
-function zoom(f){commitText();z=Math.min(3,Math.max(.5,z*f));layout()}
+function zoom(f){commitText();z=Math.min(8,Math.max(.5,z*f));layout()}
 $("#zi").onclick=()=>zoom(1.2);$("#zo").onclick=()=>zoom(1/1.2);
 $("#stage").addEventListener("wheel",e=>{if(e.ctrlKey){e.preventDefault();zoom(e.deltaY<0?1.1:.9)}},{passive:false});
 function sc(){return cv.getBoundingClientRect().width/W}

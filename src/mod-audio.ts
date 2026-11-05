@@ -88,9 +88,13 @@ class ModAudio {
     this.mod = currentMod();
     this.buildSfx();
 
+    // Any gesture may release the audio lock, not only a pointer press: a
+    // returning visitor who reloads and immediately types into the search box
+    // should get their soundtrack back just as fast as one who clicks.
     const unlock = () => this.unlock();
-    window.addEventListener('pointerdown', unlock, { capture: true, passive: true });
-    window.addEventListener('keydown', unlock, { capture: true });
+    for (const ev of ['pointerdown', 'keydown', 'touchstart', 'wheel'] as const) {
+      window.addEventListener(ev, unlock, { capture: true, passive: true });
+    }
 
     // the theme can change at any time; follow it
     new MutationObserver(() => this.follow()).observe(document.documentElement, {
@@ -98,6 +102,18 @@ class ModAudio {
       attributeFilter: ['data-gx-theme'],
     });
     this.follow();
+
+    // Start the soundtrack now, without waiting for a gesture.
+    //
+    // A refresh used to leave the music silent until something was clicked,
+    // because playback was only ever begun from the unlock handler — and the
+    // panel the user happened to click was simply the first gesture, which made
+    // it look as though the panel were the cause. Chrome lets a returning
+    // visitor autoplay (its media engagement score remembers that this origin
+    // plays audio), so the common case is that this call succeeds outright. A
+    // first-time visitor is refused, playMusic records that, and the listeners
+    // above take over on their first tap.
+    if (this.settings.music) this.playMusic();
 
     this.wireUiSounds();
     // one clock for the stems, cheap enough to leave running
@@ -147,7 +163,12 @@ class ModAudio {
     // Switching to a theme with no music tears the stems down, so by the time
     // you switch back `isPlayingMusic` is already false and the soundtrack
     // stayed silent until you toggled it off and on again.
-    if (this.settings.music && this.unlocked) this.playMusic();
+    //
+    // Not gated on `unlocked` either: the theme is usually applied a tick after
+    // boot, so at the moment this first runs the page has had no gesture at
+    // all. Attempting it here is what makes a reload audible; if the browser
+    // refuses, playMusic records that and the gesture listeners retry.
+    if (this.settings.music) this.playMusic();
     this.emit();
   }
 
