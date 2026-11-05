@@ -1,8 +1,11 @@
 import { chromium } from 'playwright';
 const w = Number(process.argv[2] || 1024);
 const id = process.argv[3] || 'japanese-lofi-mix';
+// Block the service worker: it precaches the bundle, so a probe run right after
+// a rebuild silently measures the previous build.
 const b = await chromium.launch();
-const p = await b.newPage({ viewport: { width: w, height: 760 }, deviceScaleFactor: 2 });
+const ctx = await b.newContext({ viewport: { width: w, height: 760 }, deviceScaleFactor: 2, serviceWorkers: 'block' });
+const p = await ctx.newPage();
 await p.addInitScript(() => {
   localStorage.setItem('inkpad-tour-home-v2','1');
   localStorage.setItem('inkpad-tour-editor-v2','1');
@@ -21,5 +24,5 @@ await p.evaluate(() => document.querySelector('.gxp-x')?.dispatchEvent(new Mouse
 await p.waitForTimeout(400);
 const top = await p.$('#gn-top');
 await top.screenshot({ path: `shots/bar-${w}.png` });
-console.log('bar ' + w);
+console.log('bar ' + w + ' ' + id);
 await b.close();

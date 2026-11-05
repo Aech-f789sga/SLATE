@@ -219,7 +219,17 @@ function paintButton() {
   const dot = b.querySelector('.gxb-dot') as HTMLElement | null;
   if (dot) dot.style.background = `hsl(${t.dark.acc[0]} ${t.dark.acc[1]}% ${t.dark.acc[2]}%)`;
   const lb = b.querySelector('.gxb-lb') as HTMLElement | null;
-  if (lb) lb.textContent = t.name;
+  if (lb) {
+    lb.textContent = t.name;
+    // The label takes the accent, but some mods have an accent dark enough to
+    // be invisible as text — Naruto's is 23% lightness, which is a fine dot and
+    // an unreadable word. So the label uses the accent's hue and saturation
+    // with a floor on lightness. Done here rather than in CSS because this is
+    // the one place that already knows which theme is being worn, and because a
+    // colour set through the cascade kept losing to something for that theme.
+    const [h, s, l] = t.dark.acc;
+    lb.style.color = `hsl(${h} ${Math.min(s, 88)}% ${Math.max(l, 68)}%)`;
+  }
   b.title = `Theme — ${t.name}${t.mod ? ` (${t.mod})` : ''}`;
 }
 
@@ -702,18 +712,27 @@ html[data-gx] #gx-theme-panel .gxp-x svg{
 #gx-theme-row #find{margin-bottom:0!important;flex:1 1 auto;max-width:none!important}
 
 #gx-theme-btn{
-  display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;max-width:196px;
+  display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;max-width:224px;
   font:600 12.5px/1 inherit;padding:8px 13px;border-radius:10px;cursor:pointer;
   border:1px solid var(--bd);background:color-mix(in srgb, var(--sf) 86%, transparent);
   color:var(--tx);white-space:nowrap;overflow:hidden;
 }
 #gx-theme-btn:hover{border-color:var(--ac);color:var(--ac)}
+/* The label's colour is set in paintButton(), which knows the theme and can
+   put a floor under the accent's lightness. See the comment there. */
 #gx-theme-btn .gxb-dot{
   width:11px;height:11px;border-radius:50%;flex:0 0 auto;
   box-shadow:0 0 0 2px color-mix(in srgb, var(--ac) 22%, transparent);
 }
 #gx-theme-btn .gxb-lb{overflow:hidden;text-overflow:ellipsis}
 #gx-theme-btn .gxb-ic{display:none;font-size:15px;line-height:1}
+/* A long name ("Grand Theft Auto: San Andreas", "Minecraft Sound: Fireplace")
+   needs about 220px to show in full. On a narrow bar that is the difference
+   between the New button fitting and being clipped off the edge, so the cap
+   steps down before the bar runs out of room. */
+@media(max-width:1100px){
+  #gx-theme-btn{max-width:176px}
+}
 /* narrow bars keep the control but drop the name; a lone colour dot reads as a
    status light, so swap in the half-moon that means "appearance" */
 @media(max-width:980px){

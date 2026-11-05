@@ -582,6 +582,152 @@ html[data-gx-theme="japanese-lofi-mix"] #gn-tabs button.on{
   letter-spacing:.04em;
 }`,
   },
+
+  /**
+   * Day One. The journal app's own manners: nothing decorative, one hairline,
+   * generous corners, and the accent saved for the thing you are looking at.
+   * The quietest theme in the set on purpose — it is the one to write in.
+   */
+  'day-one': {
+    fam: 'glass',
+    extra: `
+html[data-gx-theme="day-one"]{
+  --mt-panel:color-mix(in srgb, var(--sf) 72%, transparent);
+  --mt-panel2:color-mix(in srgb, var(--bg) 62%, transparent);
+  --mt-blur:blur(12px) saturate(1.1);
+}
+html[data-gx-theme="day-one"] .card{
+  border-radius:14px!important;
+}
+html[data-gx-theme="day-one"] .card:hover{
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--ac) 40%, transparent),
+             0 14px 34px -24px var(--ac)!important;
+}
+html[data-gx-theme="day-one"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+}`,
+  },
+
+  /**
+   * The Traveller. A horizon, not a frame: the panels are glass held by a
+   * single pale hairline, and a wide soft glow sits low on the page where the
+   * ground would be, so the shelf feels like it is standing on something.
+   */
+  'the-traveller': {
+    fam: 'glass',
+    extra: `
+html[data-gx-theme="the-traveller"]{
+  --mt-panel:color-mix(in srgb, var(--sf) 70%, transparent);
+  --mt-panel2:color-mix(in srgb, var(--bg) 58%, transparent);
+  --mt-blur:blur(12px) saturate(1.15);
+  --mt-r:12px;--mt-r2:8px;
+}
+html[data-gx-theme="the-traveller"] #lib{
+  background:
+    radial-gradient(120% 46% at 50% 108%,
+      color-mix(in srgb, var(--ac) 16%, transparent), transparent 72%)!important;
+}
+html[data-gx-theme="the-traveller"] .card{
+  border-radius:12px!important;
+  border-color:color-mix(in srgb, var(--ac) 20%, transparent)!important;
+}
+html[data-gx-theme="the-traveller"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+  letter-spacing:.06em;
+}`,
+  },
+
+  /**
+   * MSI. The one theme that is not rectangular: the panels are chamfered on
+   * opposite corners, which is the whole visual language of a gaming chassis,
+   * and the scanlines are left on. Every other theme here is either square or
+   * rounded, so this is the only shape that could not be mistaken for another.
+   */
+  msi: {
+    fam: 'scan',
+    extra: `
+html[data-gx-theme="msi"]{
+  --mt-clip:polygon(0 0, calc(100% - 14px) 0, 100% 14px,
+                    100% 100%, 14px 100%, 0 calc(100% - 14px));
+  --mt-panel:linear-gradient(180deg,
+    color-mix(in srgb, var(--bg) 78%, transparent),
+    color-mix(in srgb, var(--bg) 86%, transparent));
+  --mt-panel2:color-mix(in srgb, var(--bg) 90%, transparent);
+}
+html[data-gx-theme="msi"] .card{
+  clip-path:polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  border-radius:0!important;
+}
+html[data-gx-theme="msi"] #gn-tabs button.on{
+  box-shadow:inset 0 -3px 0 var(--ac);
+  text-transform:uppercase;
+  letter-spacing:.1em;
+}`,
+  },
+
+  /**
+   * Naruto: Itachi Uchiha. Blood red on black, and the scanlines are the only
+   * texture — the mod is already loud, so the chrome stays flat and lets one
+   * red hairline do the work. Square, tight, no glow.
+   */
+  'naruto-itachi-uchiha': {
+    fam: 'scan',
+    extra: `
+html[data-gx-theme="naruto-itachi-uchiha"]{
+  --mt-panel:linear-gradient(180deg,
+    color-mix(in srgb, var(--bg) 74%, transparent),
+    color-mix(in srgb, var(--bg) 82%, transparent));
+  --mt-panel2:color-mix(in srgb, var(--bg) 86%, transparent);
+  --mt-r:2px;--mt-r2:2px;
+}
+html[data-gx-theme="naruto-itachi-uchiha"] #tb{
+  box-shadow:
+    var(--mt-shadow),
+    inset 0 -2px 0 color-mix(in srgb, var(--ac) 65%, transparent)!important;
+}
+html[data-gx-theme="naruto-itachi-uchiha"] .card{
+  border-radius:2px!important;
+  border-color:color-mix(in srgb, var(--ac) 30%, #000)!important;
+}
+html[data-gx-theme="naruto-itachi-uchiha"] #gn-tabs button.on{
+  box-shadow:inset 0 -3px 0 var(--ac);
+  text-transform:uppercase;
+}`,
+  },
+
+  /**
+   * Grand Theft Auto: San Andreas. A 90s street HUD: thick edges, capitals, a
+   * stripe across the top of the page, and square corners everywhere. The one
+   * theme in the set where a heavier border reads as period-correct rather
+   * than clumsy.
+   */
+  'grand-theft-auto-san-andreas': {
+    fam: 'scan',
+    extra: `
+html[data-gx-theme="grand-theft-auto-san-andreas"]{
+  --mt-r:1px;--mt-r2:1px;
+  --mt-panel:linear-gradient(180deg,
+    color-mix(in srgb, var(--bg) 80%, transparent),
+    color-mix(in srgb, var(--bg) 86%, transparent));
+  --mt-panel2:color-mix(in srgb, var(--bg) 90%, transparent);
+}
+html[data-gx-theme="grand-theft-auto-san-andreas"] #tb{
+  border-width:2px!important;
+  box-shadow:
+    var(--mt-shadow),
+    inset 0 3px 0 color-mix(in srgb, var(--ac) 70%, transparent)!important;
+}
+html[data-gx-theme="grand-theft-auto-san-andreas"] .card{
+  border-width:2px!important;
+  border-radius:1px!important;
+  border-color:color-mix(in srgb, var(--ac) 34%, #000)!important;
+}
+html[data-gx-theme="grand-theft-auto-san-andreas"] #gn-tabs button.on{
+  box-shadow:inset 0 -3px 0 var(--ac);
+  text-transform:uppercase;
+  letter-spacing:.09em;
+}`,
+  },
 };
 
 /* ------------------------------------------------------------------ */
