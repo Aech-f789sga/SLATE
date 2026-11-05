@@ -22,7 +22,7 @@
  * always what you want, and a laptop on battery should be able to stop.
  */
 
-import { currentMod, type ModMedia } from './mod-media';
+import { currentMod, type ModMedia, type Fx } from './mod-media';
 
 /**
  * A live layer is not only for the three mods that ship a video. Every theme
@@ -31,16 +31,6 @@ import { currentMod, type ModMedia } from './mod-media';
  * sakura for the anime mods, embers for the fantasy ones, snow for the
  * traveller, rain for the horror and terminal ones, and so on.
  */
-export type Fx =
-  | 'bokeh'
-  | 'matrix'
-  | 'petals'
-  | 'snow'
-  | 'stars'
-  | 'embers'
-  | 'rain'
-  | 'dust';
-
 const THEME_FX: Record<string, Fx> = {
   anime: 'petals',
   'naruto-itachi-uchiha': 'petals',

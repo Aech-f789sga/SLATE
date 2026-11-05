@@ -18,13 +18,29 @@
  * ~21 MB instead of ~250 MB; the originals are untouched in the mod folder.
  */
 
+/**
+ * The live-layer effects. `bokeh` and `matrix` are the two the ported mods
+ * ship as shaders; the rest are the procedural weathers the other themes use.
+ * Declared here because a mod's wallpaper names one, and the wall engine
+ * imports this file rather than the other way round.
+ */
+export type Fx =
+  | 'bokeh'
+  | 'matrix'
+  | 'petals'
+  | 'snow'
+  | 'stars'
+  | 'embers'
+  | 'rain'
+  | 'dust';
+
 export type ModWall = {
   /** the still the mod ships — always present, used as poster and as "Still" */
   still: string;
   /** a looping video, when the mod ships one */
   video?: string;
   /** what stands in for the mod's own shader */
-  fx?: 'bokeh' | 'matrix' | null;
+  fx?: Fx | null;
   /** shown in the panel under "Wallpaper" */
   label: string;
 };
@@ -53,6 +69,18 @@ export type ModMedia = {
 const root = (id: string) => `/mods/${id}`;
 
 export const MODS: Record<string, ModMedia> = {
+  anime: {
+    id: 'anime',
+    name: 'Anime',
+    track: 'Anime',
+    layers: [1, 2, 3, 4].map((n) => `${root('anime')}/music/layer${n}.m4a`),
+    wall: {
+      still: '/themes/anime.jpg',
+      fx: 'petals',
+      label: 'Sakura, drifting',
+    },
+  },
+
   'lofi-chill': {
     id: 'lofi-chill',
     name: 'LoFi Chill',
