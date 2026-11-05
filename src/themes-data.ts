@@ -205,7 +205,8 @@ export const FEEL_BY_THEME: Record<string, FeelKey> = {
   msi: 'mono',
   cyberdeck: 'mono',
   'minecraft-sound-fireplace': 'block',
-  'lofi-chill': 'cinema',
+  // LoFi is a soft room, not a film title card: rounded controls, no capitals.
+  'lofi-chill': 'soft',
   'grand-theft-auto-san-andreas': 'cinema',
   blockified: 'block',
   'violet-nebula': 'soft',
@@ -269,9 +270,13 @@ export const SLATE_THEME: GxTheme = {
 export const GX_THEMES: GxTheme[] = [
   { id: 'day-one', name: 'Day One', mod: 'Day One', wall: '/themes/day-one.jpg', dark: { acc: [76, 100, 75], sec: [230, 13, 16] }, light: { acc: [92, 90, 39], sec: [62, 19, 67] } },
   { id: 'msi', name: 'MSI', mod: 'MSI', wall: '/themes/msi.jpg', dark: { acc: [356, 94, 45], sec: [0, 0, 16] }, light: { acc: [356, 96, 45], sec: [0, 0, 88] } },
-  { id: 'cyberdeck', name: 'Cyberdeck', mod: 'Cyberdeck', wall: '/themes/cyberdeck.jpg', dark: { acc: [346, 95, 54], sec: [360, 100, 16] }, light: { acc: [346, 94, 53], sec: [0, 100, 88] } },
-  { id: 'minecraft-sound-fireplace', name: 'Minecraft Sound: Fireplace', mod: 'Minecraft Sound: Fireplace', wall: '/themes/minecraft-sound-fireplace.jpg', dark: { acc: [24, 100, 50], sec: [41, 76, 8] }, light: { acc: [35, 100, 50], sec: [22, 97, 31] } },
-  { id: 'lofi-chill', name: 'LoFi Chill', mod: 'LoFi Chill', wall: '/themes/lofi-chill.jpg', dark: { acc: [0, 100, 72], sec: [21, 40, 16] }, light: { acc: [0, 100, 60], sec: [18, 27, 85] } },
+  // Cyberdeck is a neon skyline: magenta signage, cyan glass, violet haze.
+  { id: 'cyberdeck', name: 'Cyberdeck', mod: 'Cyberdeck', wall: '/themes/cyberdeck.jpg', dark: { acc: [326, 100, 62], sec: [264, 42, 10] }, light: { acc: [326, 88, 46], sec: [264, 26, 92] } },
+  // Minecraft: Fireplace is a lit hearth — ember orange on dark oak.
+  { id: 'minecraft-sound-fireplace', name: 'Minecraft Sound: Fireplace', mod: 'Minecraft Sound: Fireplace', wall: '/themes/minecraft-sound-fireplace.jpg', dark: { acc: [28, 100, 55], sec: [22, 42, 9] }, light: { acc: [22, 92, 40], sec: [34, 40, 86] } },
+  // LoFi Chill is a sunset room: dusty rose walls, coral light, teal plants.
+  // The accent is the coral, the surface tint is the warm plum the shadows are.
+  { id: 'lofi-chill', name: 'LoFi Chill', mod: 'LoFi Chill', wall: '/themes/lofi-chill.jpg', dark: { acc: [6, 76, 65], sec: [20, 30, 12] }, light: { acc: [6, 70, 52], sec: [22, 38, 93] } },
   { id: 'grand-theft-auto-san-andreas', name: 'Grand Theft Auto: San Andreas', mod: 'Grand Theft Auto: San Andreas', wall: '/themes/grand-theft-auto-san-andreas.jpg', dark: { acc: [110, 24, 45], sec: [87, 11, 16] }, light: { acc: [110, 24, 45], sec: [87, 24, 78] } },
   { id: 'blockified', name: 'Blockified', mod: 'Blockified', wall: '/themes/blockified.jpg', dark: { acc: [277, 56, 56], sec: [292, 18, 16] }, light: { acc: [101, 100, 29], sec: [49, 13, 24] } },
   { id: 'violet-nebula', name: 'Violet Nebula', mod: 'Violet Nebula', wall: '/themes/violet-nebula.jpg', dark: { acc: [289, 71, 56], sec: [251, 60, 16] }, light: { acc: [322, 52, 31], sec: [237, 39, 88] } },
