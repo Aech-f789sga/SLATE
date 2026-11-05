@@ -106,14 +106,17 @@ function shellVars(dark: boolean): Record<string, string> {
   };
 }
 
+/**
+ * The app is dark. There is no light mode any more.
+ *
+ * Every mod in the catalogue is authored as a dark UI with a lit accent, and
+ * the paper is the only surface that is meant to be bright — a white shelf
+ * under a neon skyline read as a bug, not as a choice. So the mode is not a
+ * setting: the theme always applies its dark palette, and the OS preference
+ * is not consulted.
+ */
 function wantsDark(): boolean {
-  if (choice.mode === 'dark') return true;
-  if (choice.mode === 'light') return false;
-  try {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  } catch {
-    return false;
-  }
+  return true;
 }
 
 function save() {
@@ -273,11 +276,6 @@ function buildPanel() {
       <div class="gxp-head">
         <b>Theme</b>
         <span class="gxp-note">Palettes and wallpapers from your Opera GX mods</span>
-        <div class="gxp-modes">
-          <button type="button" data-m="auto">Auto</button>
-          <button type="button" data-m="dark">Dark</button>
-          <button type="button" data-m="light">Light</button>
-        </div>
         <button class="gxp-x" type="button" aria-label="Close">✕</button>
       </div>
       <div class="gxp-grid"></div>
@@ -301,14 +299,6 @@ function buildPanel() {
   panel.onclick = (e) => {
     if (e.target === panel) closePanel();
   };
-  panel.querySelectorAll<HTMLElement>('.gxp-modes button').forEach((b) => {
-    b.onclick = () => {
-      choice.mode = (b.dataset.m as Mode) || 'auto';
-      save();
-      apply();
-      paintModes();
-    };
-  });
   const wallT = panel.querySelector('#gxp-wall-t') as HTMLInputElement;
   wallT.onchange = () => {
     choice.wall = wallT.checked;
@@ -334,9 +324,6 @@ function buildPanel() {
 }
 
 function paintModes() {
-  panel?.querySelectorAll<HTMLElement>('.gxp-modes button').forEach((b) => {
-    b.classList.toggle('on', b.dataset.m === choice.mode);
-  });
   const wallT = panel?.querySelector('#gxp-wall-t') as HTMLInputElement | null;
   if (wallT) wallT.checked = choice.wall;
   const sndT = panel?.querySelector('#gxp-snd-t') as HTMLInputElement | null;
@@ -424,7 +411,7 @@ function closePanel() {
 const CSS = `
 /* ---------------- wallpaper ---------------- */
 #gx-wall{
-  position:fixed;inset:0;z-index:0;pointer-events:none;
+  position:fixed;inset:0;z-index:-1;pointer-events:none;
   background-size:cover;background-position:center;
   opacity:0;transition:opacity .45s ease;
 }
@@ -458,15 +445,17 @@ html[data-gx-wallfx="hd"] #gx-wall[data-mode="dark"]::after{
 }
 
 /* ---------------- shell takes the palette ---------------- */
-/* The shelf must be a stacking context above the wall, or the wallpaper would
-   paint over the whole app instead of behind it. */
+/* The wall is a negative z-index layer, which is what puts it behind every
+   in-flow block without asking anything else to make a stacking context.
+   It used to sit at z-index 0, and the shelf and the editor both had to be
+   promoted to z-index 1 to stay above it — which quietly trapped everything
+   inside the editor below every root-level fixed element. That is why the page
+   card opened *under* the ink pill: the card is inside #ed, so its z-index 60
+   only ever counted within the editor's context, and the editor's 1 lost to
+   the pill's 28. With the wall at -1 the promotion is unnecessary and the
+   card can win the fight on its own. */
 html[data-gx] #lib{position:relative;z-index:1;background:transparent!important}
-/* The editor needs the same treatment, and for the same reason. The wall is a
-   fixed layer at z-index 0, which paints above every static block in the
-   document — so without a stacking context here the wallpaper would cover the
-   canvas instead of sitting behind it. This is why the wall used to be hidden
-   the moment a notebook opened. */
-html[data-gx] #ed{position:relative;z-index:1}
+html[data-gx] #ed{position:relative}
 html[data-gx] #libm{background:var(--gn-paper)!important}
 html[data-gx-wall="1"] #libm{
   background:color-mix(in srgb, var(--gn-paper) 44%, transparent)!important;
@@ -831,14 +820,6 @@ function boot() {
   // The editor's desk is translucent now, so the mod keeps running behind the
   // page you are writing on — which is the whole point of a live wallpaper.
   window.setInterval(mountButton, 400);
-
-  try {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      if (choice.mode === 'auto') apply();
-    });
-  } catch {
-    /* older browsers */
-  }
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closePanel();
