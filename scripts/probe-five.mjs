@@ -7,8 +7,8 @@ mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 await page.addInitScript(() => {
-  localStorage.setItem('inkpad-tour-home-v4', '1');
-  localStorage.setItem('inkpad-tour-editor-v4', '1');
+  localStorage.setItem('inkpad-tour-home-v5', '1');
+  localStorage.setItem('inkpad-tour-editor-v5', '1');
   localStorage.setItem('inkpad-install-dismissed', '1');
   localStorage.setItem('inkpad-timekeeper', '1');
   // only on the very first load — a reload has to keep what was stored
