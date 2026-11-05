@@ -78,9 +78,9 @@ const FAMILY: Record<Family, string> = {
   /* Dark panel, accent light bleeding out of the edge. */
   glow: `
     --mt-panel:linear-gradient(180deg,
-      color-mix(in srgb, var(--bg) 84%, transparent),
-      color-mix(in srgb, var(--bg) 92%, transparent));
-    --mt-panel2:color-mix(in srgb, var(--bg) 94%, transparent);
+      color-mix(in srgb, var(--bg) 70%, transparent),
+      color-mix(in srgb, var(--bg) 80%, transparent));
+    --mt-panel2:color-mix(in srgb, var(--bg) 84%, transparent);
     --mt-edge:color-mix(in srgb, var(--ac) 34%, var(--bd));
     --mt-r:11px;--mt-r2:8px;--mt-clip:none;
     --mt-shadow:0 0 26px -10px color-mix(in srgb, var(--ac) 55%, transparent);
@@ -189,6 +189,24 @@ html[data-gx-theme="blockified"] #gn-tabs button.on{
 html[data-gx-theme="blockified"] #bar2{
   border-width:2px!important;
   border-radius:3px!important;
+}`,
+  },
+
+  /**
+   * Anime. Airy glass with a warm glow bleeding out of it and generous
+   * corners — the chrome should feel like the same soft light as the artwork,
+   * not a frame around it.
+   */
+  anime: {
+    fam: 'glow',
+    extra: `
+html[data-gx-theme="anime"] #tb{border-radius:20px!important}
+html[data-gx-theme="anime"] .card{border-radius:18px!important}
+html[data-gx-theme="anime"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+}
+html[data-gx-theme="anime"] #libm{
+  border-radius:20px!important;
 }`,
   },
 };
