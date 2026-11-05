@@ -437,6 +437,10 @@ function group(d: HTMLElement, title: string, note?: string) {
 
 function chip(g: HTMLElement, label: string, on: boolean, fn: () => void, off?: string) {
   const b = el('button', '', label) as HTMLButtonElement;
+  // the card flattens every engine button to one pale fill; these opt out so
+  // the chosen one is visible (see the .pgm-chip rules in page-menu). A row
+  // that cannot apply here is dashed and never looks chosen.
+  b.className = 'pgm-chip' + (on && !off ? ' on' : '');
   b.style.cssText =
     'font-size:12px;padding:4px 9px;border-radius:9px;border:1px solid ' +
     (on ? 'var(--ac)' : 'var(--bd)') +

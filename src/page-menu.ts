@@ -82,6 +82,12 @@ html[data-bar=full] #bar2.open #pgm .pgm-car{display:none}
   padding:6px 0 2px;margin-top:4px;border-top:1px solid #f0f3f8;
 }
 #bar2 .pgm-detail > div{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
+/* page flow: one page at a time, or one long strip */
+#bar2 .pgm-flow{
+  flex:0 0 100%;display:flex;flex-direction:column;align-items:stretch;gap:1px;
+  padding:6px 0 2px;margin-top:4px;border-top:1px solid #f0f3f8;
+}
+#bar2 .pgm-flow > div{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
 #bar2 .pgm-lab{
   flex:0 0 auto;font:600 9.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   letter-spacing:.09em;text-transform:uppercase;color:#a3adbd;
@@ -89,6 +95,16 @@ html[data-bar=full] #bar2.open #pgm .pgm-car{display:none}
 }
 /* separators are noise inside a card */
 #bar2.open > .sep{display:none!important}
+/* The card gives every engine button the same pale fill. The chips below the
+   rows draw their own — which option is chosen — and that rule used to flatten
+   all of them to the same grey, so a setting looked unset whichever one you
+   pressed. They are excluded above, and the chosen one is restated here so no
+   later sheet can flatten it again. */
+#bar2.open .pgm-chip{background:transparent!important}
+#bar2.open .pgm-chip.on{
+  background:color-mix(in srgb,var(--ac) 14%,transparent)!important;
+  border-color:var(--ac)!important;color:var(--ac)!important;
+}
 #bar2.open select,
 #bar2.open button:not(#pgm),
 #bar2.open label{font-size:12px!important;border-radius:9px!important}
@@ -100,7 +116,7 @@ html[data-bar=full] #bar2.open #pgm .pgm-car{display:none}
   background:#f2f4f8!important;color:#5d6776!important;font-size:11px;
 }
 #bar2.open button.pgm-x:hover{background:#e8ecf3!important}
-#bar2.open button:not(.pgm-x):not(#pgm){background:#f4f6fa!important}
+#bar2.open button:not(.pgm-x):not(#pgm):not(.pgm-chip){background:#f4f6fa!important}
 `;
 
 const ICON =
@@ -340,6 +356,31 @@ function mountDetail(force = false) {
   }
 }
 
+/**
+ * How pages follow one another: the current page alone, or a strip of them.
+ *
+ * It lives in this card rather than the drawer because it is a property of the
+ * page, like the ruling — and because the drawer is a settings screen you open
+ * to change something once, while this is a thing you switch when the document
+ * changes shape.
+ */
+function mountFlow() {
+  if (!bar2) return;
+  let host = bar2.querySelector<HTMLElement>('.pgm-flow');
+  if (!host) {
+    host = document.createElement('div');
+    host.className = 'pgm-flow';
+    bar2.append(host);
+  }
+  const fn = (window as any).__inkpad_pagestrip?.panel;
+  if (typeof fn !== 'function') return;
+  try {
+    fn(host);
+  } catch {
+    /* the card still works without the row */
+  }
+}
+
 function open() {
   if (!bar2) return;
   paint();
@@ -352,6 +393,7 @@ function open() {
     /* the row was rebuilt under us; grouping is a nicety, not a feature */
   }
   mountDetail();
+  mountFlow();
   place();
   btn?.setAttribute('aria-expanded', 'true');
 }
