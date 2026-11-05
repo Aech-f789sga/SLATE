@@ -505,4 +505,15 @@ boot();
     build();
     scrollToPage(Math.max(0, cur()));
   },
+  /**
+   * Repaint the static pages in place.
+   *
+   * They are cached because nothing on them changes while you are writing on
+   * another page — but the paper underneath all of them can change, and then
+   * every sheet is stale and the strip shows the old ruling next to the new one.
+   */
+  repaint: () => {
+    if (!on) return;
+    for (const el of sheets) if (el !== wrap) paintSheet(el);
+  },
 };

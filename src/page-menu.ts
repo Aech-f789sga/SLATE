@@ -100,7 +100,7 @@ html[data-bar=full] #bar2.open #pgm .pgm-car{display:none}
    all of them to the same grey, so a setting looked unset whichever one you
    pressed. They are excluded above, and the chosen one is restated here so no
    later sheet can flatten it again. */
-#bar2.open .pgm-chip{background:transparent!important}
+#bar2.open .pgm-chip{background:#f4f6fa!important}
 #bar2.open .pgm-chip.on{
   background:color-mix(in srgb,var(--ac) 14%,transparent)!important;
   border-color:var(--ac)!important;color:var(--ac)!important;

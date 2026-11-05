@@ -83,18 +83,43 @@ function loadPrefs() {
   }
 }
 
+/**
+ * Drop a page's ready-made paper so the template below it applies again.
+ *
+ * The drawer's "Ready-made papers" and "Custom paper" store a whole paper on
+ * the page itself, and the engine draws that instead of the template:
+ * `render0` calls `bgPP` when the page has one and `bg` — this module — when it
+ * does not. So on any page carrying one, every control in the Page card wrote a
+ * value that was never read: pick Grid and nothing happened, because the
+ * template was not what was being drawn.
+ *
+ * Touching the paper here is a statement about which paper you want, so the
+ * override goes. Returns whether there was one to remove.
+ */
+function dropOverride(): boolean {
+  const p = ev<any>('pg && pg()');
+  if (!p || !p.pp) return false;
+  delete p.pp;
+  ev('try{ save() }catch(e){}');
+  return true;
+}
+
 function savePrefs() {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
     /* ignore */
   }
+  dropOverride();
   invalidate();
   repaint();
 }
 
 function repaint() {
   ev('try{ draw(); save(); thumbs(); }catch(e){}');
+  // in a long strip only the page you are on is the engine's canvas; the pages
+  // above and below are cached renders and the paper under them just changed
+  (window as any).__inkpad_pagestrip?.repaint?.();
 }
 
 /* ------------------------------------------------------------------ */
@@ -205,8 +230,8 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
    * which every page can use, so it is drawn once here and called from every
    * branch.
    */
-  const marginLine = () => {
-    if (!prefs.margin) return;
+  const marginLine = (force = false) => {
+    if (!force && !prefs.margin) return;
     hair(marginCol, 1);
     line(prefs.marginMm * mm, 0, prefs.marginMm * mm, H);
   };
@@ -215,6 +240,13 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
     hair(rule, 1);
     for (let y = top; y < H - 2 * px; y += prefs.ruling * mm) line(0, y, W, y);
     marginLine();
+  } else if (tpl === 'margin') {
+    // The exercise-book page: ruled, with the red rule down the margin. The
+    // rule is the whole point of this paper, so it is drawn whether or not the
+    // Margin chips are on — those are for the other papers.
+    hair(rule, 1);
+    for (let y = top; y < H - 2 * px; y += prefs.ruling * mm) line(0, y, W, y);
+    marginLine(true);
   } else if (tpl === 'grid') {
     const step = prefs.grid * mm;
     for (let x = 0; x < W; x += step) {
@@ -488,13 +520,30 @@ function paperDetail(d: HTMLElement) {
   const tpl = currentTpl();
   // which rows of a page a setting can actually reach — the same split the
   // renderer makes, so nothing here is a control that paints nothing
-  const ruled = tpl === 'lined' || tpl === 'cornell';
+  const ruled = tpl === 'lined' || tpl === 'cornell' || tpl === 'margin';
   const gridded = tpl === 'grid' || tpl === 'dot';
+
+  // A page can still be carrying a ready-made paper from the drawer, which the
+  // engine draws instead of the template. Say so, and offer the way out —
+  // otherwise every control below is a switch that does nothing.
+  if (ev<any>('pg && pg().pp')) {
+    const g = group(
+      d,
+      'Ready-made paper',
+      'This page has a paper of its own, which replaces the template. Changing anything below switches back to it.',
+    );
+    chip(g, 'Use the template', false, () => {
+      dropOverride();
+      invalidate();
+      repaint();
+      rerenderDrawer(d);
+    });
+  }
 
   const ruleG = group(
     d,
     'Paper ruling (mm)',
-    ruled ? undefined : 'Rules are drawn on lined and Cornell pages.',
+    ruled ? undefined : 'Rules are drawn on lined, lined + margin and Cornell pages.',
   );
   [5, 6, 7, 8, 9, 10].forEach((mm) => {
     chip(
@@ -529,19 +578,32 @@ function paperDetail(d: HTMLElement) {
     );
   });
 
-  const marginG = group(d, 'Margin');
-  chip(marginG, 'Off', !prefs.margin, () => {
-    prefs.margin = false;
-    savePrefs();
-    rerenderDrawer(d);
-  });
-  chip(marginG, '20 mm', prefs.margin && prefs.marginMm === 20, () => {
+  // The red rule is the point of the Lined + margin paper, so "Off" cannot
+  // apply to it — but where it sits still can, which is why only one chip goes.
+  const forced = tpl === 'margin';
+  const marginG = group(
+    d,
+    'Margin',
+    forced ? 'This paper always draws its rule; these set where it sits.' : undefined,
+  );
+  chip(
+    marginG,
+    'Off',
+    !prefs.margin && !forced,
+    () => {
+      prefs.margin = false;
+      savePrefs();
+      rerenderDrawer(d);
+    },
+    forced ? 'Lined + margin always has a rule' : undefined,
+  );
+  chip(marginG, '20 mm', (prefs.margin || forced) && prefs.marginMm === 20, () => {
     prefs.margin = true;
     prefs.marginMm = 20;
     savePrefs();
     rerenderDrawer(d);
   });
-  chip(marginG, '25 mm', prefs.margin && prefs.marginMm === 25, () => {
+  chip(marginG, '25 mm', (prefs.margin || forced) && prefs.marginMm === 25, () => {
     prefs.margin = true;
     prefs.marginMm = 25;
     savePrefs();
@@ -588,6 +650,26 @@ function boot() {
       try { window.__paperDraw(c, tpl || 'blank', col || '#ffffff'); }
       catch(e) { return orig.apply(this, arguments); }
     };
+  })()`);
+
+  // Choosing a template or a paper colour in the Page card is choosing a paper,
+  // so a ready-made paper from the drawer steps aside first — otherwise the
+  // select changes a value that is never read and the page does not move.
+  ev(`(function(){
+    if (window.__paperSelHooked) return;
+    window.__paperSelHooked = true;
+    ['#tpl','#pc'].forEach(function(sel){
+      var el = document.querySelector(sel);
+      if (!el || el.__paperWrapped) return;
+      el.__paperWrapped = 1;
+      var orig = el.onchange;
+      el.onchange = function(e){
+        try { if (pg() && pg().pp) { delete pg().pp; save(); } } catch(err) {}
+        var r = orig ? orig.call(this, e) : null;
+        try { if (window.__inkpad_pagestrip) window.__inkpad_pagestrip.repaint(); } catch(err) {}
+        return r;
+      };
+    });
   })()`);
 
   // highlighter: replace the flat translucent line
