@@ -65,7 +65,13 @@ const PAINT: Record<string, (c: CanvasRenderingContext2D, p: Paper, W: number, H
     const g = p.gap || 32;
     c.strokeStyle = c.fillStyle = p.ln || 'rgba(120,140,170,.4)';
     c.lineWidth = p.lw || 1;
-    for (let y = Math.max(g * 2, 60); y < H; y += g) {
+    // The first rule sits below a header gap. That gap used to be a flat 60 px,
+    // which is right on a 1100 px page and catastrophic on a 180 px thumbnail —
+    // 60 px is a third of the page, so the preview showed a huge empty top and
+    // a block of rules crammed into the bottom half. Proportional keeps the
+    // preview honest at every size.
+    const top = Math.max(g * 2, H * 0.055);
+    for (let y = top; y < H; y += g) {
       c.beginPath();
       c.moveTo(0, y);
       c.lineTo(W, y);

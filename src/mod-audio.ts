@@ -140,11 +140,14 @@ class ModAudio {
   private follow() {
     const next = currentMod();
     if (next?.id === this.mod?.id) return;
-    const wasPlaying = this.isPlayingMusic;
     this.teardown();
     this.mod = next;
     this.buildSfx();
-    if (wasPlaying && this.settings.music) this.playMusic();
+    // Resume on the *setting*, never on "was it playing a moment ago".
+    // Switching to a theme with no music tears the stems down, so by the time
+    // you switch back `isPlayingMusic` is already false and the soundtrack
+    // stayed silent until you toggled it off and on again.
+    if (this.settings.music && this.unlocked) this.playMusic();
     this.emit();
   }
 

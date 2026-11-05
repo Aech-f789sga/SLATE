@@ -445,6 +445,17 @@ const CSS = `
     color-mix(in srgb, var(--bg) 44%, transparent),
     color-mix(in srgb, var(--bg) 68%, transparent));
 }
+/* HD is a promise to show the picture, so the veil that exists to calm it
+   drops from a wash to something you can actually see through. Without this
+   the frost was gone but the photo still looked hazy — which reads as blur. */
+html[data-gx-wallfx="hd"] #gx-wall::after{
+  background:color-mix(in srgb, var(--bg) 10%, transparent)!important;
+}
+html[data-gx-wallfx="hd"] #gx-wall[data-mode="dark"]::after{
+  background:linear-gradient(
+    color-mix(in srgb, var(--bg) 20%, transparent),
+    color-mix(in srgb, var(--bg) 34%, transparent))!important;
+}
 
 /* ---------------- shell takes the palette ---------------- */
 /* The shelf must be a stacking context above the wall, or the wallpaper would

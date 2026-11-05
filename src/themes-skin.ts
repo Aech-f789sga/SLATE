@@ -1038,6 +1038,11 @@ html[data-gx-wallfx="hd"][data-gx-theme] #stage{
 html[data-gx-wallfx="hd"][data-gx-theme] #nav{
   background:color-mix(in srgb, var(--sf) 78%, transparent)!important;
 }
+/* the light skins' own veil is the heaviest of the lot (44/64 %), so HD has to
+   name it explicitly — this is the difference between "sharp" and "hazy" */
+html[data-gx-wallfx="hd"][data-gx-theme] #gx-wall::after{
+  background:color-mix(in srgb, var(--bg) 8%, transparent)!important;
+}
 `;
 
 function mount() {
