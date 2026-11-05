@@ -459,11 +459,25 @@ const CSS = `
 html[data-inkpen="1"] [data-inkhide]{display:none!important}
 html[data-inkpen="1"] #bar2{min-height:34px}
 
+/* A phone cannot hold seventeen controls across one row: the pill used to run
+   off the right edge and the last swatches were only reachable by scrolling a
+   control strip, which is not something a thumb can do. It breaks into two
+   rows instead and every target shrinks a little — still 28 px, which is a
+   comfortable press — so the whole set stays on screen at once. */
 @media(max-width:620px){
   #ink-pop{width:min(270px,calc(100vw - 16px))}
-  /* the pill is wider than a phone, so let it scroll instead of running off */
-  #ink-pen{max-width:calc(100vw - 12px);overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
-  #ink-pen::-webkit-scrollbar{display:none}
+  #ink-pen{
+    max-width:calc(100vw - 12px);box-sizing:border-box;
+    flex-wrap:wrap;justify-content:center;gap:2px 0;
+    padding:5px 6px;border-radius:15px;
+  }
+  /* the group breaks are what wrap the rows now; a 1 px line would just float
+     between two centred rows and read as noise */
+  #ink-pen .div{display:none}
+  #ink-pen .grp{gap:1px;padding:0 5px}
+  #ink-pen button{width:28px;height:28px;border-radius:9px}
+  #ink-pen button svg{width:17px;height:17px}
+  #ink-pen .sw,#ink-pen .swplus{width:20px!important;height:20px!important}
   .ink-sheet{width:min(92vw,300px)}
 }
 /* pre-empt the engine's brush drawer for the ink tools so it never flashes */

@@ -80,10 +80,14 @@ html[data-bar=compact] #tb{margin:0!important;border-radius:0!important;max-widt
 #tb #bar2 button.on{background:var(--gn-acc)!important;color:#fff!important}
 #tb #bar2 .sep{background:#e3e7ee}
 
-/* desktop: tools on row one, the white pill centred underneath.
-   Gated on size — on a landscape tablet the second row would eat a quarter of
-   the screen, so those keep the engine's compact one-row bar. */
-@media (min-width:1280px) and (min-height:820px){
+/* desktop and tablet: tools on row one, the white pill centred underneath.
+   The gate matches the one the engine uses to call a window "full" (1000x620),
+   because the second row is a single Page pill now — it costs 41 px, not a
+   strip of controls, so a landscape tablet can afford it and gets its page,
+   paper, zoom and share controls back out of the overflow menu. The 1024 floor
+   is where the tool row stops fitting on one line: below it the pill row would
+   push the tools onto a second line and cost more height than it saves. */
+@media (min-width:1024px) and (min-height:620px){
   html[data-bar=full] #tb{flex-direction:column;align-items:stretch}
   html[data-bar=full] #tb #bar{display:flex;flex-wrap:wrap;justify-content:center}
   html[data-bar=full] #tb #bar2{

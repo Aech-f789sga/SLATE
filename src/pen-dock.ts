@@ -412,6 +412,7 @@ function applySide() {
   if (!dock) return;
   dock.dataset.side = side;
   document.body.dataset.pd = side;
+  fitRail();
 }
 
 /** Focus mode owns the placement; the normal dock is always a left rail. */
@@ -549,6 +550,37 @@ function paint() {
   const add = dock.querySelector('.pd-add') as HTMLElement;
   if (add) add.style.display = slots.length >= 8 ? 'none' : '';
   dock.dataset.active = String(slots.findIndex((s) => s.id === activeId));
+  fitRail();
+}
+
+/**
+ * Keep the rail clear of the toolbar and of the page counter.
+ *
+ * A left or right rail is centred on the viewport, which is right on a tall
+ * screen and wrong on a short one: a phone held sideways has 390 px of height,
+ * a 56 px toolbar and a page counter in the bottom corner, so a centred 300 px
+ * rail starts *behind* the toolbar and ends *on top of* the counter. Nudge the
+ * centre into the space that is actually free — only as far as it has to go, so
+ * nothing moves on a screen where it already fitted.
+ */
+function fitRail() {
+  if (!dock) return;
+  dock.style.removeProperty('--cy');
+  if (side !== 'left' && side !== 'right') return;
+  const tb = document.getElementById('tb');
+  const top = (tb ? tb.getBoundingClientRect().bottom : 0) + 10;
+  let lower = window.innerHeight - 10;
+  const foot = document.getElementById('gn-foot');
+  if (foot && getComputedStyle(foot).display !== 'none') {
+    const f = foot.getBoundingClientRect();
+    if (f.height) lower = Math.min(lower, f.top - 6);
+  }
+  const h = dock.offsetHeight;
+  if (!h) return;
+  const mid = window.innerHeight / 2;
+  // more pens than the band can hold: pin the top so the first ones stay usable
+  const cy = h >= lower - top ? top + h / 2 : Math.min(Math.max(mid, top + h / 2), lower - h / 2);
+  if (Math.abs(cy - mid) > 0.5) dock.style.setProperty('--cy', `${Math.round(cy)}px`);
 }
 
 let lastTap: { at: number; i: number } = { at: 0, i: -1 };
@@ -1117,12 +1149,20 @@ function editorOpen(): boolean {
   return !!ed && getComputedStyle(ed).display !== 'none';
 }
 
+let railOn = false;
+
 function tick() {
   if (!dock) return;
   const open = editorOpen();
   dock.classList.toggle('on', open);
   document.body.classList.toggle('pd-open', open);
   if (!open) closeSheet();
+  // a hidden rail has no height to measure, so the clamp has to wait for the
+  // frame it appears in
+  if (open !== railOn) {
+    railOn = open;
+    fitRail();
+  }
   // focus mode is a document-level fact, so read it rather than being told:
   // whichever module loads first, the rail ends up on the right edge.
   const want = document.documentElement.dataset.focus === '1';
@@ -1137,15 +1177,15 @@ const CSS = `
 /* The rail is one object that lies against an edge. Each side is the same
    idea rotated: the nib points at the page, the barrel runs off screen. */
 #pen-dock{
-  --slot-w:55px;--slot-h:30px;--pull:8px;--dx:0px;--dy:0px;
+  --slot-w:55px;--slot-h:30px;--pull:8px;--dx:0px;--dy:0px;--cy:50%;
   position:fixed;z-index:34;display:none;gap:6px;
   padding:8px 0;pointer-events:none;
   transition:transform .18s cubic-bezier(.22,.8,.3,1);
 }
 #pen-dock.on{display:flex;pointer-events:auto}
-#pen-dock[data-side=left]{left:0;top:50%;transform:translateY(-50%) translateX(-8px) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=left]{left:0;top:var(--cy);transform:translateY(-50%) translateX(-8px) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=left].on{transform:translateY(-50%) translateX(0) translate(var(--dx),var(--dy))}
-#pen-dock[data-side=right]{right:0;top:50%;transform:translateY(-50%) translateX(8px) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=right]{right:0;top:var(--cy);transform:translateY(-50%) translateX(8px) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=right].on{transform:translateY(-50%) translateX(0) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=top]{top:0;left:50%;transform:translateX(-50%) translateY(-8px) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=top].on{transform:translateX(-50%) translateY(0) translate(var(--dx),var(--dy))}
@@ -1341,6 +1381,21 @@ body[data-pd=right] #pen-sheet{left:auto;right:64px}
   body.pd-open[data-pd=top] #stage{padding-top:58px}
   body.pd-open[data-pd=bottom] #stage{padding-bottom:58px}
 }
+
+/* A phone held sideways has 390 px of height: a 38 px tab strip, a 56 px
+   toolbar and a footer pill at the bottom leave 240 px for the rail, and the
+   pens plus the foot came to 308 — so the top pen sat on the toolbar and the
+   gear sat on the page counter. Everything here is what it takes to land the
+   whole rail inside that band: the pens lie closer, and the foot buttons lose
+   the touch padding the engine gives every button. This block is last on
+   purpose — it has to beat the base rules above it, not the other way round. */
+@media(max-height:520px){
+  #pen-dock{--slot-h:22px;padding:4px 0;gap:4px}
+  #pen-dock[data-side=top],#pen-dock[data-side=bottom]{--slot-w:22px;--slot-h:44px;padding:0 4px}
+  #pen-dock .pd-rail{gap:4px}
+  #pen-dock .pd-foot{gap:4px;margin-top:4px;padding-left:4px}
+  #pen-dock .pd-add,#pen-dock .pd-gear,#pen-dock .pd-grip{min-height:30px!important;height:30px!important}
+}
 `;
 
 /* ------------------------------------------------------------------ */
@@ -1357,6 +1412,8 @@ function boot() {
 
   tick();
   window.setInterval(tick, 300);
+  // rotating a phone changes the space the rail has; re-clamp with it
+  window.addEventListener('resize', fitRail);
 
   // focus mode is announced as well as observed, so the rail moves on the same
   // frame as the toolbars rather than up to a tick later

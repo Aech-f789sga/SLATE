@@ -119,11 +119,11 @@ let bar2: HTMLElement | null = null;
 let btn: HTMLButtonElement | null = null;
 let sub: HTMLElement | null = null;
 let built = false;
-let laid = false;
+/** Watches the row so the group headings survive the engine's rewrites. */
+let mo: MutationObserver | null = null;
 
 /**
- * Put a heading and a line break in front of each group, once, the first time
- * the card is shown.
+ * Put a heading and a line break in front of each group.
  *
  * The row is a wrapping flex container, and flex has no "keep this with the
  * next item" — so a heading can end up dangling at the end of a line. A
@@ -131,25 +131,53 @@ let laid = false;
  * heading then sits at the left of its own controls. Nothing is re-parented:
  * the engine keeps inserting into this row, and moving its children breaks
  * that.
+ *
+ * The engine does not leave the row alone, though. Opening the card makes it
+ * re-append every control it owns in its own order, and anything it does not
+ * recognise — these headings — is pushed to the end: the labels ended up in a
+ * column under the controls, each on an empty row. So this is not a one-shot
+ * any more. The observer below re-runs it whenever the row changes, and the
+ * `labelsOk` guard keeps that from turning into a loop, because a second pass
+ * finds nothing to do.
  */
-function layout() {
-  if (laid || !bar2) return;
-  laid = true;
+
+/** The direct child of the card that starts a group, or null if it is hidden. */
+function anchorFor(sel: string): Element | null {
+  if (!bar2) return null;
+  const target = bar2.querySelector<HTMLElement>(sel);
+  if (!target || getComputedStyle(target).display === 'none') return null;
+  // Pen only / Sound sit inside their own <label>, so walk up to the child of
+  // the card — inserting *before* it is safe, moving it is not
+  let node: Element | null = target;
+  while (node && node.parentElement !== bar2) node = node.parentElement;
+  if (!node || node.id === 'pgm-head' || node.classList.contains('pgm-lab')) return null;
+  return node;
+}
+
+/** True when every heading already sits immediately before its group. */
+function labelsOk(): boolean {
   for (const [sel, name] of GROUPS) {
-    const target: HTMLElement | null = bar2.querySelector(sel);
-    if (!target || getComputedStyle(target).display === 'none') continue;
-    // Pen only / Sound sit inside their own <label>, so walk up to the child
-    // of the card — inserting *before* it is safe, moving it is not
-    let node: Element | null = target;
-    while (node && node.parentElement !== bar2) node = node.parentElement;
-    if (!node || node.id === 'pgm-head' || node.classList.contains('pgm-lab')) continue;
+    const a = anchorFor(sel);
+    if (!a) continue;
+    const lab = a.previousElementSibling;
+    if (!lab || !lab.classList.contains('pgm-lab') || lab.textContent !== name) return false;
+  }
+  return true;
+}
+
+function layout() {
+  if (!bar2 || labelsOk()) return;
+  bar2.querySelectorAll('.pgm-br,.pgm-lab').forEach((n) => n.remove());
+  for (const [sel, name] of GROUPS) {
+    const a = anchorFor(sel);
+    if (!a) continue;
     const br = document.createElement('i');
     br.className = 'pgm-br';
     const lab = document.createElement('span');
     lab.className = 'pgm-lab';
     lab.textContent = name;
-    bar2.insertBefore(br, node);
-    bar2.insertBefore(lab, node);
+    bar2.insertBefore(br, a);
+    bar2.insertBefore(lab, a);
   }
 }
 
@@ -186,6 +214,12 @@ function build() {
   head.id = 'pgm-head';
   head.append(btn, x);
   bar2.insertBefore(head, bar2.firstChild);
+
+  // the engine rewrites this row whenever the tools sync; put the headings
+  // back on the frame after it does
+  mo?.disconnect();
+  mo = new MutationObserver(() => layout());
+  mo.observe(bar2, { childList: true });
 
   document.addEventListener('change', (e) => {
     const t = e.target as HTMLElement;
@@ -327,7 +361,6 @@ function boot() {
     if (!row) return;
     if (!row.querySelector('#pgm') && (row.querySelector('#tpl') || row.children.length)) {
       built = false;
-      laid = false;
       build();
     }
     // the pill names the paper, and the paper changes with the page

@@ -26,7 +26,7 @@ console.log('open rects', await page.evaluate(() => {
   const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
   return { rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)], hit: hit && (hit.id || hit.className || hit.tagName), tbZ: getComputedStyle(document.getElementById('tb')).zIndex, pgmAttr: document.documentElement.dataset.pgm };
 }));
-await page.screenshot({ path: 'shots/page-menu-open.png', clip: { x: 0, y: 0, width: 1440, height: 340 } });
+await page.screenshot({ path: 'shots/page-menu-open.png', clip: { x: 300, y: 60, width: 840, height: 460 } });
 // same button closes it
 await page.click('#pgm');
 await page.waitForTimeout(300);
