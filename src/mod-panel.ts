@@ -30,9 +30,10 @@ const CSS = `
 }
 #gxm.on{display:flex}
 #gxm.open .gxm-fab{display:none}
-/* in the editor the page bar owns the bottom edge and the lock and tour
-   buttons own the corner, so the player steps left of both */
-#gxm.editor{right:64px;bottom:48px}
+/* The player picks the theme, and the theme is chosen in the library. Inside a
+   note the page and the pens are the whole job, so the pill gets out of the
+   way entirely rather than shuffling around the corner controls. */
+#gxm.editor{display:none!important}
 
 /* ---- collapsed pill ---- */
 .gxm-fab{

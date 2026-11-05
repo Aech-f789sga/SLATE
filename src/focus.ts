@@ -10,8 +10,8 @@
  *
  * The button that turns it on stays on screen while it is on. That is not a
  * contradiction — it is the way out. It sits directly above the tour button,
- * reads as a closed padlock while unlocked and an open one while locked, and
- * the first lock says where it is in words, once.
+ * reads as an open padlock while the app is unlocked and a closed one while it
+ * is locked, and the first lock says where it is in words, once.
  *
  * The state is deliberately not remembered across a reload: a mode whose whole
  * job is to remove the controls should never be the mode you wake up in.
@@ -21,9 +21,11 @@
 /* Elements                                                            */
 /* ------------------------------------------------------------------ */
 
+/* Closed shackle — the app is locked down to the page and the pens. */
 const ICON_LOCK =
   '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.4"/><path d="M8 10.5V7.8a4 4 0 018 0v2.7"/><circle cx="12" cy="15.2" r="1.15" fill="currentColor" stroke="none"/></svg>';
 
+/* Shackle swung out of the body — the app is unlocked, nothing is hidden. */
 const ICON_OPEN =
   '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.4"/><path d="M8 10.5V7.8a4 4 0 017.4-2.1"/><circle cx="12" cy="15.2" r="1.15" fill="currentColor" stroke="none"/></svg>';
 
@@ -51,11 +53,13 @@ function apply(next: boolean, quiet = false) {
   on = next;
   document.documentElement.dataset.focus = on ? '1' : '0';
   if (btn) {
-    btn.innerHTML = on ? ICON_OPEN : ICON_LOCK;
+    // unlocked shows the open padlock, locked shows the closed one
+    btn.innerHTML = on ? ICON_LOCK : ICON_OPEN;
     btn.title = on ? 'Unlock — bring the toolbars back' : 'Lock — leave only the pens';
     btn.setAttribute('aria-label', btn.title);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    btn.classList.toggle('on', on);
+    // visibility is tick()'s job; toggling it here would blink the button out
+    // for one interval every time it is used to unlock
   }
   // the dock listens for this and moves itself to the top edge
   document.dispatchEvent(new CustomEvent('inkpad-focus', { detail: { on } }));
@@ -166,7 +170,7 @@ function build() {
   btn = el('button') as HTMLButtonElement;
   btn.id = 'ink-lock';
   btn.type = 'button';
-  btn.innerHTML = ICON_LOCK;
+  btn.innerHTML = ICON_OPEN;
   btn.title = 'Lock — leave only the pens';
   btn.setAttribute('aria-label', btn.title);
   btn.setAttribute('aria-pressed', 'false');

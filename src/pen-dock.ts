@@ -128,6 +128,8 @@ const KEY = 'inkpad-pen-dock';
 const ACTIVE_KEY = 'inkpad-pen-active';
 /** Where the dock sat last time focus mode was on. */
 const SIDE_KEY = 'inkpad-dock-focus-side';
+/** How far along that edge it sat, per edge — a centre in viewport px. */
+const ALONG_KEY = 'inkpad-dock-along';
 /** One-shot: docks saved before the eraser and pointer existed gain them. */
 const MIGRATED_KEY = 'inkpad-pen-dock-v2';
 
@@ -368,6 +370,18 @@ let editing = 0;
 /** Which edge the rail is on, and whether focus mode is what put it there. */
 let side: Side = 'left';
 let focus = false;
+/**
+ * Where the rail sits along each edge, as a centre in viewport px.
+ *
+ * An edge is a line, not a point: dropping the rail near a corner should leave
+ * it near that corner, and dropping it halfway down should leave it halfway
+ * down. Without this the only placement was the middle of the edge, which is
+ * the one spot you rarely want on a wide screen.
+ *
+ * Kept per edge, so a rail parked under the toolbar does not drag the right
+ * edge's placement along with it.
+ */
+let along: Partial<Record<Side, number>> = {};
 
 /** Hold a pen this long and it comes out of the rail, ready to be reordered. */
 const HOLD_REORDER = 1000;
@@ -403,6 +417,30 @@ function readSide(): Side {
 function saveSide() {
   try {
     localStorage.setItem(SIDE_KEY, side);
+  } catch {
+    /* ignore */
+  }
+}
+
+function readAlong() {
+  along = {};
+  try {
+    const raw = localStorage.getItem(ALONG_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    for (const k of ['left', 'right', 'top', 'bottom'] as Side[]) {
+      const v = Number((parsed as any)[k]);
+      if (Number.isFinite(v) && v > 0) along[k] = v;
+    }
+  } catch {
+    /* a broken value is the same as no value */
+  }
+}
+
+function saveAlong() {
+  try {
+    localStorage.setItem(ALONG_KEY, JSON.stringify(along));
   } catch {
     /* ignore */
   }
@@ -559,33 +597,60 @@ function paint() {
 }
 
 /**
- * Keep the rail clear of the toolbar and of the page counter.
+ * The stretch of an edge the rail is allowed to occupy.
  *
- * A left or right rail is centred on the viewport, which is right on a tall
- * screen and wrong on a short one: a phone held sideways has 390 px of height,
- * a 56 px toolbar and a page counter in the bottom corner, so a centred 300 px
- * rail starts *behind* the toolbar and ends *on top of* the counter. Nudge the
- * centre into the space that is actually free — only as far as it has to go, so
- * nothing moves on a screen where it already fitted.
+ * A left or right rail has a toolbar above it and a page counter below, so the
+ * band is not the whole viewport height: on a phone held sideways there are
+ * only a few hundred pixels of real estate and a centred 300 px rail starts
+ * *behind* the toolbar and ends *on top of* the counter.
  */
-function fitRail() {
-  if (!dock) return;
-  dock.style.removeProperty('--cy');
-  if (side !== 'left' && side !== 'right') return;
+function edgeBand(s: Side): { lo: number; hi: number } {
+  if (s === 'top' || s === 'bottom') return { lo: 10, hi: window.innerWidth - 10 };
   const tb = document.getElementById('tb');
-  const top = (tb ? tb.getBoundingClientRect().bottom : 0) + 10;
-  let lower = window.innerHeight - 10;
+  const tbOn = !!tb && getComputedStyle(tb).display !== 'none';
+  const lo = (tbOn ? tb!.getBoundingClientRect().bottom : 0) + 10;
+  let hi = window.innerHeight - 10;
   const foot = document.getElementById('gn-foot');
   if (foot && getComputedStyle(foot).display !== 'none') {
     const f = foot.getBoundingClientRect();
-    if (f.height) lower = Math.min(lower, f.top - 6);
+    if (f.height) hi = Math.min(hi, f.top - 6);
   }
-  const h = dock.offsetHeight;
-  if (!h) return;
-  const mid = window.innerHeight / 2;
-  // more pens than the band can hold: pin the top so the first ones stay usable
-  const cy = h >= lower - top ? top + h / 2 : Math.min(Math.max(mid, top + h / 2), lower - h / 2);
-  if (Math.abs(cy - mid) > 0.5) dock.style.setProperty('--cy', `${Math.round(cy)}px`);
+  return { lo, hi };
+}
+
+/**
+ * Keep the rail clear of the toolbar and of the page counter, and honour where
+ * it was last dropped.
+ *
+ * The remembered position wins over the middle of the edge, but never over the
+ * band: a rail parked low on a tall screen has to come back up when the window
+ * gets short, or it would sit half off the page.
+ */
+function fitRail() {
+  if (!dock) return;
+  const vertical = side === 'left' || side === 'right';
+  dock.style.removeProperty('--cy');
+  dock.style.removeProperty('--cx');
+  const size = vertical ? dock.offsetHeight : dock.offsetWidth;
+  if (!size) return;
+  const { lo, hi } = edgeBand(side);
+  const mid = vertical ? window.innerHeight / 2 : window.innerWidth / 2;
+  // While the rail is in the air it follows the finger; the remembered spot is
+  // where it lands, not where it is dragged through.
+  const want = dock.classList.contains('pd-dragging') ? undefined : along[side];
+
+  let c: number;
+  if (size >= hi - lo) {
+    // more pens than the band can hold: pin the start so the first ones stay usable
+    c = lo + size / 2;
+  } else if (typeof want === 'number') {
+    c = Math.min(Math.max(want, lo + size / 2), hi - size / 2);
+  } else {
+    c = Math.min(Math.max(mid, lo + size / 2), hi - size / 2);
+  }
+  if (Math.abs(c - mid) > 0.5) {
+    dock.style.setProperty(vertical ? '--cy' : '--cx', `${Math.round(c)}px`);
+  }
 }
 
 let lastTap: { at: number; i: number } = { at: 0, i: -1 };
@@ -867,12 +932,24 @@ function startDrag(e: PointerEvent) {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', up);
-    dock?.classList.remove('pd-dragging');
     side = sideFor(u.clientX, u.clientY);
     saveSide();
-    applySide();
+    // Read where it actually is before the deltas are cleared: the rail is
+    // sitting where the finger left it, and that is the spot to remember. A
+    // measured rect rather than the pointer's own coordinates, because the
+    // rail's centre is not the finger — the grip is at one end of it.
+    if (dock) {
+      const r = dock.getBoundingClientRect();
+      const vertical = side === 'left' || side === 'right';
+      along[side] = vertical ? r.top + r.height / 2 : r.left + r.width / 2;
+      saveAlong();
+    }
     dock?.style.removeProperty('--dx');
     dock?.style.removeProperty('--dy');
+    // the class has to go before applySide, or fitRail still thinks the rail is
+    // in the air and centres it again
+    dock?.classList.remove('pd-dragging');
+    applySide();
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
@@ -1204,7 +1281,7 @@ const CSS = `
 /* The rail is one object that lies against an edge. Each side is the same
    idea rotated: the nib points at the page, the barrel runs off screen. */
 #pen-dock{
-  --slot-w:55px;--slot-h:30px;--pull:8px;--dx:0px;--dy:0px;--cy:50%;
+  --slot-w:55px;--slot-h:30px;--pull:8px;--dx:0px;--dy:0px;--cy:50%;--cx:50%;
   position:fixed;z-index:34;display:none;gap:6px;
   padding:8px 0;pointer-events:none;
   transition:transform .18s cubic-bezier(.22,.8,.3,1);
@@ -1214,9 +1291,9 @@ const CSS = `
 #pen-dock[data-side=left].on{transform:translateY(-50%) translateX(0) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=right]{right:0;top:var(--cy);transform:translateY(-50%) translateX(8px) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=right].on{transform:translateY(-50%) translateX(0) translate(var(--dx),var(--dy))}
-#pen-dock[data-side=top]{top:0;left:50%;transform:translateX(-50%) translateY(-8px) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=top]{top:0;left:var(--cx);transform:translateX(-50%) translateY(-8px) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=top].on{transform:translateX(-50%) translateY(0) translate(var(--dx),var(--dy))}
-#pen-dock[data-side=bottom]{bottom:0;left:50%;transform:translateX(-50%) translateY(8px) translate(var(--dx),var(--dy))}
+#pen-dock[data-side=bottom]{bottom:0;left:var(--cx);transform:translateX(-50%) translateY(8px) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=bottom].on{transform:translateX(-50%) translateY(0) translate(var(--dx),var(--dy))}
 #pen-dock[data-side=top],#pen-dock[data-side=bottom]{--slot-w:30px;--slot-h:55px;flex-direction:column;padding:0 8px}
 #pen-dock[data-side=left],#pen-dock[data-side=right]{flex-direction:column}
@@ -1431,6 +1508,7 @@ body[data-pd=right] #pen-sheet{left:auto;right:64px}
 
 function boot() {
   load();
+  readAlong();
   buildDock();
   const style = document.createElement('style');
   style.id = 'pen-dock-style';
@@ -1478,6 +1556,8 @@ function boot() {
       syncFromRecord(slotTool(s));
     },
     side: () => side,
+    /** Where along each edge the rail was last let go, in viewport px. */
+    along: () => ({ ...along }),
     setSide: (v: Side) => {
       side = v;
       saveSide();

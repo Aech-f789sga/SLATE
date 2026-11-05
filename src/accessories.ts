@@ -381,6 +381,85 @@ let timerEl: HTMLElement | null = null;
 let timerFace: HTMLElement | null = null;
 let timerTick = 0;
 
+/**
+ * Where the timer was parked, in viewport px.
+ *
+ * Null is the default: tucked under the toolbar on the left, where it lands
+ * without being asked. Once it has been dragged it stays put instead of
+ * snapping back under the toolbar on the next repaint.
+ */
+let timerPos: { x: number; y: number } | null = null;
+const TIMER_POS_KEY = 'inkpad-timer-pos';
+
+function readTimerPos() {
+  timerPos = null;
+  try {
+    const v = JSON.parse(lsGet(TIMER_POS_KEY, 'null'));
+    if (v && Number.isFinite(v.x) && Number.isFinite(v.y)) timerPos = { x: v.x, y: v.y };
+  } catch {
+    /* a broken value is the same as no value */
+  }
+}
+
+function saveTimerPos() {
+  lsSet(TIMER_POS_KEY, timerPos ? JSON.stringify(timerPos) : 'null');
+}
+
+/** Put the pill where it belongs, and keep it on screen. */
+function placeTimer() {
+  if (!timerEl) return;
+  if (timerPos) {
+    const w = timerEl.offsetWidth;
+    const h = timerEl.offsetHeight;
+    const x = Math.min(Math.max(timerPos.x, 6), Math.max(6, window.innerWidth - w - 6));
+    const y = Math.min(Math.max(timerPos.y, 6), Math.max(6, window.innerHeight - h - 6));
+    timerPos = { x: Math.round(x), y: Math.round(y) };
+    timerEl.style.left = `${timerPos.x}px`;
+    timerEl.style.top = `${timerPos.y}px`;
+    return;
+  }
+  timerEl.style.removeProperty('left');
+  const tb = document.getElementById('tb');
+  const under = tb ? tb.getBoundingClientRect().bottom : 0;
+  timerEl.style.top = Math.round(under + 8) + 'px';
+}
+
+/**
+ * Drag the pill by its face.
+ *
+ * The three buttons inside it are excluded — a press that lands on play,
+ * reset or close is a click, and stealing it would make the timer unusable in
+ * exchange for being movable. The dot and the digits are the handle.
+ */
+function dragTimer(e: PointerEvent) {
+  if (!timerEl) return;
+  const t = e.target as HTMLElement | null;
+  if (t && t.closest && t.closest('button')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const r = timerEl.getBoundingClientRect();
+  // pin it where it is first, so a pill still sitting under the toolbar does
+  // not jump when the finger starts moving
+  timerPos = { x: r.left, y: r.top };
+  const offX = e.clientX - r.left;
+  const offY = e.clientY - r.top;
+  timerEl.classList.add('tk-drag');
+  const move = (m: PointerEvent) => {
+    timerPos = { x: m.clientX - offX, y: m.clientY - offY };
+    placeTimer();
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    timerEl?.classList.remove('tk-drag');
+    saveTimerPos();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+}
+
 function timerKey(): string {
   const nb = ev<any>('nb');
   return 'inkpad-timer-' + (nb && nb.id != null ? nb.id : 'none');
@@ -542,7 +621,12 @@ function buildTimer() {
   };
 
   timerEl.append(dot, timerFace, play, reset, close);
+  timerEl.title = 'Drag to move';
+  timerEl.addEventListener('pointerdown', dragTimer);
   document.body.append(timerEl);
+  readTimerPos();
+  placeTimer();
+  window.addEventListener('resize', placeTimer);
 
   window.clearInterval(timerTick);
   timerTick = window.setInterval(() => {
@@ -564,8 +648,7 @@ function paintTimer() {
       ? '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.6" height="14" rx="1"/><rect x="13.4" y="5" width="3.6" height="14" rx="1"/></svg>'
       : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>';
   }
-  const tb = document.getElementById('tb');
-  if (tb) timerEl.style.top = Math.round(tb.getBoundingClientRect().bottom + 8) + 'px';
+  placeTimer();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1527,7 +1610,10 @@ const CSS = `
   align-items:center;gap:6px;padding:4px 6px 4px 9px;border-radius:999px;
   background:#fff;border:1px solid #eef1f6;font-family:inherit;
   box-shadow:0 8px 24px rgba(8,20,38,.18),0 1px 3px rgba(8,20,38,.08);
+  cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
 }
+#gn-timekeeper.tk-drag{cursor:grabbing}
+#gn-timekeeper .tk-btn{cursor:pointer}
 #gn-timekeeper.on{display:flex}
 #gn-timekeeper .tk-dot{width:7px;height:7px;border-radius:50%;background:#c8d0da;flex:none}
 #gn-timekeeper.run .tk-dot{background:#e5383b;box-shadow:0 0 0 3px rgba(229,56,59,.18)}
