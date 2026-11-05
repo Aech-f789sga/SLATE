@@ -20,6 +20,7 @@
  */
 
 import { sndOf, type GxSnd } from './themes-data';
+import { envelope } from './audio-envelope';
 
 const KEY = 'inkpad-gx-sfx';
 
@@ -88,6 +89,11 @@ function blip(spec: GxSnd, kind: Kind, mult = 1) {
   const f = spec.f * k.mult * mult;
   const f2 = Math.max(24, spec.f2 * k.mult * mult);
   const dur = Math.max(0.03, spec.d * k.dur);
+  // one transient is too short to fade on its own, so the opening gain is
+  // sampled at the moment it fires: a click made during the intro is quieter
+  // than the same click made a minute later. The floor keeps the exponential
+  // decay below it legal — a ramp cannot start from zero.
+  const level = Math.max(0.0002, spec.g * k.gain * envelope.gain);
 
   // body — the pitched part that gives the pack its note
   const osc = c.createOscillator();
@@ -99,7 +105,7 @@ function blip(spec: GxSnd, kind: Kind, mult = 1) {
 
   const g = c.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(spec.g * k.gain, t + 0.004);
+  g.gain.linearRampToValueAtTime(level, t + 0.004);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
 
   osc.connect(g);
@@ -116,7 +122,7 @@ function blip(spec: GxSnd, kind: Kind, mult = 1) {
     bp.frequency.value = Math.min(c.sampleRate / 2.2, f * 1.8);
     bp.Q.value = spec.q;
     const ng = c.createGain();
-    ng.gain.setValueAtTime(spec.g * spec.n * k.gain, t);
+    ng.gain.setValueAtTime(level * spec.n, t);
     ng.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.7);
     src.connect(bp);
     bp.connect(ng);
@@ -127,6 +133,9 @@ function blip(spec: GxSnd, kind: Kind, mult = 1) {
 
 export function play(kind: Kind = 'click', force = false) {
   if (!enabled) return;
+  // while the opening gain is still at the floor there is nothing to hear, and
+  // building an oscillator graph to say nothing is waste
+  if (envelope.gain < 0.02) return;
   const now = performance.now();
   // 26 ms is below the ear's ability to resolve two separate clicks, so this
   // only ever removes genuine pile-ups

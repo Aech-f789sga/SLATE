@@ -20,6 +20,7 @@
  */
 
 import { currentMod, type ModMedia } from './mod-media';
+import { envelope } from './audio-envelope';
 
 export type ModAudioSettings = {
   music: boolean;
@@ -128,6 +129,12 @@ class ModAudio {
     // first-time visitor is refused, playMusic records that, and the listeners
     // above take over on their first tap.
     if (this.settings.music) this.playMusic();
+
+    // The opening gain moves on its own; the element has to follow it frame by
+    // frame or the fade would only exist on paper.
+    envelope.subscribe(() => {
+      if (this.player) this.player.volume = this.musicVolume;
+    });
 
     this.wireUiSounds();
   }
@@ -251,12 +258,16 @@ class ModAudio {
 
   // ---------------------------------------------------------------- volume
 
+  /* Both levels are the chosen volume times the opening gain. The gain is what
+     makes a fresh visit arrive quietly; the setting is where it arrives *at*,
+     so dragging the slider mid-ramp changes the destination, not the fade. */
+
   private get musicVolume() {
-    return Math.min(1, this.settings.volume * 0.85);
+    return Math.min(1, this.settings.volume * 0.85 * envelope.gain);
   }
 
   private get sfxVolume() {
-    return Math.min(1, this.settings.volume * 0.9);
+    return Math.min(1, this.settings.volume * 0.9 * envelope.gain);
   }
 
   // ---------------------------------------------------------------- public
@@ -502,6 +513,11 @@ class ModAudio {
   get hasSfx() {
     return !!this.mod?.sfx;
   }
+
+  /** What the `<audio>` element is actually set to — proof the fade is real. */
+  get playerVolume() {
+    return this.player?.volume ?? 0;
+  }
 }
 
 export const modAudio = new ModAudio();
@@ -516,6 +532,9 @@ export const modAudio = new ModAudio();
     playing: modAudio.isPlayingMusic,
     blocked: modAudio.blocked,
     music: modAudio.settings.music,
+    gain: envelope.gain,
+    volume: modAudio.settings.volume,
+    playerVolume: modAudio.playerVolume,
   }),
   next: () => modAudio.next(),
   prev: () => modAudio.prev(),
