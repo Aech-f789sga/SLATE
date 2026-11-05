@@ -53,8 +53,8 @@ const FAMILY: Record<Family, string> = {
 
   /* Voxel: square, thick edge, shadow with no blur. */
   voxel: `
-    --mt-panel:color-mix(in srgb, var(--sf) 92%, transparent);
-    --mt-panel2:color-mix(in srgb, var(--bg) 92%, transparent);
+    --mt-panel:color-mix(in srgb, var(--sf) 84%, transparent);
+    --mt-panel2:color-mix(in srgb, var(--bg) 90%, transparent);
     --mt-edge:color-mix(in srgb, var(--bg) 55%, #000);
     --mt-r:3px;--mt-r2:2px;--mt-clip:none;
     --mt-shadow:4px 4px 0 color-mix(in srgb, var(--bg) 70%, #000);
@@ -167,6 +167,28 @@ html[data-gx-theme="black-hole"] .card{
 }
 html[data-gx-theme="black-hole"] #gn-tabs button.on{
   box-shadow:inset 0 -2px 0 var(--ac);
+}`,
+  },
+
+  /**
+   * Blockified. Voxel building blocks: square corners, a doubled edge, a
+   * shadow with no blur at all, and the accent used as a solid underline
+   * rather than a glow. Chunky on purpose.
+   */
+  blockified: {
+    fam: 'voxel',
+    extra: `
+html[data-gx-theme="blockified"] #tb{border-width:2px!important}
+html[data-gx-theme="blockified"] .card{
+  border:2px solid color-mix(in srgb, var(--bg) 55%, #000)!important;
+  border-radius:3px!important;
+}
+html[data-gx-theme="blockified"] #gn-tabs button.on{
+  box-shadow:inset 0 -3px 0 var(--ac);
+}
+html[data-gx-theme="blockified"] #bar2{
+  border-width:2px!important;
+  border-radius:3px!important;
 }`,
   },
 };
