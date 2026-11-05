@@ -212,6 +212,59 @@ function chip(
   return w;
 }
 
+/**
+ * Recorded clips, one per demo key.
+ *
+ * These are real captures of the app being used — the tool is picked, the
+ * gesture is made, the panel opens — not drawings of what the tool does. When a
+ * key has a clip the tour plays the clip; otherwise it falls back to the
+ * hand-drawn canvas demo in DEMOS.
+ *
+ * Regenerate with: node scripts/record-demos.mjs && node scripts/detect-markers.mjs
+ * && node scripts/cut-demos.mjs
+ */
+const CLIPS: Record<string, string> = {
+  find: '/demos/find.mp4',
+  theme: '/demos/theme.mp4',
+  music: '/demos/music.mp4',
+  sidebar: '/demos/sidebar.mp4',
+  penmap: '/demos/penmap.mp4',
+  cloud: '/demos/cloud.mp4',
+  signin: '/demos/signin.mp4',
+  install: '/demos/install.mp4',
+  create: '/demos/create.mp4',
+  toolrow: '/demos/toolrow.mp4',
+  inkpill: '/demos/inkpill.mp4',
+  nibs: '/demos/nibs.mp4',
+  width: '/demos/width.mp4',
+  colour: '/demos/colour.mp4',
+  pen: '/demos/pen.mp4',
+  hl: '/demos/hl.mp4',
+  er: '/demos/er.mp4',
+  whole: '/demos/whole.mp4',
+  lasso: '/demos/lasso.mp4',
+  selresize: '/demos/selresize.mp4',
+  text: '/demos/text.mp4',
+  stickers: '/demos/stickers.mp4',
+  snap: '/demos/snap.mp4',
+  zoomwin: '/demos/zoomwin.mp4',
+  laser: '/demos/laser.mp4',
+  pagecard: '/demos/pagecard.mp4',
+  template: '/demos/template.mp4',
+  papercolour: '/demos/papercolour.mp4',
+  zoom: '/demos/zoom.mp4',
+  thumbs: '/demos/thumbs.mp4',
+  fullscreen: '/demos/fullscreen.mp4',
+  export: '/demos/export.mp4',
+  clear: '/demos/clear.mp4',
+  guides: '/demos/guides.mp4',
+  layers: '/demos/layers.mp4',
+  animate: '/demos/animate.mp4',
+  engineering: '/demos/engineering.mp4',
+  undo: '/demos/undo.mp4',
+  pages: '/demos/pages.mp4',
+};
+
 const DEMOS: Record<string, Demo> = {
   /* --- pen: pressure-tapered ink --------------------------------- */
   pen: {
@@ -1481,6 +1534,9 @@ const DEMOS: Record<string, Demo> = {
 /* Demo player                                                         */
 /* ------------------------------------------------------------------ */
 
+/* the opening steps share the pen illustration; they are about the app, not the pen */
+DEMOS.welcome = DEMOS.pen;
+
 class DemoPlayer {
   private cv: HTMLCanvasElement | null = null;
   private g: CanvasRenderingContext2D | null = null;
@@ -1563,7 +1619,7 @@ interface Step {
 // Bumped whenever the steps change: the flag is what stops the tour from
 // replaying at someone who has already seen it, so a stale flag would hide a
 // rewritten tour from every returning user.
-const TOUR_VER = 'v3';
+const TOUR_VER = 'v4';
 const HOME_FLAG = `inkpad-tour-home-${TOUR_VER}`;
 const EDITOR_FLAG = `inkpad-tour-editor-${TOUR_VER}`;
 
@@ -1600,6 +1656,7 @@ function tourRoot(): HTMLElement {
       <div id="tour-demo-wrap">
         <span id="tour-demo-tag">LIVE DEMO</span>
         <canvas id="tour-demo"></canvas>
+        <video id="tour-video" muted playsinline loop preload="auto"></video>
       </div>
       <div id="tour-foot">
         <button id="tour-skip">Skip tour</button>
@@ -1761,14 +1818,33 @@ function showStep(idx: number) {
   card.querySelector('#tour-title')!.textContent = step.title;
   card.querySelector('#tour-body')!.innerHTML = step.body;
   const wrap = card.querySelector('#tour-demo-wrap') as HTMLElement;
-  if (step.demo && DEMOS[step.demo]) {
+  const tag = card.querySelector('#tour-demo-tag') as HTMLElement;
+  const clip = step.demo ? CLIPS[step.demo] : '';
+  if (clip) {
+    // a real capture of the tool in use
     wrap.style.display = 'block';
+    wrap.classList.add('vid');
+    tag.textContent = 'RECORDED';
+    demo.stop();
+    const vid = card.querySelector('#tour-video') as HTMLVideoElement;
+    if (vid.getAttribute('src') !== clip) vid.setAttribute('src', clip);
+    vid.muted = true;
+    vid.play().catch(() => { /* autoplay can be refused; the poster frame still shows */ });
+  } else if (step.demo && DEMOS[step.demo]) {
+    wrap.style.display = 'block';
+    wrap.classList.remove('vid');
+    tag.textContent = 'LIVE DEMO';
+    const vid = card.querySelector('#tour-video') as HTMLVideoElement;
+    vid.pause();
     const cv = card.querySelector('#tour-demo') as HTMLCanvasElement;
     demo.attach(cv);
     demo.play(step.demo);
   } else {
     wrap.style.display = 'none';
+    wrap.classList.remove('vid');
+    tag.textContent = 'LIVE DEMO';
     demo.stop();
+    (card.querySelector('#tour-video') as HTMLVideoElement).pause();
   }
   const back = card.querySelector('#tour-back') as HTMLButtonElement;
   const next = card.querySelector('#tour-next') as HTMLButtonElement;
@@ -1962,7 +2038,7 @@ const HOME_STEPS: Step[] = [
     title: 'Welcome to Slate 👋',
     body:
       'A short tour of the library. It takes about a minute, and you can leave at any point with <b>Skip tour</b>.',
-    demo: 'pen',
+    demo: 'welcome',
   },
   {
     target: () => document.getElementById('nav'),
@@ -1972,6 +2048,7 @@ const HOME_STEPS: Step[] = [
       '<b>Documents</b> holds every notebook, <b>Favorites</b> pins the ones you open daily, and <b>Trash</b> keeps deleted notebooks until you empty it.',
   },
   {
+    demo: 'sidebar',
     target: () => document.getElementById('nav-hide'),
     title: 'Get the sidebar out of the way',
     body:
@@ -1979,6 +2056,7 @@ const HOME_STEPS: Step[] = [
     pad: 8,
   },
   {
+    demo: 'create',
     target: () => document.querySelector('.new') as HTMLElement | null,
     title: 'Create a notebook',
     body:
@@ -1989,7 +2067,7 @@ const HOME_STEPS: Step[] = [
     target: () => document.getElementById('gn-search'),
     title: 'Find anything fast',
     body: 'Search filters your notebooks by title as you type. It works offline too.',
-    demo: 'search',
+    demo: 'find',
   },
   {
     target: () => document.getElementById('gx-theme-btn'),
@@ -2000,6 +2078,7 @@ const HOME_STEPS: Step[] = [
     pad: 6,
   },
   {
+    demo: 'music',
     // only exists while a theme with media is applied, so the step filters out
     target: () => document.querySelector('.gxm-fab') as HTMLElement | null,
     title: 'The music pill',
@@ -2008,6 +2087,7 @@ const HOME_STEPS: Step[] = [
     pad: 8,
   },
   {
+    demo: 'cloud',
     target: () => byText('#libm button', 'Import backup'),
     title: 'Coming from another device?',
     body:
@@ -2029,6 +2109,7 @@ const HOME_STEPS: Step[] = [
     demo: 'cloud',
   },
   {
+    demo: 'signin',
     target: () =>
       (document.getElementById('auth-login-btn') as HTMLElement | null) ||
       (document.getElementById('user-info-box') as HTMLElement | null),
@@ -2062,20 +2143,19 @@ const EDITOR_STEPS: Step[] = [
     title: 'The tool tour',
     body:
       'Most steps carry a looping animation so you can see the thing working rather than read about it. Move with <b>Next</b>, or press <b>Esc</b> to leave.',
-    demo: 'pen',
+    demo: 'welcome',
   },
 
   /* ---- the two surfaces that run the whole editor ------------------ */
   {
     target: () => document.getElementById('bar'),
-    demo: 'pen',
+    demo: 'toolrow',
     title: 'The tool row',
     body:
       'One row of tools, left to right: <b>pen</b>, <b>highlighter</b>, <b>eraser</b>, <b>text</b>, <b>lasso</b>, <b>laser</b>, <b>paint bucket</b>, then <b>shapes</b>, <b>accessories</b> and the page pill. Everything that did not fit lives in those last two.',
   },
   {
     target: () => document.getElementById('pen-dock'),
-    demo: 'pen',
     title: 'The pen dock',
     body:
       'Six pens sit in a pocket down the left edge, like a case. Tap one to pick it up — each slot is a whole preset with its own nib, width and colour. Open a slot’s settings to swap it for a brush, a highlighter, an eraser or a laser, or to add up to eight.',
@@ -2086,12 +2166,12 @@ const EDITOR_STEPS: Step[] = [
     title: 'The ink pill',
     body:
       'The floating bar carries everything about the line you are drawing: <b>nib</b>, <b>width</b> and <b>colour</b>, plus a settings gear. It follows the tool, so it always shows what the pen in your hand will do.',
-    demo: 'colors',
+    demo: 'inkpill',
     pad: 8,
   },
   {
     target: pillGroup(0),
-    demo: 'pen',
+    demo: 'nibs',
     title: 'Six nibs',
     body:
       'Ballpoint, fountain, brush, pencil, crayon and marker. Each has its own taper and texture, so a page can change feel halfway through without changing tool.',
@@ -2102,7 +2182,7 @@ const EDITOR_STEPS: Step[] = [
     title: 'Thickness in millimetres',
     body:
       'Three quick widths — 0.53, 1.1 and 1.8 mm — and the gear opens a logarithmic slider from 0.1 mm to 100 mm. Millimetres first means a 0.3 mm fineliner and a 40 mm marker are both one gesture away, with a mouse or a finger.',
-    demo: 'pressure',
+    demo: 'width',
     pad: 8,
   },
   {
@@ -2110,7 +2190,7 @@ const EDITOR_STEPS: Step[] = [
     title: 'Colour',
     body:
       'Six ready swatches, plus the round picker for any shade. The choice applies to pens, highlighter, shapes and text.',
-    demo: 'colors',
+    demo: 'colour',
     pad: 8,
   },
   {
@@ -2149,13 +2229,12 @@ const EDITOR_STEPS: Step[] = [
     title: 'Whole-stroke eraser',
     body:
       'The eraser carries two modes: rub through a stroke like a real eraser, or remove the <b>entire stroke</b> with one touch. The second is much faster when you want a line gone completely.',
-    demo: 'er',
+    demo: 'whole',
   },
   {
     title: 'Scribble to erase',
     body:
       'Scratch back and forth over a word, a doodle or a shape and it disappears — no need to switch tools. Only a dense scratch triggers it, so ordinary writing is never touched. Turn it off under <b>Accessories → Smart ink</b>.',
-    demo: 'er',
   },
 
   /* ---- selecting -------------------------------------------------- */
@@ -2164,7 +2243,7 @@ const EDITOR_STEPS: Step[] = [
     title: 'Lasso select',
     body:
       'Circle anything to select it, then <b>drag to move</b>. With a selection active, the page card grows enlarge ⤢, shrink ⤡ and delete controls.',
-    demo: 'sel',
+    demo: 'lasso',
   },
   {
     // No target: `#sg` only exists once something is selected, and nothing is
@@ -2173,7 +2252,7 @@ const EDITOR_STEPS: Step[] = [
     title: 'Resize or delete a selection',
     body:
       'With something selected, the page card grows ⤢ enlarge, ⤡ shrink and a bin. Scaling works on handwriting, shapes and images alike.',
-    demo: 'sel',
+    demo: 'selresize',
   },
 
   /* ---- shapes ----------------------------------------------------- */
@@ -2222,7 +2301,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: accItem('Stickers'),
-    demo: 'fav',
+    demo: 'stickers',
     title: 'Stickers',
     body:
       'Stars, arrows, ticks, leaves and more. Tap one to drop it on the page, then drag or resize it like any picture. Stickers export with the page and sync with the notebook.',
@@ -2232,7 +2311,6 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: accItem('Sticky note'),
-    demo: 'text',
     title: 'Sticky notes',
     body:
       'A coloured note that sits on the page without joining the ink — grab it, resize it, edit the text inside. Good for a margin comment you may want to move later.',
@@ -2252,7 +2330,6 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: accItem('Hold to snap'),
-    demo: 'snap',
     title: 'Hold to snap',
     body:
       'Prefer snap only sometimes? Turn this on and snap engages while you <b>hold</b> — for one deliberate join — then lets go. The best of both without leaving a switch flipped.',
@@ -2262,7 +2339,6 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: accItem('Smart ink'),
-    demo: 'er',
     title: 'Smart ink',
     body:
       'The recognition layer: scribble to erase, hold a stroke still to straighten it into a line or tidy it into a shape. Everything here is optional and undoable.',
@@ -2275,7 +2351,7 @@ const EDITOR_STEPS: Step[] = [
     title: 'Zoom Window',
     body:
       'A magnified inset that follows your pen, so you can see the exact pixel you are on while the rest of the page stays at reading size. Made for fine detail work on a small screen.',
-    demo: 'zoom',
+    demo: 'zoomwin',
     before: ensureAcc,
     after: closeAcc,
     pad: 6,
@@ -2308,6 +2384,7 @@ const EDITOR_STEPS: Step[] = [
 
   /* ---- the page card ---------------------------------------------- */
   {
+    demo: 'pagecard',
     target: () => document.getElementById('pgm'),
     title: 'The page card',
     body:
@@ -2316,7 +2393,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: () => document.getElementById('tpl'),
-    demo: 'paper',
+    demo: 'template',
     title: 'Paper template',
     body:
       'Blank, lined, grid, dotted or Cornell — change it per page at any time. Your ink stays exactly where it is.',
@@ -2326,7 +2403,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: () => document.getElementById('pc'),
-    demo: 'paper',
+    demo: 'papercolour',
     title: 'Paper colour',
     body:
       'White, cream, and darker shades for low light. Handy for matching a real notebook, or for a page you plan to print.',
@@ -2336,7 +2413,6 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: byTitle('Page resolution'),
-    demo: 'share',
     title: 'Export resolution',
     body:
       'How many dots per inch the page is rendered at when you export. Higher is sharper and heavier — 300 dpi is a good print default.',
@@ -2356,7 +2432,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: () => document.getElementById('side-t'),
-    demo: 'pages',
+    demo: 'thumbs',
     title: 'Page thumbnails',
     body:
       'Opens a strip of live page previews down the left. Tap any page to jump straight to it — the quickest way around a long notebook.',
@@ -2366,7 +2442,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: () => document.getElementById('fs'),
-    demo: 'zoom',
+    demo: 'fullscreen',
     title: 'Full screen',
     body:
       'Hides every panel so only paper is left. Tap again, or press <b>Esc</b>, to bring the tools back.',
@@ -2379,14 +2455,14 @@ const EDITOR_STEPS: Step[] = [
     title: 'Export & share',
     body:
       'Send the notebook out as <b>PDF</b> (all pages) or <b>PNG</b>, ready for GoodNotes, Notability, OneNote, Samsung Notes or Apple Notes.',
-    demo: 'share',
+    demo: 'export',
     before: ensureOverflow,
     after: closeOverflow,
     pad: 6,
   },
   {
     target: () => document.getElementById('clr'),
-    demo: 'undo',
+    demo: 'clear',
     title: 'Clear page',
     body:
       'Empties the current page in one go. Other pages are untouched, and <b>undo</b> still brings the ink back if you change your mind.',
@@ -2396,7 +2472,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: byTitle('Guides, symmetry and perspective'),
-    demo: 'shape',
+    demo: 'guides',
     title: 'Guides & symmetry',
     body:
       'Overlay ruled guides, mirror everything you draw across an axis, or snap to a perspective grid — the fastest way to keep a sketch in proportion.',
@@ -2406,7 +2482,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: byTitle('Layers (per page)'),
-    demo: 'pages',
+    demo: 'layers',
     title: 'Layers',
     body:
       'Each page can hold several layers. Keep annotations on one and artwork on another, then hide or reorder them without touching the ink itself.',
@@ -2416,7 +2492,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: byTitle('Animate next drawing', true),
-    demo: 'pen',
+    demo: 'animate',
     title: 'Animate a drawing',
     body:
       'Turn animation on, draw, and Inkpad records the stroke. Press ▶ to play it back — handy for showing how a diagram was built up.',
@@ -2426,7 +2502,6 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: byTitle('Figure library'),
-    demo: 'shape',
     title: 'Figure library',
     body:
       'Ready-made shapes for science and maths — circuits, arrows, containers and more — so you can assemble a diagram without drawing every part by hand.',
@@ -2436,7 +2511,7 @@ const EDITOR_STEPS: Step[] = [
   },
   {
     target: byTitle('Engineering symbols'),
-    demo: 'shape',
+    demo: 'engineering',
     title: 'Engineering symbols',
     body:
       'A palette of symbols you can stamp straight onto the page: resistors, capacitors, valves, flow arrows and the rest of the usual notation.',
@@ -2742,6 +2817,10 @@ const CSS = `
 #tour-demo-wrap{position:relative;display:none;border:1px solid var(--bd);border-radius:11px;overflow:hidden;background:#fff;margin-top:2px}
 #tour-demo-tag{position:absolute;top:6px;left:6px;z-index:2;font-size:8.5px;font-weight:800;letter-spacing:.09em;color:#fff;background:rgba(20,28,48,.55);padding:2px 6px;border-radius:999px;pointer-events:none}
 #tour-demo{display:block;width:100%;height:132px}
+/* a recorded clip is shown at the same size as the drawn demo it replaces */
+#tour-video{display:none;width:100%;height:132px;object-fit:cover;background:#0d1424}
+#tour-demo-wrap.vid #tour-video{display:block}
+#tour-demo-wrap.vid #tour-demo{display:none}
 #tour-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:2px}
 #tour-skip{border:0;background:transparent;color:var(--mu);font-size:12px;cursor:pointer;padding:6px 2px;text-decoration:underline}
 #tour-nav{display:flex;gap:8px}
@@ -2756,7 +2835,7 @@ const CSS = `
 #install-md .box{background:var(--sf);color:var(--tx);border-radius:18px;padding:18px;width:min(94vw,420px);max-height:88vh;overflow:auto;display:flex;flex-direction:column;gap:11px;border:1px solid var(--bd);box-shadow:0 18px 44px rgba(6,12,28,.3)}
 html.tour-on #tour-fab{display:none!important}
 @media (max-width:620px){
-  #tour-demo{height:112px}
+  #tour-demo,#tour-video{height:112px}
   #tour-card{padding:12px 13px 10px;border-radius:14px 14px 0 0}
   #tour-nav button{padding:9px 16px}
 }
