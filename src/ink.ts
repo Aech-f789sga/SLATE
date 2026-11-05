@@ -246,6 +246,23 @@ const CSS = `
 /* a width between levels: hint at the nearest one without claiming it */
 #ink-pen .w.near{background:#f5f8fd}
 #ink-pen .w.near i{opacity:.45}
+/* The eraser's continuous thickness. The three dots are levels; this is the
+   space between them, and it writes through setWidth so the dock's eraser and
+   the engine's own size follow the same number. */
+#ink-pen .wsl{
+  -webkit-appearance:none;appearance:none;flex:none;
+  width:84px;height:3px;border-radius:2px;margin:0 3px;cursor:pointer;
+  background:color-mix(in srgb, currentColor 24%, transparent);
+}
+#ink-pen .wsl::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+  background:currentColor;border:2px solid #fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer;
+}
+#ink-pen .wsl::-moz-range-thumb{
+  width:13px;height:13px;border-radius:50%;background:currentColor;
+  border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer;
+}
 #ink-pen .sw{
   width:22px!important;height:22px!important;border-radius:50%!important;
   background:var(--swc,#111)!important;
@@ -860,6 +877,36 @@ function paintPanel() {
       grp.append(b);
     });
     penPanel.append(grp);
+
+    // The three dots are levels; the eraser can also take any width between
+    // them, and that control belongs here rather than three menus deep. It
+    // writes through setWidth, which is the same record the dock's eraser and
+    // the engine's own size read, so all three stay on one number.
+    const slider = el('input') as HTMLInputElement;
+    slider.type = 'range';
+    slider.className = 'wsl';
+    const lo = Math.min(...erSteps);
+    const hi = Math.max(...erSteps);
+    slider.min = String(lo);
+    slider.max = String(hi);
+    slider.step = '1';
+    slider.value = String(Math.round(erSize));
+    slider.setAttribute('aria-label', 'Eraser thickness');
+    slider.title = 'Eraser thickness — ' + mmLabel(mmOf(erTool, erSize));
+    slider.oninput = () => {
+      const v = Number(slider.value);
+      setWidth(erTool, v);
+      slider.title = 'Eraser thickness — ' + mmLabel(mmOf(erTool, v));
+      // Re-mark the dots in place. Going through paintPanel() would replace
+      // the node the finger is dragging and the drag would die.
+      const near = nearestLevel(erSteps, v);
+      grp.querySelectorAll<HTMLElement>('.w').forEach((b, i) => {
+        const exact = onLevel(erSteps[i], v);
+        b.classList.toggle('on', exact);
+        b.classList.toggle('near', !exact && i === near);
+      });
+    };
+    penPanel.append(slider);
     penPanel.append(divider());
     const gear = el('button') as HTMLButtonElement;
     gear.title = 'Eraser settings';
