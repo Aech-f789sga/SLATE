@@ -2,20 +2,28 @@
  * What each mod actually ships.
  *
  * An Opera GX mod is not a colour scheme: it carries a soundtrack, a set of
- * UI sounds and a wallpaper, and the three mods ported so far each carry a
- * *different* kind of wallpaper — which is why this is a table rather than a
- * convention. Everything below is read straight from each mod's own
- * `manifest.json` (`mod.payload`), so the paths and the track count are the
- * mod's, not ours.
+ * UI sounds and a wallpaper, and every mod carries a *different* kind of
+ * wallpaper — which is why this is a table rather than a convention.
+ * Everything below is read straight from each mod's own `manifest.json`
+ * (`mod.payload`), so the paths and the track count are the mod's, not ours.
+ *
+ * The soundtracks are all the same shape, which is the interesting part:
  *
  *   LoFi Chill   four stems mixed as one track, a still photograph, and a
  *                shader that draws drifting bokeh over it.
  *   Cyberdeck    three stems, an animated webm of the skyline, and a shader
  *                that adds glitch and a binary matrix.
  *   Minecraft    one 17-minute track, and a 17-minute video of a fireplace.
+ *   Blockified   a single track — the one mod here that ships a whole song
+ *                rather than layers of one.
  *
- * Audio is re-encoded to 64 kbps AAC and video to 720p so the whole set is
- * ~21 MB instead of ~250 MB; the originals are untouched in the mod folder.
+ * A mod ships *stems*, not a song: `layer1..5.mp3`, all exactly the same
+ * length, which Opera plays at once so it can fade layers in and out without
+ * ever cutting the music. The engine does the same, so `layers` is just the
+ * count the mod uses.
+ *
+ * Audio is re-encoded to 64 kbps AAC and video to 720p; the originals are
+ * untouched in the mod folder.
  */
 
 /**
@@ -68,12 +76,33 @@ export type ModMedia = {
 
 const root = (id: string) => `/mods/${id}`;
 
+/** The mod cut one song into N equal-length layers; name them in order. */
+const stems = (id: string, n: number) =>
+  Array.from({ length: n }, (_, i) => `${root(id)}/music/layer${i + 1}.m4a`);
+
+/**
+ * The interface sounds, laid down by `scripts/extract-sfx.mjs` under the same
+ * six names for every mod — which is the whole reason the extractor exists:
+ * each mod names its sounds after *moments in a browser* (`SWITCH_TOGGLE`,
+ * `TAB_INSERT`), and that translation belongs in one script, not in fourteen
+ * hand-written path blocks.
+ */
+const sfx = (id: string, keys: number): ModSfx => ({
+  hover: `${root(id)}/sfx/hover.mp3`,
+  click: `${root(id)}/sfx/click.mp3`,
+  toggle: `${root(id)}/sfx/toggle.mp3`,
+  tab: `${root(id)}/sfx/tab.mp3`,
+  close: `${root(id)}/sfx/close.mp3`,
+  keys: Array.from({ length: keys }, (_, i) => `${root(id)}/sfx/key${i + 1}.mp3`),
+});
+
 export const MODS: Record<string, ModMedia> = {
   anime: {
     id: 'anime',
     name: 'Anime',
     track: 'Anime',
-    layers: [1, 2, 3, 4].map((n) => `${root('anime')}/music/layer${n}.m4a`),
+    layers: stems('anime', 4),
+    sfx: sfx('anime', 4),
     wall: {
       still: '/themes/anime.jpg',
       fx: 'petals',
@@ -85,15 +114,8 @@ export const MODS: Record<string, ModMedia> = {
     id: 'lofi-chill',
     name: 'LoFi Chill',
     track: 'LoFi Chill',
-    layers: [1, 2, 3, 4].map((n) => `${root('lofi-chill')}/music/layer${n}.m4a`),
-    sfx: {
-      hover: `${root('lofi-chill')}/sfx/hover.mp3`,
-      click: `${root('lofi-chill')}/sfx/click.mp3`,
-      toggle: `${root('lofi-chill')}/sfx/toggle.mp3`,
-      tab: `${root('lofi-chill')}/sfx/tab.mp3`,
-      close: `${root('lofi-chill')}/sfx/close.mp3`,
-      keys: [1, 2, 3].map((n) => `${root('lofi-chill')}/sfx/key${n}.mp3`),
-    },
+    layers: stems('lofi-chill', 4),
+    sfx: sfx('lofi-chill', 3),
     wall: {
       still: '/themes/lofi-chill.jpg',
       fx: 'bokeh',
@@ -105,15 +127,8 @@ export const MODS: Record<string, ModMedia> = {
     id: 'cyberdeck',
     name: 'Cyberdeck',
     track: 'Cyberdeck',
-    layers: [1, 2, 3].map((n) => `${root('cyberdeck')}/music/layer${n}.m4a`),
-    sfx: {
-      hover: `${root('cyberdeck')}/sfx/hover.mp3`,
-      click: `${root('cyberdeck')}/sfx/click.mp3`,
-      toggle: `${root('cyberdeck')}/sfx/toggle.mp3`,
-      tab: `${root('cyberdeck')}/sfx/tab.mp3`,
-      close: `${root('cyberdeck')}/sfx/close.mp3`,
-      keys: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `${root('cyberdeck')}/sfx/key${n}.mp3`),
-    },
+    layers: stems('cyberdeck', 3),
+    sfx: sfx('cyberdeck', 8),
     wall: {
       still: '/themes/cyberdeck.jpg',
       video: `${root('cyberdeck')}/wall/live.mp4`,
@@ -132,6 +147,139 @@ export const MODS: Record<string, ModMedia> = {
       video: `${root('minecraft-sound-fireplace')}/wall/live.mp4`,
       fx: null,
       label: 'The hearth',
+    },
+  },
+
+  /* ---- the ten ported from the second wave of installed mods ---------- */
+
+  cozy: {
+    id: 'cozy',
+    name: 'Cozy',
+    track: 'Cozy',
+    layers: stems('cozy', 4),
+    sfx: sfx('cozy', 1),
+    wall: {
+      still: '/themes/cozy.jpg',
+      fx: 'dust',
+      label: 'Lamplight',
+    },
+  },
+
+  horror: {
+    id: 'horror',
+    name: 'Horror',
+    track: 'Horror',
+    layers: stems('horror', 3),
+    sfx: sfx('horror', 6),
+    wall: {
+      still: '/themes/horror.jpg',
+      fx: 'rain',
+      label: 'Rain on the glass',
+    },
+  },
+
+  'violet-nebula': {
+    id: 'violet-nebula',
+    name: 'Violet Nebula',
+    track: 'Violet Nebula',
+    layers: stems('violet-nebula', 3),
+    sfx: sfx('violet-nebula', 5),
+    wall: {
+      still: '/themes/violet-nebula.jpg',
+      fx: 'stars',
+      label: 'The nebula, turning',
+    },
+  },
+
+  medieval: {
+    id: 'medieval',
+    name: 'Medieval',
+    track: 'Medieval',
+    layers: stems('medieval', 4),
+    sfx: sfx('medieval', 5),
+    wall: {
+      still: '/themes/medieval.jpg',
+      fx: 'embers',
+      label: 'Embers of the keep',
+    },
+  },
+
+  'spaced-out': {
+    id: 'spaced-out',
+    name: 'Spaced Out',
+    track: 'Spaced Out',
+    layers: stems('spaced-out', 5),
+    sfx: sfx('spaced-out', 1),
+    wall: {
+      still: '/themes/spaced-out.jpg',
+      fx: 'stars',
+      label: 'Deep field',
+    },
+  },
+
+  'legendary-rift': {
+    id: 'legendary-rift',
+    name: 'Legendary Rift',
+    track: 'Legendary Rift',
+    layers: stems('legendary-rift', 5),
+    sfx: sfx('legendary-rift', 4),
+    wall: {
+      still: '/themes/legendary-rift.jpg',
+      fx: 'embers',
+      label: 'Riftlight',
+    },
+  },
+
+  'the-traveller': {
+    id: 'the-traveller',
+    name: 'The Traveller',
+    track: 'The Traveller',
+    layers: stems('the-traveller', 4),
+    sfx: sfx('the-traveller', 5),
+    wall: {
+      still: '/themes/the-traveller.jpg',
+      fx: 'snow',
+      label: 'Snow, and the road',
+    },
+  },
+
+  'capybara-party': {
+    id: 'capybara-party',
+    name: 'Capybara Party',
+    track: 'Capybara Party',
+    layers: stems('capybara-party', 4),
+    sfx: sfx('capybara-party', 5),
+    wall: {
+      still: '/themes/capybara-party.jpg',
+      fx: 'petals',
+      label: 'Petals and a hot spring',
+    },
+  },
+
+  blockified: {
+    id: 'blockified',
+    name: 'Blockified',
+    track: 'Blockified',
+    // the one mod that ships a whole song instead of layers of one
+    layers: [`${root('blockified')}/music/layer1.m4a`],
+    sfx: sfx('blockified', 4),
+    wall: {
+      still: '/themes/blockified.jpg',
+      fx: 'embers',
+      label: 'Embers over the block world',
+    },
+  },
+
+  'day-one': {
+    id: 'day-one',
+    name: 'Day One',
+    track: 'Day One',
+    layers: stems('day-one', 4),
+    sfx: sfx('day-one', 5),
+    wall: {
+      still: '/themes/day-one.jpg',
+      fx: 'dust',
+      label: 'Morning dust',
     },
   },
 };
