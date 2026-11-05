@@ -401,18 +401,6 @@ function installLayerOrder() {
 /* Settings                                                            */
 /* ------------------------------------------------------------------ */
 
-function installSettings() {
-  ev(`(function(){
-    if (window.__paperSettingsHooked) return;
-    window.__paperSettingsHooked = true;
-    var orig = fillSet;
-    fillSet = function(d){
-      orig(d);
-      try{ window.__paperSettings(d); }catch(e){}
-    };
-  })()`);
-}
-
 function el(tag: string, css?: string, text?: string): HTMLElement {
   const e = document.createElement(tag);
   if (css) e.style.cssText = css;
@@ -442,34 +430,15 @@ function chip(g: HTMLElement, label: string, on: boolean, fn: () => void) {
   return b;
 }
 
-/** Appended to the engine's own Settings drawer. */
-function paperSettings(d: HTMLElement) {
-  d.append(el('div', 'height:1px;background:var(--bd);margin:12px 0 2px'));
-
-  // Off by default, all three. Nothing in the app reads your ink until you say
-  // it may, and the switch that turns it on is here rather than on the canvas.
-  d.append(el('div', 'font-weight:600;margin:10px 0 2px;font-size:12px;color:var(--mu)', 'Smart ink'));
-  d.append(
-    el(
-      'div',
-      'font-size:11px;line-height:1.45;color:var(--mu);margin-bottom:6px',
-      'All off by default. Each one watches what you draw, so it only runs when you turn it on.'
-    )
-  );
-  const smartG = el('div', 'display:flex;flex-wrap:wrap;gap:6px;align-items:center');
-  d.append(smartG);
-  const smartChips: [SmartKey, string][] = [
-    ['calc', 'Auto-calculate'],
-    ['toText', 'Ink → text'],
-    ['toLatex', 'Ink → LaTeX'],
-  ];
-  for (const [key, label] of smartChips) {
-    chip(smartG, label, smartOn(key), () => {
-      setSmart(key, !smartOn(key));
-      rerenderDrawer(d);
-    });
-  }
-
+/**
+ * The paper rows, hosted by the Page menu.
+ *
+ * They used to be appended to the engine's Settings drawer, next to the
+ * highlighter and the smart-ink switches — three blocks that all had a better
+ * home. The smart switches are in Accessories, the highlighter's opacity and
+ * blend are on its own tab, and paper detail belongs with the paper.
+ */
+function paperDetail(d: HTMLElement) {
   const ruleG = group(d, 'Paper ruling (mm)');
   [5, 6, 7, 8, 9, 10].forEach((mm) => {
     chip(ruleG, String(mm), prefs.ruling === mm, () => {
@@ -514,40 +483,13 @@ function paperSettings(d: HTMLElement) {
     rerenderDrawer(d);
   });
 
-  const hlG = group(d, 'Highlighter');
-  [0.18, 0.26, 0.34, 0.46, 0.6].forEach((a) => {
-    chip(hlG, Math.round(a * 100) + '%', Math.abs(prefs.hlOpacity - a) < 0.01, () => {
-      prefs.hlOpacity = a;
-      savePrefs();
-      rerenderDrawer(d);
-    });
-  });
-
-  const blendG = group(d, 'Highlighter blend');
-  (['auto', 'multiply', 'normal'] as const).forEach((m) => {
-    chip(blendG, m, prefs.hlBlend === m, () => {
-      prefs.hlBlend = m;
-      savePrefs();
-      rerenderDrawer(d);
-    });
-  });
-
-  const underG = group(d, 'Highlighter layer');
-  chip(underG, 'Under ink', prefs.hlUnder, () => {
-    prefs.hlUnder = !prefs.hlUnder;
-    ev(`try{ window.__paperHlUnder = ${prefs.hlUnder}; }catch(e){}`);
-    savePrefs();
-    rerenderDrawer(d);
-  });
 }
 
-/** Rebuild the drawer in place so a chip reflects its new state immediately. */
+/** Rebuild the host in place so a chip reflects its new state immediately. */
 function rerenderDrawer(d: HTMLElement) {
   const scroll = d.scrollTop;
-  const fill = ev<any>('fillSet');
-  if (typeof fill !== 'function') return;
   d.innerHTML = '';
-  fill(d);
+  paperDetail(d);
   d.scrollTop = scroll;
 }
 
@@ -562,7 +504,9 @@ function boot() {
   // the functions stay in this module's scope; only the reference crosses over
   (window as any).__paperDraw = drawPaper;
   (window as any).__hlDraw = drawHighlighter;
-  (window as any).__paperSettings = paperSettings;
+  // The paper rows live in the Page menu now: the settings drawer is for
+  // things with no other home, and the paper has a whole menu of its own.
+  (window as any).__paperDetail = paperDetail;
 
   // paper: replace the engine's page background
   ev(`(function(){
@@ -589,7 +533,6 @@ function boot() {
   })()`);
 
   installLayerOrder();
-  installSettings();
 
   (window as any).__inkpad_paper = {
     prefs,

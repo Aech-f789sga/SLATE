@@ -48,8 +48,8 @@ html[data-bar=full] #bar2.open{
   display:flex!important;flex-wrap:wrap!important;align-items:center!important;
   justify-content:flex-start!important;
   gap:4px 6px!important;padding:8px 11px 10px!important;
-  width:max-content!important;max-width:min(94vw,600px)!important;
-  max-height:none!important;overflow:visible!important;
+  width:max-content!important;max-width:min(94vw,620px)!important;
+  max-height:calc(100vh - 130px)!important;overflow-y:auto!important;overflow-x:hidden!important;
   background:#fff!important;border:1px solid #e7ecf4!important;border-radius:15px!important;
   box-shadow:0 18px 44px rgba(8,20,38,.28)!important;z-index:60;
 }
@@ -69,6 +69,12 @@ html[data-bar=full] #bar2.open #pgm .pgm-car{display:none}
    wrapping flex row without wrapping the controls in a container — and wrapping
    them is what breaks the engine's own insertions. */
 #bar2 .pgm-br{flex:0 0 100%;height:0;margin:0;padding:0;border:0}
+/* the paper detail rows, hosted from paper-pro */
+#bar2 .pgm-detail{
+  flex:0 0 100%;display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;
+  padding:2px 0 0;
+}
+#bar2 .pgm-detail > div{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
 #bar2 .pgm-lab{
   flex:0 0 auto;font:600 9.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   letter-spacing:.09em;text-transform:uppercase;color:#a3adbd;
@@ -265,6 +271,26 @@ function paint() {
   }
 }
 
+/** Paper ruling, grid, margin and texture — the rows the drawer used to hold. */
+function mountDetail() {
+  if (!bar2) return;
+  let host = bar2.querySelector<HTMLElement>('.pgm-detail');
+  if (!host) {
+    host = document.createElement('div');
+    host.className = 'pgm-detail';
+    bar2.append(host);
+  }
+  if (host.childElementCount) return;
+  const fn = (window as any).__paperDetail;
+  if (typeof fn === 'function') {
+    try {
+      fn(host);
+    } catch {
+      /* paper detail is a bonus; the card works without it */
+    }
+  }
+}
+
 function open() {
   if (!bar2) return;
   paint();
@@ -276,6 +302,7 @@ function open() {
   } catch {
     /* the row was rebuilt under us; grouping is a nicety, not a feature */
   }
+  mountDetail();
   place();
   btn?.setAttribute('aria-expanded', 'true');
 }

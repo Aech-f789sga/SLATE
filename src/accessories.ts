@@ -589,7 +589,6 @@ const TOOL_LABELS: Record<string, string> = {
  */
 const EXTRA: Record<string, string> = {
   shapes: '#sh-trigger',
-  img: '#img',
   stickers: '#gn-stk-btn',
   notes: '#gn-note-btn',
   snap: '#snap-btn',
@@ -600,7 +599,6 @@ const EXTRA: Record<string, string> = {
 
 const EXTRA_LABELS: Record<string, string> = {
   shapes: 'Shapes',
-  img: 'Image',
   stickers: 'Stickers',
   notes: 'Sticky notes',
   snap: 'Snap',
@@ -779,10 +777,61 @@ function paintSmart() {
  * it while holding the pen.
  */
 let snapSheet: HTMLElement | null = null;
+let mediaSheet: HTMLElement | null = null;
 
 function secs(ms: number): string {
   // the slider steps in 100 ms, so one decimal is always exact
   return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/**
+ * One place for the two insert tools.
+ *
+ * They used to sit on the toolbar: an image button among the pens and a video
+ * button on the second row. Both are occasional, both open a file picker, and
+ * neither is a tool you switch to — so they are one menu entry with two rows.
+ */
+function buildMediaSheet(): HTMLElement {
+  const node = div('acc-sheet');
+  node.id = 'acc-media';
+  node.append(div('acc-sh', 'Insert'));
+
+  const list = div('acc-list');
+  const rows: [string, string, () => void][] = [
+    ['Image or photo', 'Move and resize it', () => document.getElementById('img')?.click()],
+    [
+      'Video',
+      'Plays on the page',
+      () => document.querySelector<HTMLElement>('#tb button[title="Insert video"]')?.click(),
+    ],
+  ];
+  for (const [label, note, run] of rows) {
+    const r = div('acc-row');
+    const wrap = div('acc-name');
+    wrap.textContent = label;
+    const sub = div('acc-note', note);
+    wrap.append(sub);
+    const go = div('acc-go');
+    go.innerHTML = ICON_GO;
+    r.append(wrap, go);
+    r.onclick = () => {
+      closeSheets();
+      // let the menu go away before the file dialog opens over it
+      window.setTimeout(run, 60);
+    };
+    list.append(r);
+  }
+  node.append(list);
+  return node;
+}
+
+/** Put every accessory sheet away. */
+function closeSheets() {
+  toolSheet?.classList.remove('on');
+  smartSheet?.classList.remove('on');
+  onnxSheet?.classList.remove('on');
+  snapSheet?.classList.remove('on');
+  mediaSheet?.classList.remove('on');
 }
 
 function buildSnapSheet(): HTMLElement {
@@ -1008,6 +1057,11 @@ const MENU: MenuItem[] = [
     label: 'Hold to snap',
     icon: '<path d="M12 7.5V12l3 2"/><circle cx="12" cy="12" r="8.4"/><path d="M8 3.2h8"/>',
   },
+  {
+    id: 'media',
+    label: 'Insert media',
+    icon: '<rect x="3.5" y="5" width="17" height="14" rx="2.4"/><circle cx="9" cy="10" r="1.6"/><path d="m4.5 17 4.6-4.3 3.2 3 3.1-2.6 4.1 3.9"/>',
+  },
 ];
 
 const ICON_MORE =
@@ -1046,22 +1100,21 @@ function buildMenu() {
         openGuidePanel();
       };
       row.append(more);
-    } else if (item.id === 'tools' || item.id === 'smart' || item.id === 'snap') {
+    } else if (item.id === 'tools' || item.id === 'smart' || item.id === 'snap' || item.id === 'media') {
       const go = el('i', '') as HTMLElement;
       go.className = 'acc-go';
       go.innerHTML = ICON_GO;
       row.append(go);
     }
 
-    if (item.id !== 'tools' && item.id !== 'smart' && item.id !== 'snap') {
+    if (item.id !== 'tools' && item.id !== 'smart' && item.id !== 'snap' && item.id !== 'media') {
       const sw = div('acc-sw');
       row.append(sw);
     }
 
     row.onclick = () => {
       if (item.id === 'tools') {
-        smartSheet?.classList.remove('on');
-        snapSheet?.classList.remove('on');
+        closeSheets();
         toolSheet?.classList.toggle('on');
         paintTools();
         // hang the sheet under the menu it came from, not under its own row,
@@ -1070,21 +1123,23 @@ function buildMenu() {
         return;
       }
       if (item.id === 'smart') {
-        toolSheet?.classList.remove('on');
-        snapSheet?.classList.remove('on');
+        closeSheets();
         paintSmart();
         smartSheet?.classList.toggle('on');
         if (smartSheet?.classList.contains('on')) placeUnder(smartSheet, accPop || row);
         return;
       }
       if (item.id === 'snap') {
-        toolSheet?.classList.remove('on');
-        smartSheet?.classList.remove('on');
-        onnxSheet?.classList.remove('on');
+        closeSheets();
         snapSheet?.classList.toggle('on');
         if (snapSheet?.classList.contains('on')) placeUnder(snapSheet, accPop || row);
-        else snapSheet?.classList.remove('on');
         paintSnap();
+        return;
+      }
+      if (item.id === 'media') {
+        closeSheets();
+        mediaSheet?.classList.toggle('on');
+        if (mediaSheet?.classList.contains('on')) placeUnder(mediaSheet, accPop || row);
         return;
       }
       toggle(item.id);
@@ -1106,6 +1161,9 @@ function buildMenu() {
 
   snapSheet = buildSnapSheet();
   document.body.append(snapSheet);
+
+  mediaSheet = buildMediaSheet();
+  document.body.append(mediaSheet);
   // the sheet is the only place the value is shown, so it has to follow a
   // change made anywhere else
   onSnapHold(() => paintSnap());
@@ -1121,14 +1179,12 @@ function buildMenu() {
         t.closest('#acc-tools') ||
         t.closest('#acc-smart') ||
         t.closest('#acc-onnx') ||
-        t.closest('#acc-snap')
+        t.closest('#acc-snap') ||
+        t.closest('#acc-media')
       )
         return;
       accPop?.classList.remove('on');
-      toolSheet?.classList.remove('on');
-      smartSheet?.classList.remove('on');
-      onnxSheet?.classList.remove('on');
-      snapSheet?.classList.remove('on');
+      closeSheets();
     },
     true
   );
@@ -1202,10 +1258,7 @@ function hookTrigger() {
     if (!accPop) return;
     if (accPop.classList.contains('on')) {
       accPop.classList.remove('on');
-      toolSheet?.classList.remove('on');
-      smartSheet?.classList.remove('on');
-      onnxSheet?.classList.remove('on');
-      snapSheet?.classList.remove('on');
+      closeSheets();
       return;
     }
     // the customization sheet is anchored to this menu; it must not outlive it
@@ -1291,7 +1344,29 @@ const CSS = `
 }
 #acc-smart.on{display:flex}
 #acc-smart .acc-sh{flex:none}
+
+#acc-media{
+  position:fixed;z-index:45;display:none;width:250px;padding:10px 10px 6px;
+  background:#fff;border:1px solid #eef1f6;border-radius:14px;
+  box-shadow:0 16px 38px rgba(8,20,38,.20),0 2px 6px rgba(8,20,38,.08);
+  font-family:inherit;flex-direction:column;
+}
+#acc-media.on{display:flex}
+#acc-media .acc-sh{flex:none}
+#acc-media .acc-list{display:flex;flex-direction:column;gap:2px}
+#acc-media .acc-row{
+  display:flex;align-items:center;gap:8px;padding:8px 7px;border-radius:9px;
+  cursor:pointer;background:transparent;border:0;text-align:left;width:100%;
+}
+#acc-media .acc-name{display:flex;flex-direction:column;gap:2px;font:600 12.5px/1.25 inherit;color:#2b3542}
+#acc-media .acc-note{font:500 10.5px/1.35 inherit;color:#9aa5b4;margin:0}
+#acc-media .acc-go{margin-left:auto;color:#9aa5b4;display:grid;place-items:center}
+#acc-media .acc-go svg{width:13px;height:13px;display:block}
 #acc-smart .acc-row{margin-top:2px}
+#acc-media .acc-row{cursor:pointer;align-items:center}
+#acc-media .acc-row .acc-name{display:flex;flex-direction:column;gap:2px;font-weight:600}
+#acc-media .acc-row .acc-note{font-weight:400;margin:0}
+#acc-media .acc-row:hover{background:color-mix(in srgb,var(--ac,#2f6df6) 7%,transparent)}
 #acc-smart .acc-note{
   font:500 10.5px/1.35 inherit;color:#9aa5b4;padding:0 4px 4px 7px;margin-top:-2px;
 }

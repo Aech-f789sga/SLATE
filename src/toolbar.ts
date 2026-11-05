@@ -394,6 +394,10 @@ function reorg() {
 /* ------------------------------------------------------------------ */
 
 const CSS = `
+/* Insert image and Insert video are Accessories → Insert media now: one entry
+   for two file pickers, instead of two buttons in the middle of the tools. */
+#tb #img,#tb button[title="Insert video"]{display:none!important}
+
 html[data-gnrail="1"] #tb [data-gnhide]{display:none!important}
 
 #tb .sep{width:1px;height:20px;background:rgba(255,255,255,.22);margin:0 4px;flex:none;align-self:center}

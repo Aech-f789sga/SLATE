@@ -108,7 +108,9 @@ function buildPop() {
     <div class="cp-top"><span class="cp-tag">=</span><span class="cp-expr"></span></div>
     <div class="cp-res"></div>
     <div class="cp-note"></div>
+    <div class="cp-set"></div>
     <div class="cp-acts">
+      <button class="cp-gear" type="button" aria-label="Calculator settings" title="Calculator settings">⚙</button>
       <button class="cp-insert" type="button">Insert</button>
       <button class="cp-copy" type="button">Copy</button>
       <button class="cp-latex" type="button">LaTeX</button>
@@ -117,6 +119,16 @@ function buildPop() {
   document.body.append(pop);
 
   (pop.querySelector('.cp-x') as HTMLElement).onclick = hide;
+  const gear = pop.querySelector('.cp-gear') as HTMLElement;
+  const setBox = pop.querySelector('.cp-set') as HTMLElement;
+  gear.onclick = () => {
+    const on = setBox.classList.toggle('on');
+    gear.classList.toggle('on', on);
+    if (on && !setBox.childElementCount) calcSettings(setBox);
+    // a settings panel is not a result: stop the card timing out under it
+    window.clearTimeout(popTimer);
+    if (!on) popTimer = window.setTimeout(hide, 6000);
+  };
   (pop.querySelector('.cp-insert') as HTMLElement).onclick = () => insert(lastResult?.text ?? '');
   (pop.querySelector('.cp-copy') as HTMLElement).onclick = () => {
     if (!lastResult) return;
@@ -367,21 +379,15 @@ function group(d: HTMLElement, title: string) {
   return g;
 }
 
-function installSettings() {
-  ev(`(function(){
-    if (window.__calcSettingsHooked) return;
-    window.__calcSettingsHooked = true;
-    var orig = fillSet;
-    fillSet = function(d){
-      orig(d);
-      try { window.__calcSettings(d); } catch(e){}
-    };
-  })()`);
-}
-
+/**
+ * The calculator's own settings, shown inside its card.
+ *
+ * They used to sit in the engine's Settings drawer alongside the paper and the
+ * highlighter, three screens away from the thing they configure. Auto-calculate
+ * is not here at all: it is the same switch as Accessories → Smart ink, and one
+ * switch in two places is one switch too many.
+ */
 function calcSettings(d: HTMLElement) {
-  d.append(el('div', 'height:1px;background:var(--bd);margin:12px 0 2px'));
-
   const ang = group(d, 'Angles');
   (['rad', 'deg'] as AngleMode[]).forEach((m) => {
     chip(ang, m === 'rad' ? 'Radians' : 'Degrees', settings.mode === m, () => {
@@ -389,20 +395,6 @@ function calcSettings(d: HTMLElement) {
       save();
       rebuild(d);
     });
-  });
-
-  const on = group(d, 'Auto calculation');
-  chip(on, settings.auto ? 'On' : 'Off', settings.auto, () => {
-    settings.auto = !settings.auto;
-    // the same switch as Settings → Smart ink → Auto-calculate
-    setSmart('calc', settings.auto);
-    save();
-    rebuild(d);
-  });
-  chip(on, settings.ink ? 'Watch ink' : 'Text only', settings.ink, () => {
-    settings.ink = !settings.ink;
-    save();
-    rebuild(d);
   });
 
   const form = group(d, 'Answers');
@@ -426,13 +418,6 @@ function calcSettings(d: HTMLElement) {
     rebuild(d);
   });
 
-  d.append(
-    el(
-      'div',
-      'color:var(--mu);font-size:11.5px;margin-top:8px;line-height:1.45',
-      'Write an expression and finish it with “=”. Works on trig identities, equations in x, and units such as “5 cm to in”.'
-    )
-  );
 }
 
 function rebuild(d: HTMLElement) {
@@ -484,6 +469,16 @@ const CSS = `
   background:transparent;color:var(--tx,#1c1c1e);cursor:pointer;
 }
 #calc-pop .cp-acts button:hover{border-color:var(--ac,#2f6df6);color:var(--ac,#2f6df6)}
+#calc-pop .cp-gear{margin-right:auto;padding:2px 7px!important;font-size:12px!important;line-height:1.1}
+#calc-pop .cp-gear.on{border-color:var(--ac,#2f6df6)!important;color:var(--ac,#2f6df6)!important;background:color-mix(in srgb,var(--ac,#2f6df6) 12%,transparent)!important}
+#calc-pop .cp-set{display:none;flex-direction:column;gap:5px;margin:8px 0 2px;padding-top:8px;border-top:1px solid var(--bd,#e6e8ee)}
+#calc-pop .cp-set.on{display:flex}
+#calc-pop .cp-set > div{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+#calc-pop .cp-gear{margin-right:auto;padding:2px 7px!important;font-size:12px!important;line-height:1.1}
+#calc-pop .cp-gear.on{border-color:var(--ac,#2f6df6)!important;color:var(--ac,#2f6df6)!important;background:color-mix(in srgb,var(--ac,#2f6df6) 12%,transparent)!important}
+#calc-pop .cp-set{display:none;flex-direction:column;gap:5px;margin:8px 0 2px;padding-top:8px;border-top:1px solid var(--bd,#e6e8ee)}
+#calc-pop .cp-set.on{display:flex}
+#calc-pop .cp-set > div{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 #calc-pop .cp-insert{
   background:var(--ac,#2f6df6)!important;border-color:var(--ac,#2f6df6)!important;color:#fff!important;
 }
@@ -498,7 +493,7 @@ function boot() {
   load();
   buildPop();
   hookText();
-  installSettings();
+
 
   const style = document.createElement('style');
   style.id = 'calc-style';

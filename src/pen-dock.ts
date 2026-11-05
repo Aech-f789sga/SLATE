@@ -67,7 +67,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, css?: string, text?: 
 /* Model                                                               */
 /* ------------------------------------------------------------------ */
 
-type Kind = 'pen' | 'highlighter' | 'eraser' | 'laser';
+type Kind = 'pen' | 'highlighter' | 'eraser' | 'laser' | 'bucket';
 type Brush = 'ball' | 'fountain' | 'brush' | 'pencil' | 'crayon' | 'marker';
 /** Which edge the rail lies against. */
 type Side = 'left' | 'right' | 'top' | 'bottom';
@@ -119,6 +119,7 @@ const KINDS: { id: Kind; name: string }[] = [
   { id: 'highlighter', name: 'Highlighter' },
   { id: 'eraser', name: 'Eraser' },
   { id: 'laser', name: 'Laser' },
+  { id: 'bucket', name: 'Bucket fill' },
 ];
 
 const PALETTE = ['#111111', '#2f6df6', '#e5383b', '#2a9d4f', '#f4a300', '#8e44ad', '#16a2b8', '#ff7ab8', '#ffffff'];
@@ -218,7 +219,12 @@ function apply(s: Slot, opts: { keepSelection?: boolean } = {}) {
   activeId = s.id;
   save();
 
-  const tool = s.kind === 'pen' ? 'pen' : s.kind === 'highlighter' ? 'hl' : s.kind === 'eraser' ? (s.erase === 'pixel' ? 'pe' : 'er') : 'laser';
+  const tool =
+    s.kind === 'pen' ? 'pen'
+      : s.kind === 'highlighter' ? 'hl'
+        : s.kind === 'eraser' ? (s.erase === 'pixel' ? 'pe' : 'er')
+          : s.kind === 'bucket' ? 'bk'
+            : 'laser';
   const width = Math.max(0.4, Math.min(240, engineWidth(s)));
 
   ev(`(function(){
@@ -239,7 +245,7 @@ function apply(s: Slot, opts: { keepSelection?: boolean } = {}) {
   // Record the nib *after* the engine has it. The record's listeners read the
   // engine to stay honest, so writing it first would let them see the old width
   // and adopt it straight back over the new one.
-  if (s.kind !== 'laser') setModelWidth(slotTool(s), width, { apply: false });
+  if (s.kind !== 'laser' && s.kind !== 'bucket') setModelWidth(slotTool(s), width, { apply: false });
 
   paint();
 }
@@ -269,6 +275,17 @@ function penSvg(s: Slot): string {
   // The barrel runs off the left edge; the 55 px that stay on screen are the
   // cap end. Every part overlaps its neighbour — a 3 px seam at this size reads
   // as two separate objects, which is what makes an icon look like a block.
+  if (s.kind === 'bucket') {
+    // a tin with a handle and a drip: the only tool here that is not a barrel
+    return `${open}
+      <path d="M168 6.5h34l-4.6 14.5h-24.8z" fill="${body}"/>
+      <path d="M168 6.5h34l-1.5 4.4h-31z" fill="${light}" opacity=".7"/>
+      <path d="M172 6.5c0-6 26-6 26 0" fill="none" stroke="${metalDark}" stroke-width="2" stroke-linecap="round"/>
+      <path d="M201 9c4.4 1.4 7.8 3.8 10.2 7" fill="none" stroke="${body}" stroke-width="2.8" stroke-linecap="round"/>
+      <circle cx="214" cy="19" r="2.3" fill="${body}"/>
+      <path d="M176 12.5h17" stroke="${light}" stroke-width="1.6" opacity=".5" stroke-linecap="round"/>
+    </svg>`;
+  }
   if (s.kind === 'eraser') {
     return `${open}
       <rect x="-24" y="5" width="184" height="14" fill="#f2b6c2"/>
@@ -363,6 +380,7 @@ function kindName(s: Slot): string {
   if (s.kind === 'pen') return `${BRUSHES.find((b) => b.id === s.brush)?.name ?? 'Pen'} · ${mmLabel(s.mm)}`;
   if (s.kind === 'highlighter') return `Highlighter · ${mmLabel(s.mm)}`;
   if (s.kind === 'eraser') return `${s.erase === 'pixel' ? 'Pixel eraser' : 'Stroke eraser'} · ${mmLabel(s.mm)}`;
+  if (s.kind === 'bucket') return 'Bucket fill';
   return `Pointer · ${s.laser === 'fade' ? 'fades' : 'stays'}`;
 }
 
@@ -555,6 +573,17 @@ function clampMm(v: number): number {
 let press: { x: number; y: number; i: number; node: HTMLElement; timer: number } | null = null;
 let reorder: { from: number; to: number; node: HTMLElement; grab: { x: number; y: number } } | null = null;
 let line: HTMLElement | null = null;
+/** A dimmed copy of the pen, sitting in the slot it would take. */
+let ghost: HTMLElement | null = null;
+/**
+ * Where every slot was when the pen was picked up.
+ *
+ * The ghost is a real slot in the rail, so it pushes the others along — and a
+ * drop index measured against the moving layout feeds back on itself: the pen
+ * would jump between two positions and never settle. Measure once, at the lift,
+ * and decide against that.
+ */
+let homes: { i: number; mid: number }[] = [];
 /** Clicks that land inside this window are the tail of a reorder, not a pick. */
 let noClick = 0;
 
@@ -582,12 +611,44 @@ function beginReorder(i: number, node: HTMLElement, x: number, y: number) {
   reorder = { from: i, to: i, node, grab: { x: x - box.left, y: y - box.top } };
   dock.classList.add('pd-sorting');
   node.classList.add('pd-lift');
+
+  const rail = dock.querySelector('.pd-rail') as HTMLElement | null;
+  const horiz = side === 'top' || side === 'bottom';
+  homes = rail
+    ? [...rail.querySelectorAll<HTMLElement>('.pd-slot')].map((n, idx) => {
+        const r = n.getBoundingClientRect();
+        return { i: idx, mid: horiz ? r.left + r.width / 2 : r.top + r.height / 2 };
+      })
+    : [];
+
+  makeGhost(slots[i]);
   // a short tick so the lift is felt, not only seen
   try {
     (window as any).__inkpad_sfx?.play?.('tap');
   } catch {
     /* sound is optional */
   }
+}
+
+/**
+ * The preview that shows where the pen will land.
+ *
+ * It is a real slot in the rail — same size, same tilt, dashed outline, the
+ * same pen at a third of its opacity — so the other pens make room for it and
+ * the gap is where the pen will actually go. Being in the flow also means the
+ * lifted pen's own home offset keeps up: `dragLifted` reads that offset live.
+ */
+function makeGhost(slot: Slot) {
+  const rail = dock?.querySelector('.pd-rail') as HTMLElement | null;
+  if (!rail) return;
+  ghost?.remove();
+  ghost = el('div', '');
+  ghost.className = 'pd-slot pd-ghost';
+  ghost.setAttribute('aria-hidden', 'true');
+  const art = el('div', '');
+  art.className = 'pd-art';
+  art.innerHTML = penSvg(slot);
+  ghost.append(art);
 }
 
 /** Carry the lifted pen with the pointer, so the gap it will fill is obvious. */
@@ -603,33 +664,42 @@ function dragLifted(x: number, y: number) {
   node.style.transform = `translate(${dx}px,${dy}px) scale(1.06)`;
 }
 
-/** Where the lifted pen would land, counted against the slots still in place. */
+/** Where the lifted pen would land, counted against the layout at the lift. */
 function dropIndex(x: number, y: number): number {
-  const rail = dock?.querySelector('.pd-rail') as HTMLElement | null;
-  if (!rail) return 0;
+  if (!homes.length) return 0;
   const horiz = side === 'top' || side === 'bottom';
   let n = 0;
-  rail.querySelectorAll<HTMLElement>('.pd-slot').forEach((node, idx) => {
-    if (reorder && idx === reorder.from) return;
-    const r = node.getBoundingClientRect();
-    const mid = horiz ? r.left + r.width / 2 : r.top + r.height / 2;
-    if ((horiz ? x : y) > mid) n++;
-  });
+  for (const h of homes) {
+    if (reorder && h.i === reorder.from) continue;
+    if ((horiz ? x : y) > h.mid) n++;
+  }
   return n;
 }
 
 function paintLine() {
   const rail = dock?.querySelector('.pd-rail') as HTMLElement | null;
   if (!rail || !reorder) return;
+  const from = reorder.from;
+
+  // where the ghost belongs: among the slots that are still in place
+  const live = [...rail.querySelectorAll<HTMLElement>('.pd-slot')].filter(
+    (n) => !n.classList.contains('pd-ghost')
+  );
+  const others = live.filter((_, i) => i !== from);
+  const at = Math.min(reorder.to, others.length);
+  const ref = others[at] ?? null;
+  if (ghost && (ghost.nextElementSibling !== ref || !ghost.isConnected)) {
+    rail.insertBefore(ghost, ref);
+  }
+
   if (!line) {
     line = el('div', '');
     line.className = 'pd-line';
     rail.append(line);
   }
   const horiz = side === 'top' || side === 'bottom';
-  const nodes = [...rail.querySelectorAll<HTMLElement>('.pd-slot')].filter((_, i) => i !== reorder!.from);
+  const nodes = others;
   const railBox = rail.getBoundingClientRect();
-  const at = reorder.to;
 
   if (!nodes.length) {
     line.style.left = horiz ? '50%' : '0';
@@ -672,6 +742,9 @@ function endReorder(commit: boolean) {
   node.style.transform = '';
   line?.remove();
   line = null;
+  ghost?.remove();
+  ghost = null;
+  homes = [];
   dock?.classList.remove('pd-sorting');
   reorder = null;
   noClick = Date.now() + 400;
@@ -867,7 +940,7 @@ function renderSheet() {
 
     // thickness: log slider + typed millimetres. A pointer has no nib, so the
     // whole block is left out for it rather than shown and ignored.
-    const hasNib = s.kind !== 'laser';
+    const hasNib = s.kind !== 'laser' && s.kind !== 'bucket';
     const th = el('div', '');
     th.className = 'ps-thick';
     const lab = el('label', '', 'Thickness');
@@ -1177,6 +1250,16 @@ const CSS = `
   position:absolute;background:var(--ac,#2f6df6);border-radius:2px;pointer-events:none;
   box-shadow:0 0 0 2px color-mix(in srgb,var(--ac,#2f6df6) 22%,transparent);
 }
+/* the slot the pen would take, shown while it is being carried */
+#pen-dock .pd-ghost{
+  pointer-events:none;opacity:1;
+  background:color-mix(in srgb,var(--ac,#2f6df6) 9%,transparent);
+  box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--ac,#2f6df6) 42%,transparent);
+}
+#pen-dock .pd-ghost .pd-art{
+  opacity:.34;filter:saturate(.5) drop-shadow(0 1px 2px rgba(10,20,40,.18));
+}
+#pen-dock.pd-sorting .pd-ghost{transition:none}
 
 body.pd-open[data-pd=left] #stage{padding-left:66px}
 body.pd-open[data-pd=right] #stage{padding-right:66px}
