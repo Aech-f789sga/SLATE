@@ -117,6 +117,22 @@ html[data-bar=full] #bar2.open #pgm .pgm-car{display:none}
 }
 #bar2.open button.pgm-x:hover{background:#e8ecf3!important}
 #bar2.open button:not(.pgm-x):not(#pgm):not(.pgm-chip){background:#f4f6fa!important}
+/* The pills are a fixed pale fill, so their glyphs have to be fixed dark ink.
+   The theme paints every #bar2 control with --tx, and --tx is near-white on a
+   dark theme — which made the icons white on a white pill and they vanished
+   (Black Hole, Cozy, and anything else with a dark surface). The engine's icons
+   are inline <svg stroke="currentColor">, so this one property is the whole
+   fix.
+   Two deliberate omissions. A toggled button is excluded because it sits on
+   the accent and needs the white text it already asks for. And the selector
+   carries no #pgm or .pgm-x in its :not() chain, which keeps it at two ids —
+   the three hand-written skins (lofi, cyberdeck, minecraft) each give the card
+   their own fill *and* ink in one rule at three ids, so they still win and keep
+   their own look. This rule is only for the twenty material themes, which have
+   no such pairing of their own. */
+html #tb #bar2.open button:not(.pgm-chip):not(.on){
+  color:#2b3542!important;
+}
 `;
 
 const ICON =
