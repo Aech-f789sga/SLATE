@@ -1959,7 +1959,7 @@ function tool(name: string) {
 
 const HOME_STEPS: Step[] = [
   {
-    title: 'Welcome to Inkpad 👋',
+    title: 'Welcome to Slate 👋',
     body:
       'A short tour of the library. It takes about a minute, and you can leave at any point with <b>Skip tour</b>.',
     demo: 'pen',
@@ -2011,14 +2011,14 @@ const HOME_STEPS: Step[] = [
     target: () => byText('#libm button', 'Import backup'),
     title: 'Coming from another device?',
     body:
-      '<b>Import backup</b> restores a <code>.inkpad</code> file exported from another phone, tablet or browser.',
+      '<b>Import backup</b> restores a <code>.inkpad</code> or <code>.slate</code> file exported from another phone, tablet or browser.',
     pad: 6,
   },
   {
     target: () => document.getElementById('pen-btn'),
     title: 'Stylus & pen setup',
     body:
-      'Tell Inkpad which stylus you use. Choose what the <b>eraser end</b> and the <b>barrel buttons</b> do, test pressure live, and turn on palm rejection.',
+      'Tell Slate which stylus you use. Choose what the <b>eraser end</b> and the <b>barrel buttons</b> do, test pressure live, and turn on palm rejection.',
     demo: 'penmap',
   },
   {
@@ -2047,7 +2047,7 @@ const HOME_STEPS: Step[] = [
     target: () => document.getElementById('beta-badge'),
     title: 'Beta — and how to reach us',
     body:
-      'Inkpad is still in <b>BETA</b>. Something broken or missing? Mail <b>aechmoose@gmail.com</b> — it is also the contact shown to users.',
+      'Slate is still in <b>BETA</b>. Something broken or missing? Mail <b>aechmoose@gmail.com</b> — it is also the contact shown to users.',
     pad: 6,
   },
   {
@@ -2512,7 +2512,7 @@ function buildInstallPanel(): HTMLElement {
   md.innerHTML =
     '<div class="box">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">' +
-    '<b style="font-size:17px">📲 Install Inkpad</b>' +
+    '<b style="font-size:17px">📲 Install Slate</b>' +
     '<button class="ic" id="install-close" style="font-size:16px;padding:2px 6px" aria-label="Close">✕</button>' +
     '</div>' +
     '<div id="install-tabs" role="tablist"></div>' +
@@ -2561,7 +2561,7 @@ function renderInstallTab(md: HTMLElement, tab: 'ios' | 'android' | 'desktop') {
     const go = el(
       'button',
       'font-weight:600;padding:10px;font-size:13.5px;background:var(--ac);color:#fff;border:0;border-radius:11px;cursor:pointer',
-      '⚡ Install Inkpad now'
+      '⚡ Install Slate now'
     ) as HTMLButtonElement;
     go.onclick = async () => {
       await (window as any).__inkpad_cloud?.promptInstall?.();
@@ -2575,37 +2575,37 @@ function renderInstallTab(md: HTMLElement, tab: 'ios' | 'android' | 'desktop') {
       elHTML(
         'div',
         'font-size:12.5px;color:var(--mu);line-height:1.5',
-        'Open Inkpad in <b style="color:var(--tx)">Safari</b>. (On iPadOS 13+ any browser works, but the Share sheet is most reliable in Safari.)'
+        'Open Slate in <b style="color:var(--tx)">Safari</b>. (On iPadOS 13+ any browser works, but the Share sheet is most reliable in Safari.)'
       )
     );
     body.appendChild(installRow(SHARE_ICON, 'Tap the <b>Share</b> button in the browser toolbar — the square with an arrow pointing up.'));
     body.appendChild(installRow(PLUS_ICON, 'Scroll down the share sheet and tap <b>Add to Home Screen</b>.', true));
-    body.appendChild(installRow(HOME_ICON, 'Keep the name as <b>Inkpad</b>, then tap <b>Add</b>. The icon appears on your home screen.'));
+    body.appendChild(installRow(HOME_ICON, 'Keep the name as <b>Slate</b>, then tap <b>Add</b>. The icon appears on your home screen.'));
     note.innerHTML =
-      'The icon and name come from Inkpad itself, so it will appear as <b style="color:var(--tx)">Inkpad</b>. Installed, it opens full screen without browser bars and your notebooks stay available offline.';
+      'The icon and name come from Slate itself, so it will appear as <b style="color:var(--tx)">Slate</b>. Installed, it opens full screen without browser bars and your notebooks stay available offline.';
   } else if (tab === 'android') {
     body.appendChild(
       elHTML(
         'div',
         'font-size:12.5px;color:var(--mu);line-height:1.5',
-        'Open Inkpad in <b style="color:var(--tx)">Chrome</b> (or Edge / Samsung Internet).'
+        'Open Slate in <b style="color:var(--tx)">Chrome</b> (or Edge / Samsung Internet).'
       )
     );
     body.appendChild(installRow(DOTS_ICON, 'Tap the <b>⋮</b> menu in the top-right corner.'));
     body.appendChild(installRow(PLUS_ICON, 'Choose <b>Install app</b> (older versions say <b>Add to Home screen</b>).', true));
-    body.appendChild(installRow(HOME_ICON, 'Confirm — Inkpad is added to your home screen and app drawer.'));
+    body.appendChild(installRow(HOME_ICON, 'Confirm — Slate is added to your home screen and app drawer.'));
     note.innerHTML =
-      'Installed as a PWA, Inkpad gets its own window, works offline, and Android keeps its storage instead of clearing it.';
+      'Installed as a PWA, Slate gets its own window, works offline, and Android keeps its storage instead of clearing it.';
   } else {
     body.appendChild(
       elHTML(
         'div',
         'font-size:12.5px;color:var(--mu);line-height:1.5',
-        'Inkpad installs as a desktop app from Chrome or Edge.'
+        'Slate installs as a desktop app from Chrome or Edge.'
       )
     );
     body.appendChild(installRow(PLUS_ICON, 'Click the <b>install icon</b> at the right end of the address bar.', true));
-    body.appendChild(installRow(HOME_ICON, 'Or open <b>⋮ → Install Inkpad</b> and confirm.'));
+    body.appendChild(installRow(HOME_ICON, 'Or open <b>⋮ → Install Slate</b> and confirm.'));
     note.innerHTML =
       'Firefox and Safari on macOS do not install PWAs — use Chrome or Edge for the desktop app.';
   }

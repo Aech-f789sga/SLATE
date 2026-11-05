@@ -14,9 +14,9 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'icon-maskable.svg'],
         manifest: {
           id: '/',
-          name: 'Inkpad – Handwritten Notes',
-          short_name: 'Inkpad',
-          description: 'Inkpad is a handwritten notes and multimedia canvas for sketching, documents, and animations with cloud sync and offline PWA support.',
+          name: 'Slate – Handwritten Notes',
+          short_name: 'Slate',
+          description: 'Slate is a handwritten notes and multimedia canvas for sketching, documents, and animations with cloud sync and offline PWA support.',
           theme_color: '#2f6df6',
           background_color: '#e9eef7',
           display: 'standalone',
@@ -53,6 +53,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           // the sticker packs are ~800 KB of SVG and are only touched when the
           // picker is open, so keep them out of the install-time precache and
@@ -106,13 +107,12 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname || '.', '.'),
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
+      // HMR WebSocket is disabled in the AI Studio preview iframe.
+      hmr: false,
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
