@@ -15,6 +15,7 @@
 import { modAudio, type ModAudioSettings } from './mod-audio';
 import { currentMod, type ModMedia } from './mod-media';
 import { modWall } from './mod-wall';
+import { wallLook } from './wall-look';
 
 const CSS = `
 #gxm{
@@ -123,6 +124,8 @@ const CSS = `
 }
 .gxm-vol::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--gxm-ac);border:0;cursor:pointer}
 .gxm-pct{font:700 9px/1 ui-monospace,monospace;color:var(--gxm-mu);width:22px;text-align:right;flex:none}
+/* the opacity row borrows the volume slider's paint, not its bars */
+.gxm-oplab{flex:none;font-size:9px;letter-spacing:.14em;color:var(--gxm-mu)}
 
 /* ---- segmented ---- */
 .gxm-seg{display:flex;flex:none}
@@ -159,6 +162,9 @@ const ICON = {
   pointer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 3l7 17 2.5-6.5L20 11z"/></svg>',
   keys: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>',
   power: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.5 7a8 8 0 1 0 11 0"/></svg>',
+  // concentric rings read as "out of focus", corner brackets as "full frame"
+  soft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5" opacity=".55"/><circle cx="12" cy="12" r="1.6"/></svg>',
+  sharp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5"/></svg>',
 };
 
 class ModPanel {
@@ -274,6 +280,23 @@ class ModPanel {
               <button data-wall="still" data-no-sfx type="button" aria-pressed="false">${ICON.still}Still</button>
             </div>
           </div>
+          <div class="gxm-rule"></div>
+          <div class="gxm-row">
+            <span class="gxm-ico">${ICON.sharp}</span>
+            <div class="gxm-grow">
+              <div class="gxm-lbl">Backdrop</div>
+              <div class="gxm-hint">Home and notes</div>
+            </div>
+            <div class="gxm-seg">
+              <button data-look="blur" data-no-sfx type="button" aria-pressed="false">${ICON.soft}Blur</button>
+              <button data-look="hd" data-no-sfx type="button" aria-pressed="true">${ICON.sharp}HD</button>
+            </div>
+          </div>
+          <div class="gxm-mix">
+            <span class="gxm-lbl gxm-oplab">Opacity</span>
+            <input class="gxm-vol gxm-op" data-no-sfx type="range" min="0.1" max="1" step="0.01" aria-label="Wallpaper opacity">
+            <span class="gxm-pct gxm-opct"></span>
+          </div>
           ${
             sfx
               ? `<div class="gxm-rule"></div>
@@ -330,7 +353,16 @@ class ModPanel {
         this.sync();
       }),
     );
-    const vol = root.querySelector('.gxm-vol') as HTMLInputElement;
+    root.querySelectorAll('[data-look]').forEach((el) =>
+      el.addEventListener('click', () => {
+        wallLook.setHd((el as HTMLElement).dataset.look === 'hd');
+        this.sync();
+      }),
+    );
+    const op = root.querySelector('.gxm-op') as HTMLInputElement;
+    op.addEventListener('input', () => wallLook.setAlpha(parseFloat(op.value)));
+    op.addEventListener('pointerdown', () => op.focus());
+    const vol = root.querySelector('.gxm-vol:not(.gxm-op)') as HTMLInputElement;
     vol.addEventListener('input', () => modAudio.setVolume(parseFloat(vol.value)));
     // the slider is the one control whose own drag must not be interrupted
     vol.addEventListener('pointerdown', () => vol.focus());
@@ -370,7 +402,7 @@ class ModPanel {
     });
     root.querySelectorAll('.gxm-sub').forEach((el) => el.classList.toggle('dim', !s.sfx));
 
-    const vol = root.querySelector('.gxm-vol') as HTMLInputElement | null;
+    const vol = root.querySelector('.gxm-vol:not(.gxm-op)') as HTMLInputElement | null;
     if (vol && document.activeElement !== vol) vol.value = String(s.volume);
     const pct = root.querySelector('.gxm-pct');
     if (pct) pct.textContent = String(Math.round(s.volume * 100));
@@ -379,6 +411,15 @@ class ModPanel {
     root.querySelectorAll('[data-wall]').forEach((el) =>
       el.setAttribute('aria-pressed', String(((el as HTMLElement).dataset.wall === 'live') === live)),
     );
+
+    const hd = wallLook.hd;
+    root.querySelectorAll('[data-look]').forEach((el) =>
+      el.setAttribute('aria-pressed', String(((el as HTMLElement).dataset.look === 'hd') === hd)),
+    );
+    const op = root.querySelector('.gxm-op') as HTMLInputElement | null;
+    if (op && document.activeElement !== op) op.value = String(wallLook.alpha);
+    const opct = root.querySelector('.gxm-opct');
+    if (opct) opct.textContent = String(Math.round(wallLook.alpha * 100));
 
     const note = root.querySelector('.gxm-note');
     if (note) {

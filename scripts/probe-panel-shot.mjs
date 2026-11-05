@@ -1,0 +1,30 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await ctx.route('https://fonts.googleapis.com/**', (r) => r.abort());
+const page = await ctx.newPage();
+await page.goto('http://[::1]:4173/', { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('#grid', { timeout: 20000 });
+await page.waitForTimeout(1200);
+await page.evaluate(() => {
+  const b = [...document.querySelectorAll('button')].find((x) => /skip tour/i.test(x.textContent || ''));
+  b?.click();
+  document.getElementById('tour-root')?.remove();
+  const t = window.__inkpadTheme;
+  t.choice.id = 'cyberdeck';
+  t.choice.mode = 'dark';
+  t.choice.wall = true;
+  t.apply();
+});
+await page.waitForTimeout(1000);
+await page.mouse.click(980, 560);
+await page.waitForTimeout(500);
+await page.evaluate(() => document.querySelector('.gxm-fab')?.click());
+await page.waitForTimeout(800);
+await page.screenshot({ path: 'shots/look2-panel-cyber.png' });
+const box = await page.evaluate(() => {
+  const b = document.querySelector('.gxm-board').getBoundingClientRect();
+  return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height), vh: innerHeight };
+});
+console.log(JSON.stringify(box));
+await browser.close();

@@ -633,6 +633,15 @@ html[data-theme="light"][data-gx-theme="minecraft-sound-fireplace"] #nav{
   backdrop-filter:blur(16px) saturate(1.1);
   -webkit-backdrop-filter:blur(16px) saturate(1.1);
 }
+/* The skin's own frost is the heaviest in the app — 16 px on a pale photo is
+   exactly the smudge that made light mode read as blurry. HD is a user
+   setting, so it has to outrank this rule rather than merely follow it: the
+   repeated [data-gx-theme] buys the extra attribute the specificity needs. */
+html[data-gx-wallfx="hd"][data-gx-theme] #nav,
+html[data-gx-wallfx="hd"][data-gx-theme] #libm{
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
 
 /* ---------- LoFi Chill, at noon: pale rose, not plum ---------- */
 html[data-theme="light"][data-gx-theme="lofi-chill"]{--gx-bar:#f6e0d8}
@@ -1012,6 +1021,23 @@ html[data-gx-theme="cyberdeck"] #gx-wall .gx-wall-fx{mix-blend-mode:screen;opaci
 html[data-theme="light"] #gxm .gxm-sw{background:rgba(0,0,0,.06)}
 html[data-theme="light"] #gxm .gxm-sw i{background:rgba(0,0,0,.26)}
 html[data-theme="light"] #gxm .gxm-vol{background:rgba(0,0,0,.14)}
+
+/* ---------- HD backdrop ----------
+   The frost on the shelf and the wash on the desk are the same idea: mute the
+   picture so the app stays readable. HD says "I want to see the picture", so
+   both come off — the panels keep their own tint, and the desk keeps enough
+   colour to hold the page's shadow, but neither smears what is behind it.
+   These live last on purpose: the light skins above carry two attributes, and
+   an equal-specificity rule only wins by coming later in the sheet. */
+html[data-gx-wallfx="hd"][data-gx-theme] #stage{
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--bg) 44%, transparent),
+    color-mix(in srgb, var(--bg) 58%, transparent))!important;
+}
+/* a dense list of small labels needs more surface than a heading does */
+html[data-gx-wallfx="hd"][data-gx-theme] #nav{
+  background:color-mix(in srgb, var(--sf) 78%, transparent)!important;
+}
 `;
 
 function mount() {

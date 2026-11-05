@@ -27,6 +27,7 @@ import {
   type GxTheme,
 } from './themes-data';
 import { play, setSfxOn, sfxOn } from './sfx';
+import { wallLook } from './wall-look';
 
 const KEY = 'inkpad-gx-theme';
 
@@ -283,6 +284,14 @@ function buildPanel() {
       <div class="gxp-foot">
         <label class="gxp-wall"><input type="checkbox" id="gxp-wall-t" /> Wallpaper on the shelf</label>
         <label class="gxp-wall"><input type="checkbox" id="gxp-snd-t" /> Interface sounds</label>
+        <span class="gxp-sharp" role="group" aria-label="Wallpaper sharpness">
+          <button type="button" data-look="blur">Blur</button>
+          <button type="button" data-look="hd">HD</button>
+        </span>
+        <label class="gxp-wall gxp-op">
+          <input type="range" id="gxp-wall-a" min="0.1" max="1" step="0.01" aria-label="Wallpaper opacity" />
+          <span id="gxp-wall-ap">100</span>%
+        </label>
         <span class="gxp-tag" id="gxp-tag"></span>
       </div>
     </div>`;
@@ -311,6 +320,17 @@ function buildPanel() {
     setSfxOn(sndT.checked);
     paintTag();
   };
+  panel.querySelectorAll<HTMLElement>('[data-look]').forEach((b) => {
+    b.onclick = () => {
+      wallLook.setHd(b.dataset.look === 'hd');
+      paintModes();
+    };
+  });
+  const alpha = panel.querySelector('#gxp-wall-a') as HTMLInputElement;
+  alpha.oninput = () => {
+    wallLook.setAlpha(parseFloat(alpha.value));
+    paintModes();
+  };
 }
 
 function paintModes() {
@@ -321,6 +341,15 @@ function paintModes() {
   if (wallT) wallT.checked = choice.wall;
   const sndT = panel?.querySelector('#gxp-snd-t') as HTMLInputElement | null;
   if (sndT) sndT.checked = sfxOn();
+  panel?.querySelectorAll<HTMLElement>('[data-look]').forEach((b) => {
+    const on = (b.dataset.look === 'hd') === wallLook.hd;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  const alpha = panel?.querySelector('#gxp-wall-a') as HTMLInputElement | null;
+  if (alpha && document.activeElement !== alpha) alpha.value = String(wallLook.alpha);
+  const ap = panel?.querySelector('#gxp-wall-ap');
+  if (ap) ap.textContent = String(Math.round(wallLook.alpha * 100));
   paintTag();
 }
 
@@ -399,7 +428,8 @@ const CSS = `
   background-size:cover;background-position:center;
   opacity:0;transition:opacity .45s ease;
 }
-#gx-wall[data-on="1"]{opacity:1}
+/* --gx-wall-a is the user's own opacity, set on the root by wall-look.ts */
+#gx-wall[data-on="1"]{opacity:var(--gx-wall-a,1)}
 #gx-wall::after{
   content:"";position:absolute;inset:0;
   /* same reasoning as the dark veil below: a light theme's --bg is almost
@@ -446,6 +476,19 @@ html[data-gx-wall="1"] #nav{
   border-right-color:color-mix(in srgb, var(--bd) 55%, transparent)!important;
   backdrop-filter:blur(14px) saturate(1.3);
   -webkit-backdrop-filter:blur(14px) saturate(1.3);
+}
+
+/* ---- sharp or soft ---------------------------------------------------
+   Blur is the default: a busy photograph under a page of handwriting is hard
+   to read against, and the frost is what keeps the shelf calm. HD takes the
+   frost off the two surfaces that sit on the wallpaper, so the picture is
+   shown as it was shot. The tint stays either way — that is what the text
+   sits on — only the blur goes. */
+html[data-gx-wallfx="hd"] #libm,
+html[data-gx-wallfx="hd"] #nav,
+html[data-gx-wallfx="hd"] #gx-theme-panel{
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
 }
 
 html[data-gx] #nav b,
@@ -729,6 +772,27 @@ html[data-gx] #gx-theme-panel .gxp-x svg{
   flex-wrap:wrap;
 }
 #gx-theme-panel .gxp-wall{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--mu);cursor:pointer}
+/* sharpness and opacity: the two things the eye actually notices about a
+   wallpaper, so they sit in the footer next to the on/off switch */
+#gx-theme-panel .gxp-sharp{display:flex;gap:0;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+#gx-theme-panel .gxp-sharp button{
+  font:600 11px/1 inherit;padding:5px 9px;border:0;cursor:pointer;
+  background:transparent;color:var(--mu);
+}
+#gx-theme-panel .gxp-sharp button + button{border-left:1px solid var(--bd)}
+#gx-theme-panel .gxp-sharp button.on{background:var(--ac);color:#fff}
+#gx-theme-panel .gxp-op{gap:6px}
+#gx-theme-panel .gxp-op input[type=range]{
+  -webkit-appearance:none;appearance:none;width:78px;height:3px;border-radius:2px;
+  background:color-mix(in srgb, var(--tx) 22%, transparent);cursor:pointer;
+}
+#gx-theme-panel .gxp-op input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:11px;height:11px;border-radius:50%;
+  background:var(--ac);border:0;cursor:pointer;
+}
+#gx-theme-panel .gxp-op input[type=range]::-moz-range-thumb{
+  width:11px;height:11px;border-radius:50%;background:var(--ac);border:0;cursor:pointer;
+}
 #gx-theme-panel .gxp-tag{
   margin-left:auto;font-size:11px;color:var(--mu);letter-spacing:.02em;
   padding:3px 9px;border-radius:999px;border:1px solid var(--bd);

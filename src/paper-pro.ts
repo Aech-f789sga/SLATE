@@ -43,7 +43,6 @@ export const PX_PER_MM = 96 / 25.4;
 interface Prefs {
   ruling: number; // mm between ruled lines
   grid: number; // mm between minor grid lines
-  margin: boolean;
   marginMm: number;
   grain: boolean;
   hlOpacity: number; // 0.05 – 0.9
@@ -56,7 +55,6 @@ const PREFS_KEY = 'inkpad-paper-prefs';
 const prefs: Prefs = {
   ruling: 8,
   grid: 5,
-  margin: true,
   marginMm: 20,
   grain: true,
   hlOpacity: 0.34,
@@ -72,7 +70,9 @@ function loadPrefs() {
     if (!p || typeof p !== 'object') return;
     if (Number(p.ruling) >= 4 && Number(p.ruling) <= 14) prefs.ruling = Number(p.ruling);
     if (Number(p.grid) >= 3 && Number(p.grid) <= 20) prefs.grid = Number(p.grid);
-    if (typeof p.margin === 'boolean') prefs.margin = p.margin;
+    // `margin` used to be a preference that drew a red rule on every paper.
+    // It is no longer one — the rule belongs to the Lined + margin paper — so
+    // an old stored `true` is deliberately not read back.
     if (Number(p.marginMm) > 0 && Number(p.marginMm) < 60) prefs.marginMm = Number(p.marginMm);
     if (typeof p.grain === 'boolean') prefs.grain = p.grain;
     if (Number(p.hlOpacity) > 0.04 && Number(p.hlOpacity) <= 0.95) prefs.hlOpacity = Number(p.hlOpacity);
@@ -222,16 +222,16 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
   const top = 18 * mm;
 
   /**
-   * The margin rule, drawn on any page that has a surface.
+   * The margin rule. It belongs to one paper and one paper only.
    *
-   * It used to be painted inside the lined and Cornell branches only, so on a
-   * dotted or grid page the Margin chips changed a preference and nothing else
-   * — the control looked broken. A margin is a guide to where the text stops,
-   * which every page can use, so it is drawn once here and called from every
-   * branch.
+   * It was once drawn on every page that had a surface, on the theory that a
+   * margin is a guide to where the text stops and any page can use one. In
+   * practice a red rule down a grid or a dot page is just a red line through
+   * the middle of your drawing, so the rule is now part of the Lined + margin
+   * paper — the paper whose whole identity is the rule — and every other
+   * template draws none.
    */
-  const marginLine = (force = false) => {
-    if (!force && !prefs.margin) return;
+  const marginLine = () => {
     hair(marginCol, 1);
     line(prefs.marginMm * mm, 0, prefs.marginMm * mm, H);
   };
@@ -239,14 +239,12 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
   if (tpl === 'lined') {
     hair(rule, 1);
     for (let y = top; y < H - 2 * px; y += prefs.ruling * mm) line(0, y, W, y);
-    marginLine();
   } else if (tpl === 'margin') {
-    // The exercise-book page: ruled, with the red rule down the margin. The
-    // rule is the whole point of this paper, so it is drawn whether or not the
-    // Margin chips are on — those are for the other papers.
+    // The exercise-book page: ruled, with the red rule down the margin. This
+    // is the one template that draws it.
     hair(rule, 1);
     for (let y = top; y < H - 2 * px; y += prefs.ruling * mm) line(0, y, W, y);
-    marginLine(true);
+    marginLine();
   } else if (tpl === 'grid') {
     const step = prefs.grid * mm;
     for (let x = 0; x < W; x += step) {
@@ -259,7 +257,6 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
       hair(major ? ruleMajor : rule, major ? 1.35 : 1);
       line(0, y, W, y);
     }
-    marginLine();
   } else if (tpl === 'dot') {
     const step = prefs.grid * mm;
     c.fillStyle = dotCol;
@@ -271,7 +268,6 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
         c.fill();
       }
     }
-    marginLine();
   } else if (tpl === 'cornell') {
     const cue = Math.min(W * 0.32, 62 * mm);
     const head = 42 * mm;
@@ -282,14 +278,10 @@ function buildPaper(tpl: string, col: string, W: number, H: number, dpr: number)
     line(cue, head, cue, sum);
     line(0, sum, W, sum);
     line(0, head, W, head);
-    marginLine();
   } else {
-    // blank: nothing but the grain, a whisper of a header rule, and the margin
-    if (prefs.margin) {
-      hair('rgba(84,116,158,0.14)', 1);
-      line(0, top, W, top);
-    }
-    marginLine();
+    // blank: nothing but the grain and a whisper of a header rule
+    hair('rgba(84,116,158,0.14)', 1);
+    line(0, top, W, top);
   }
 
   // paper grain — cached tile, drawn once into the layer
@@ -322,7 +314,7 @@ function drawPaper(c: CanvasRenderingContext2D, tpl: string, col: string) {
   const W = ev<number>('W') || c.canvas.width;
   const H = ev<number>('H') || c.canvas.height;
   const dpr = Math.max(0.5, c.getTransform().a || 1);
-  const key = [tpl, col, W, H, dpr, prefs.ruling, prefs.grid, prefs.margin, prefs.marginMm, prefs.grain].join('|');
+  const key = [tpl, col, W, H, dpr, prefs.ruling, prefs.grid, prefs.marginMm, prefs.grain].join('|');
 
   if (cache.key !== key || !cache.canvas || cache.canvas.width !== Math.round(W * dpr)) {
     cache.canvas = buildPaper(tpl, col, W, H, dpr);
@@ -509,6 +501,20 @@ function currentTpl(): string {
 }
 
 /**
+ * Switch the page to another template, the same way the select would.
+ *
+ * Setting `value` alone is not enough: the engine draws on `change`, and the
+ * wrapper installed below also drops a ready-made paper first. Dispatching a
+ * real event gets both, and leaves one code path for "the user chose a paper".
+ */
+function useTemplate(t: string) {
+  const sel = document.getElementById('tpl') as HTMLSelectElement | null;
+  if (!sel) return;
+  sel.value = t;
+  sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/**
  * The paper rows, hosted by the Page menu.
  *
  * They used to be appended to the engine's Settings drawer, next to the
@@ -578,37 +584,29 @@ function paperDetail(d: HTMLElement) {
     );
   });
 
-  // The red rule is the point of the Lined + margin paper, so "Off" cannot
-  // apply to it — but where it sits still can, which is why only one chip goes.
-  const forced = tpl === 'margin';
-  const marginG = group(
-    d,
-    'Margin',
-    forced ? 'This paper always draws its rule; these set where it sits.' : undefined,
-  );
-  chip(
-    marginG,
-    'Off',
-    !prefs.margin && !forced,
-    () => {
-      prefs.margin = false;
+  // The red rule is one paper's signature, not a setting. On every other
+  // template the row is a signpost rather than a control — offering "Off /
+  // 20 mm / 25 mm" there only ever produced a red line through a drawing.
+  if (tpl === 'margin') {
+    const marginG = group(d, 'Margin rule', 'This paper always draws it; these set where it sits.');
+    chip(marginG, '20 mm', prefs.marginMm === 20, () => {
+      prefs.marginMm = 20;
       savePrefs();
       rerenderDrawer(d);
-    },
-    forced ? 'Lined + margin always has a rule' : undefined,
-  );
-  chip(marginG, '20 mm', (prefs.margin || forced) && prefs.marginMm === 20, () => {
-    prefs.margin = true;
-    prefs.marginMm = 20;
-    savePrefs();
-    rerenderDrawer(d);
-  });
-  chip(marginG, '25 mm', (prefs.margin || forced) && prefs.marginMm === 25, () => {
-    prefs.margin = true;
-    prefs.marginMm = 25;
-    savePrefs();
-    rerenderDrawer(d);
-  });
+    });
+    chip(marginG, '25 mm', prefs.marginMm === 25, () => {
+      prefs.marginMm = 25;
+      savePrefs();
+      rerenderDrawer(d);
+    });
+  } else {
+    const marginG = group(
+      d,
+      'Margin rule',
+      'Only the Lined + margin paper draws the red rule. This page has none.',
+    );
+    chip(marginG, 'Use that paper', false, () => useTemplate('margin'));
+  }
 
   const grainG = group(d, 'Paper texture');
   chip(grainG, 'Grain on', prefs.grain, () => {
