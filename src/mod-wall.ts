@@ -24,6 +24,47 @@
 
 import { currentMod, type ModMedia } from './mod-media';
 
+/**
+ * A live layer is not only for the three mods that ship a video. Every theme
+ * has artwork, and artwork that sits perfectly still behind a notebook reads
+ * as a screenshot. So each theme gets an effect chosen to suit its picture:
+ * sakura for the anime mods, embers for the fantasy ones, snow for the
+ * traveller, rain for the horror and terminal ones, and so on.
+ */
+export type Fx =
+  | 'bokeh'
+  | 'matrix'
+  | 'petals'
+  | 'snow'
+  | 'stars'
+  | 'embers'
+  | 'rain'
+  | 'dust';
+
+const THEME_FX: Record<string, Fx> = {
+  anime: 'petals',
+  'naruto-itachi-uchiha': 'petals',
+  'capybara-party': 'petals',
+  'japanese-lofi-mix': 'dust',
+  cozy: 'dust',
+  'hollow-knight': 'dust',
+  'the-traveller': 'snow',
+  'elden-ring': 'embers',
+  medieval: 'embers',
+  'legendary-rift': 'embers',
+  'monkey-rizz': 'embers',
+  blockified: 'embers',
+  horror: 'rain',
+  msi: 'rain',
+  'black-hole': 'stars',
+  'violet-nebula': 'stars',
+  'spaced-out': 'stars',
+  'creamy-keyboard': 'stars',
+  'josh-hutcherson': 'stars',
+  'day-one': 'dust',
+  'grand-theft-auto-san-andreas': 'dust',
+};
+
 const KEY = 'inkpad_mod_wall_live';
 
 type Listener = () => void;
@@ -40,6 +81,7 @@ class ModWall {
   private raf = 0;
   private last = 0;
   private mod: ModMedia | null = null;
+  private fx: Fx | null = null;
   private applied = '';
   private listeners = new Set<Listener>();
   private booted = false;
@@ -142,16 +184,24 @@ class ModWall {
     const layer = this.layer();
     if (!layer) return;
     const mod = currentMod();
-    const on = layer.dataset.on === '1' && !!mod;
-    const want = `${mod?.id ?? ''}|${on ? 1 : 0}|${this.live ? 1 : 0}`;
+    const themeId = document.documentElement.dataset.gxTheme || '';
+    // Every theme gets a live layer now. The three ported mods bring their own
+    // video or shader; the rest fall back to a procedural effect chosen to
+    // suit the artwork. `data-on` is already the wallpaper switch, so a theme
+    // with no wallpaper still gets nothing.
+    const fx: Fx | null = mod?.wall.fx ?? THEME_FX[themeId] ?? null;
+    const videoSrc = mod?.wall.video ?? null;
+    const on = layer.dataset.on === '1';
+    const want = `${mod?.id ?? themeId}|${on ? 1 : 0}|${this.live ? 1 : 0}|${fx ?? ''}`;
     if (want === this.applied) {
       this.syncPlayback();
       return;
     }
     this.applied = want;
     this.mod = mod;
+    this.fx = fx;
 
-    if (!on || !mod) {
+    if (!on) {
       this.stopFx();
       this.video?.pause();
       if (this.video) this.video.style.display = 'none';
@@ -163,11 +213,11 @@ class ModWall {
     this.ensureNodes(layer);
     const video = this.video!;
     const canvas = this.canvas!;
-    const hasVideo = !!mod.wall.video && this.live;
+    const hasVideo = !!videoSrc && this.live;
 
     if (hasVideo) {
-      if (video.getAttribute('src') !== mod.wall.video) {
-        video.setAttribute('src', mod.wall.video!);
+      if (video.getAttribute('src') !== videoSrc) {
+        video.setAttribute('src', videoSrc!);
         video.load();
       }
       video.style.display = '';
@@ -181,11 +231,11 @@ class ModWall {
       }
     }
 
-    layer.dataset.live = hasVideo || (this.live && mod.wall.fx) ? '1' : '0';
+    layer.dataset.live = hasVideo || (this.live && fx) ? '1' : '0';
 
-    const wantFx = this.live && !!mod.wall.fx && !document.hidden;
+    const wantFx = this.live && !!fx && !document.hidden;
     if (wantFx) {
-      this.startFx(mod.wall.fx!);
+      this.startFx(fx!);
     } else {
       this.stopFx();
       canvas.style.display = 'none';
@@ -201,7 +251,7 @@ class ModWall {
       return;
     }
     if (this.video && this.video.style.display !== 'none' && this.video.paused) this.playVideo();
-    if (this.mod?.wall.fx && this.live && !this.raf) this.startFx(this.mod.wall.fx);
+    if (this.fx && this.live && !this.raf) this.startFx(this.fx);
   }
 
   private playVideo() {
@@ -247,14 +297,93 @@ class ModWall {
     }
   }
 
-  private startFx(kind: 'bokeh' | 'matrix') {
+  private startFx(kind: Fx) {
     const canvas = this.canvas;
     if (!canvas) return;
     canvas.style.display = '';
     this.sizeCanvas();
     if (this.raf) return;
     if (kind === 'bokeh') this.runBokeh();
-    else this.runMatrix();
+    else if (kind === 'matrix') this.runMatrix();
+    else this.runParticles(kind);
+  }
+
+  /**
+   * One runner for the six weathers. They differ only in what a particle is
+   * and which way it goes, so they share a loop: fall, rise, or hang still and
+   * twinkle. Drawing is a circle, an ellipse (petals), or a streak (rain).
+   */
+  private runParticles(kind: Exclude<Fx, 'bokeh' | 'matrix'>) {
+    const canvas = this.canvas!;
+    const ctx = this.ctx!;
+    const cfg = {
+      petals: { n: 26, s: 5, v: 0.34, sway: 0.9, a: 0.5, c: '255,186,205', shape: 'petal' },
+      snow: { n: 64, s: 1.6, v: 0.16, sway: 0.35, a: 0.75, c: '255,255,255', shape: 'dot' },
+      stars: { n: 90, s: 1.1, v: 0, sway: 0, a: 0.8, c: '255,255,255', shape: 'twinkle' },
+      embers: { n: 34, s: 1.5, v: -0.3, sway: 0.5, a: 0.6, c: '255,168,74', shape: 'dot' },
+      rain: { n: 70, s: 1, v: 1.7, sway: 0.05, a: 0.32, c: '190,214,235', shape: 'streak' },
+      dust: { n: 36, s: 1.4, v: -0.05, sway: 0.28, a: 0.4, c: '255,238,214', shape: 'dot' },
+    }[kind];
+
+    const parts = Array.from({ length: cfg.n }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      z: 0.3 + Math.random() * 0.7,
+      r: cfg.s * (0.5 + Math.random()),
+      ph: Math.random() * Math.PI * 2,
+      sp: 0.6 + Math.random() * 0.8,
+    }));
+    let t = 0;
+
+    const step = (now: number) => {
+      this.raf = requestAnimationFrame(step);
+      if (now - this.last < 40) return;
+      const dt = this.last ? Math.min(80, now - this.last) : 16;
+      this.last = now;
+      t += dt;
+
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      this.sizeCanvas();
+      ctx.clearRect(0, 0, w, h);
+
+      for (const p of parts) {
+        const speed = (cfg.v * dt) / 1000;
+        if (cfg.v !== 0) {
+          p.y += speed * p.sp;
+          if (p.y > 1.08) p.y = -0.08;
+          if (p.y < -0.08) p.y = 1.08;
+        }
+        const sway = Math.sin(t / 2600 + p.ph) * cfg.sway * 0.02 * p.z;
+        const x = (p.x + sway) * w;
+        const y = p.y * h;
+        const alpha =
+          cfg.shape === 'twinkle'
+            ? cfg.a * (0.35 + 0.65 * Math.abs(Math.sin(t / 1400 + p.ph)))
+            : cfg.a * p.z;
+        const r = cfg.shape === 'streak' ? cfg.s : p.r * p.z;
+
+        if (cfg.shape === 'streak') {
+          ctx.strokeStyle = `rgba(${cfg.c},${alpha})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + 1.5, y + 14 * p.z);
+          ctx.stroke();
+        } else if (cfg.shape === 'petal') {
+          ctx.fillStyle = `rgba(${cfg.c},${alpha})`;
+          ctx.beginPath();
+          ctx.ellipse(x, y, r, r * 0.55, p.ph + t / 900, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = `rgba(${cfg.c},${alpha})`;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    };
+    this.raf = requestAnimationFrame(step);
   }
 
   /**
