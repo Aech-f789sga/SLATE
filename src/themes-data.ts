@@ -273,7 +273,7 @@ export const GX_THEMES: GxTheme[] = [
   // Cyberdeck is a neon skyline: magenta signage, cyan glass, violet haze.
   { id: 'cyberdeck', name: 'Cyberdeck', mod: 'Cyberdeck', wall: '/themes/cyberdeck.jpg', dark: { acc: [326, 100, 62], sec: [264, 42, 10] }, light: { acc: [326, 88, 46], sec: [264, 26, 92] } },
   // Minecraft: Fireplace is a lit hearth — ember orange on dark oak.
-  { id: 'minecraft-sound-fireplace', name: 'Minecraft Sound: Fireplace', mod: 'Minecraft Sound: Fireplace', wall: '/themes/minecraft-sound-fireplace.jpg', dark: { acc: [28, 100, 55], sec: [22, 42, 9] }, light: { acc: [22, 92, 40], sec: [34, 40, 86] } },
+  { id: 'minecraft-sound-fireplace', name: 'Minecraft Sound: Fireplace', mod: 'Minecraft Sound: Fireplace', wall: '/themes/minecraft-sound-fireplace.png', dark: { acc: [28, 100, 55], sec: [22, 42, 9] }, light: { acc: [22, 92, 40], sec: [34, 40, 86] } },
   // LoFi Chill is a sunset room: dusty rose walls, coral light, teal plants.
   // The accent is the coral, the surface tint is the warm plum the shadows are.
   { id: 'lofi-chill', name: 'LoFi Chill', mod: 'LoFi Chill', wall: '/themes/lofi-chill.jpg', dark: { acc: [6, 76, 65], sec: [20, 30, 12] }, light: { acc: [6, 70, 52], sec: [22, 38, 93] } },
@@ -281,10 +281,10 @@ export const GX_THEMES: GxTheme[] = [
   { id: 'blockified', name: 'Blockified', mod: 'Blockified', wall: '/themes/blockified.jpg', dark: { acc: [277, 56, 56], sec: [292, 18, 16] }, light: { acc: [101, 100, 29], sec: [49, 13, 24] } },
   { id: 'violet-nebula', name: 'Violet Nebula', mod: 'Violet Nebula', wall: '/themes/violet-nebula.jpg', dark: { acc: [289, 71, 56], sec: [251, 60, 16] }, light: { acc: [322, 52, 31], sec: [237, 39, 88] } },
   { id: 'anime', name: 'Anime', mod: 'Anime', wall: '/themes/anime.jpg', dark: { acc: [4, 83, 72], sec: [20, 27, 32] }, light: { acc: [327, 80, 57], sec: [6, 15, 25] } },
-  { id: 'monkey-rizz', name: 'Monkey RIZZ', mod: 'Monkey RIZZ', wall: '/themes/monkey-rizz.jpg', dark: { acc: [360, 100, 32], sec: [360, 0, 16] }, light: { acc: [360, 100, 27], sec: [360, 67, 16] } },
+  { id: 'monkey-rizz', name: 'Monkey RIZZ', mod: 'Monkey RIZZ', wall: '/themes/monkey-rizz.png', dark: { acc: [360, 100, 32], sec: [360, 0, 16] }, light: { acc: [360, 100, 27], sec: [360, 67, 16] } },
   { id: 'the-traveller', name: 'The Traveller', mod: 'The Traveller', wall: '/themes/the-traveller.jpg', dark: { acc: [0, 0, 80], sec: [0, 0, 16] }, light: { acc: [23, 100, 56], sec: [45, 46, 88] } },
   { id: 'cozy', name: 'Cozy', mod: 'Cozy', wall: '/themes/cozy.jpg', dark: { acc: [348, 100, 72], sec: [336, 40, 16] }, light: { acc: [14, 100, 48], sec: [35, 22, 88] } },
-  { id: 'creamy-keyboard', name: 'Creamy Keyboard', mod: 'Creamy Keyboard', wall: '/themes/creamy-keyboard.jpg', dark: { acc: [85, 100, 72], sec: [272, 64, 16] }, light: { acc: [112, 80, 44], sec: [272, 32, 16] } },
+  { id: 'creamy-keyboard', name: 'Creamy Keyboard', mod: 'Creamy Keyboard', wall: '/themes/creamy-keyboard.png', dark: { acc: [85, 100, 72], sec: [272, 64, 16] }, light: { acc: [112, 80, 44], sec: [272, 32, 16] } },
   { id: 'hollow-knight', name: 'Hollow Knight', mod: 'Hollow Knight', wall: '/themes/hollow-knight.jpg', dark: { acc: [224, 100, 64], sec: [217, 45, 16] }, light: { acc: [224, 99, 56], sec: [217, 45, 88] } },
   { id: 'elden-ring', name: 'Elden Ring', mod: 'Elden Ring', wall: '/themes/elden-ring.jpg', dark: { acc: [188, 29, 62], sec: [204, 37, 62] }, light: { acc: [120, 34, 17], sec: [45, 70, 59] } },
   { id: 'japanese-lofi-mix', name: 'Japanese lofi Mix', mod: 'Japanese lofi Mix', wall: '/themes/japanese-lofi-mix.jpg', dark: { acc: [346, 95, 60], sec: [221, 33, 16] }, light: { acc: [346, 95, 60], sec: [360, 45, 88] } },
@@ -294,7 +294,7 @@ export const GX_THEMES: GxTheme[] = [
   { id: 'spaced-out', name: 'Spaced Out', mod: 'Spaced Out', wall: '/themes/spaced-out.jpg', dark: { acc: [211, 100, 54], sec: [234, 35, 16] }, light: { acc: [224, 100, 66], sec: [210, 47, 88] } },
   { id: 'medieval', name: 'Medieval', mod: 'Medieval', wall: '/themes/medieval.jpg', dark: { acc: [29, 49, 52], sec: [16, 43, 16] }, light: { acc: [203, 75, 34], sec: [213, 37, 26] } },
   { id: 'legendary-rift', name: 'Legendary Rift', mod: 'Legendary Rift', wall: '/themes/legendary-rift.jpg', dark: { acc: [181, 80, 47], sec: [297, 24, 12] }, light: { acc: [181, 83, 31], sec: [224, 19, 88] } },
-  { id: 'naruto-itachi-uchiha', name: 'Naruto Itachi Uchiha', mod: 'Naruto Itachi Uchiha', wall: '/themes/naruto-itachi-uchiha.jpg', dark: { acc: [0, 100, 23], sec: [0, 100, 0] }, light: { acc: [0, 100, 23], sec: [0, 100, 0] } },
+  { id: 'naruto-itachi-uchiha', name: 'Naruto Itachi Uchiha', mod: 'Naruto Itachi Uchiha', wall: '/themes/naruto-itachi-uchiha.png', dark: { acc: [0, 100, 23], sec: [0, 100, 0] }, light: { acc: [0, 100, 23], sec: [0, 100, 0] } },
   { id: 'capybara-party', name: 'Capybara Party', mod: 'Capybara Party', wall: '/themes/capybara-party.jpg', dark: { acc: [35, 87, 78], sec: [245, 40, 16] }, light: { acc: [212, 77, 40], sec: [22, 70, 88] } },
 ];
 

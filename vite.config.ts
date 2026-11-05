@@ -57,8 +57,13 @@ export default defineConfig(() => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           // the sticker packs are ~800 KB of SVG and are only touched when the
           // picker is open, so keep them out of the install-time precache and
-          // cache them on first use instead
-          globIgnores: ['**/stickers/**'],
+          // cache them on first use instead.
+          //
+          // The theme wallpapers and mod media are in the same boat, and now
+          // they are the mods' own files rather than re-encodes: a single
+          // 4K wallpaper is bigger than this whole app. Precaching them would
+          // mean downloading every theme on first visit.
+          globIgnores: ['**/stickers/**', '**/themes/**', '**/mods/**'],
           runtimeCaching: [
             {
               urlPattern: /\/stickers\/.*\.svg$/i,

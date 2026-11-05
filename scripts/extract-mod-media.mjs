@@ -1,24 +1,17 @@
 /**
- * Pull the mods' real wallpapers and real soundtracks into the app.
+ * Pull the mods' animated wallpapers into the app.
  *
- *   node scripts/extract-mod-media.mjs            # everything
- *   node scripts/extract-mod-media.mjs --video    # wallpapers only
- *   node scripts/extract-mod-media.mjs --music    # soundtracks only
+ * Eighteen of the installed mods ship an animated wallpaper. The animation is
+ * the mod's actual artwork, so it is encoded at the resolution the mod shipped
+ * it in and used directly.
  *
- * Two things this fixes.
+ *   node scripts/extract-mod-media.mjs
  *
- * Wallpapers: eighteen of the installed mods ship an animated wallpaper, and
- * until now the notebook used a still and drew procedural dust over it, which
- * reads as "someone put a photo here" rather than "this theme is alive". The
- * animation is the mod's actual artwork, so it is transcoded to a 720p mp4 and
- * used directly.
- *
- * Music: several mods ship a whole `music/` folder that `background_music`
- * never declares — Creamy Keyboard, Elden Ring, Hollow Knight, GTA, Black Hole,
- * Josh Hutcherson, Naruto, Japanese lofi Mix. Their soundtrack exists on disk;
- * the manifest just forgot to mention it. Those are read from the folder.
- *
- * Sources stay untouched; only the derived files are written.
+ * Stills and soundtracks have their own scripts now, because they need to make
+ * different decisions: `extract-stills.mjs` copies the mod's own image file and
+ * `extract-music.mjs` copies the mod's own audio — neither re-encodes, which
+ * this script does by necessity for video (the sources are VP9 WebM, which not
+ * every tablet plays).
  */
 
 import fs from 'node:fs';
@@ -59,38 +52,6 @@ const VIDEO_JOBS = [
   ['the-traveller', 'The Traveller', 'wallpaper/animated_dark.webm'],
 ];
 
-/**
- * Soundtracks, keyed by theme slug.
- *
- * More than one file means the mod shipped stems of one song — equal-length
- * layers that are meant to play together — which the engine mixes at equal
- * gain. A single file is just the song.
- */
-const MUSIC_JOBS = [
-  ['black-hole', 'Black Hole', ['music/Track1.mp3']],
-  [
-    'creamy-keyboard',
-    'Creamy Keyboard',
-    ['music/track_1.mp3', 'music/track_2.mp3', 'music/track_3.mp3', 'music/track_4.mp3'],
-  ],
-  ['elden-ring', 'Elden Ring', ['music/elden.ring.mp3']],
-  ['grand-theft-auto-san-andreas', 'Grand Theft Auto: San Andreas', ['music/track_1.mp3']],
-  ['hollow-knight', 'Hollow Knight', ['music/track_1.mp3']],
-  ['japanese-lofi-mix', 'Japanese lofi Mix', ['music/Japanese_Lofi-Mix.mp3']],
-  ['josh-hutcherson', 'Josh Hutcherson', ['music/backround music.mp3']],
-  [
-    'naruto-itachi-uchiha',
-    'Naruto Itachi Uchiha',
-    ['music/track_1.mp3', 'music/track_2.mp3', 'music/track_3.mp3', 'music/track_4.mp3'],
-  ],
-  ['monkey-rizz', 'Monkey RIZZ', ['music/track1.mp3']],
-];
-
-const args = process.argv.slice(2);
-const onlyVideo = args.includes('--video');
-const onlyMusic = args.includes('--music');
-const doVideo = !onlyMusic || onlyVideo;
-const doMusic = !onlyVideo || onlyMusic;
 
 /** Newest installed copy of a mod, by payload name. */
 function findMod(name) {
@@ -127,7 +88,7 @@ function run(args) {
 
 let videoTotal = 0;
 
-if (doVideo) {
+{
   console.log('--- wallpapers ---');
   for (const [slug, modName, rel] of VIDEO_JOBS) {
     const mod = findMod(modName);
@@ -149,14 +110,13 @@ if (doVideo) {
         '-y',
         '-i',
         src,
-        // No audio. 1600 px wide at CRF 26 — the earlier 720p / CRF 31 pass was
-        // tuned for size and showed it: these wallpapers are almost all flat
-        // gradient, which is exactly what a high CRF bands and blocks. See
-        // scripts/upgrade-walls.mjs, which re-encodes the clips already in the
-        // repo from the same sources at these settings.
+        // No audio, native resolution, CRF 16. The mods are not all 1080p —
+        // several ship 1440p and four ship 4K — so anything that scales is
+        // throwing away the picture. See scripts/upgrade-walls.mjs, which
+        // re-encodes the clips already in the repo at these settings.
         '-an',
         '-vf',
-        "scale='min(1600,iw)':-2:flags=lanczos,fps=30",
+        'scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos',
         '-c:v',
         'libx264',
         '-profile:v',
@@ -164,7 +124,7 @@ if (doVideo) {
         '-pix_fmt',
         'yuv420p',
         '-crf',
-        '26',
+        '16',
         '-preset',
         'slow',
         '-movflags',
@@ -184,54 +144,7 @@ if (doVideo) {
 
 /* ---------------------------------------------------------------- music */
 
-let musicTotal = 0;
+// Soundtracks are not this script's job any more: `extract-music.mjs` reads
+// `background_music` from each manifest and copies the bytes instead of
+// transcoding them to mono 64 kb/s.
 
-if (doMusic) {
-  console.log('--- soundtracks ---');
-  for (const [slug, modName, files] of MUSIC_JOBS) {
-    const mod = findMod(modName);
-    if (!mod) {
-      console.log(`  ${slug.padEnd(30)} SKIP (mod not installed)`);
-      continue;
-    }
-    const outDir = path.join('public', 'mods', slug, 'music');
-    fs.mkdirSync(outDir, { recursive: true });
-    let ok = 0;
-    files.forEach((rel, i) => {
-      const src = path.join(mod.dir, rel);
-      if (!fs.existsSync(src)) {
-        console.log(`  ${slug.padEnd(30)} SKIP ${rel}`);
-        return;
-      }
-      const out = path.join(outDir, `layer${i + 1}.m4a`);
-      try {
-        run([
-          '-y',
-          '-i',
-          src,
-          // 90s is enough for a loop and keeps a 365 MB source honest.
-          '-t',
-          '90',
-          '-vn',
-          '-ac',
-          '1',
-          '-c:a',
-          'aac',
-          '-b:a',
-          '64k',
-          '-movflags',
-          '+faststart',
-          out,
-        ]);
-        const size = fs.statSync(out).size;
-        musicTotal += size;
-        ok++;
-      } catch (e) {
-        const msg = String(e.stderr ?? e.message).split('\n').slice(-2).join(' ');
-        console.log(`  ${slug.padEnd(30)} FAILED ${rel}: ${msg.slice(0, 100)}`);
-      }
-    });
-    if (ok) console.log(`  ${slug.padEnd(30)} ${ok} layer${ok > 1 ? 's' : ''}`);
-  }
-  console.log(`  soundtracks total: ${mb(musicTotal)} MB`);
-}

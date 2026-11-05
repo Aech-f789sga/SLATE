@@ -77,9 +77,16 @@ export type ModMedia = {
 
 const root = (id: string) => `/mods/${id}`;
 
-/** The mod cut one song into N equal-length layers; name them in order. */
-const stems = (id: string, n: number) =>
-  Array.from({ length: n }, (_, i) => `${root(id)}/music/layer${i + 1}.m4a`);
+/**
+ * The mod cut one song into N equal-length layers; name them in order.
+ *
+ * The extension is per-mod because the container is chosen from the codec the
+ * mod actually shipped, so the bytes can be copied instead of transcoded: mp3
+ * stays mp3, the one mod that ships AAC stays in an m4a, and the WAV stems go
+ * to FLAC (lossless — same samples, a third of the disk).
+ */
+const stems = (id: string, n: number, ext = 'mp3') =>
+  Array.from({ length: n }, (_, i) => `${root(id)}/music/layer${i + 1}.${ext}`);
 
 /**
  * The interface sounds, laid down by `scripts/extract-sfx.mjs` under the same
@@ -143,9 +150,9 @@ export const MODS: Record<string, ModMedia> = {
     id: 'minecraft-sound-fireplace',
     name: 'Minecraft: Fireplace',
     track: 'Fireplace',
-    layers: [`${root('minecraft-sound-fireplace')}/music/music.m4a`],
+    layers: stems('minecraft-sound-fireplace', 1),
     wall: {
-      still: '/themes/minecraft-sound-fireplace.jpg',
+      still: '/themes/minecraft-sound-fireplace.png',
       video: `${root('minecraft-sound-fireplace')}/wall/live.mp4`,
       fx: null,
       label: 'The hearth',
@@ -253,7 +260,7 @@ export const MODS: Record<string, ModMedia> = {
     id: 'capybara-party',
     name: 'Capybara Party',
     track: 'Capybara Party',
-    layers: stems('capybara-party', 4),
+    layers: stems('capybara-party', 4, 'flac'),
     sfx: sfx('capybara-party', 5),
     wall: {
       still: '/themes/capybara-party.jpg',
@@ -267,7 +274,7 @@ export const MODS: Record<string, ModMedia> = {
     name: 'Blockified',
     track: 'Blockified',
     // the one mod that ships a whole song instead of layers of one
-    layers: [`${root('blockified')}/music/layer1.m4a`],
+    layers: stems('blockified', 1),
     sfx: sfx('blockified', 4),
     wall: {
       still: '/themes/blockified.jpg',
@@ -316,7 +323,7 @@ export const MODS: Record<string, ModMedia> = {
     layers: stems('creamy-keyboard', 4),
     sfx: sfx('creamy-keyboard', 3),
     wall: {
-      still: '/themes/creamy-keyboard.jpg',
+      still: '/themes/creamy-keyboard.png',
       // like Day One, this mod animates the light side only
       video: `${root('creamy-keyboard')}/wall/live.mp4`,
       label: 'Cream, in motion',
@@ -397,7 +404,7 @@ export const MODS: Record<string, ModMedia> = {
     layers: stems('monkey-rizz', 1),
     sfx: sfx('monkey-rizz', 3),
     wall: {
-      still: '/themes/monkey-rizz.jpg',
+      still: '/themes/monkey-rizz.png',
       video: `${root('monkey-rizz')}/wall/live.mp4`,
       label: 'The monkey, unbothered',
     },
@@ -407,10 +414,12 @@ export const MODS: Record<string, ModMedia> = {
     id: 'naruto-itachi-uchiha',
     name: 'Naruto Itachi Uchiha',
     track: 'Itachi',
-    layers: stems('naruto-itachi-uchiha', 4),
+    // the manifest declares one track, not the four stems sitting beside it —
+    // the old extractor took the wrong files and missed the actual song
+    layers: stems('naruto-itachi-uchiha', 1, 'm4a'),
     sfx: sfx('naruto-itachi-uchiha', 3),
     wall: {
-      still: '/themes/naruto-itachi-uchiha.jpg',
+      still: '/themes/naruto-itachi-uchiha.png',
       video: `${root('naruto-itachi-uchiha')}/wall/live.mp4`,
       label: 'Crows over the Uchiha',
     },
