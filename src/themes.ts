@@ -27,6 +27,7 @@ import {
   type GxTheme,
 } from './themes-data';
 import { play, setSfxOn, sfxOn } from './sfx';
+import { modFor } from './mod-media';
 import { wallLook } from './wall-look';
 
 const KEY = 'inkpad-gx-theme';
@@ -270,6 +271,96 @@ function mountButton() {
 
 let panel: HTMLElement | null = null;
 
+/* ------------------------------------------------------------------ */
+/* Loading                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The theme you have picked but not put on yet.
+ *
+ * Picking a card used to apply it on the spot, and that is a lie about how long
+ * it takes: a mod's wallpaper is one file and its soundtrack is another, and on
+ * the big mods they are tens of megabytes. The palette changes instantly, the
+ * picture arrives a second later, the video later still, so the app looks
+ * frozen when it is only downloading. Now the card picks and the button loads —
+ * the switch happens once everything is in hand, and it is a single frame.
+ */
+let pending: string | null = null;
+/** which theme the button is currently fetching, so a second click is a no-op */
+let loading: string | null = null;
+
+const preloaded = new Set<string>();
+
+/** Wait for an image, or give up after `ms`. Never rejects. */
+function warmImage(src: string, ms = 12000): Promise<void> {
+  return new Promise((done) => {
+    const img = new Image();
+    const fin = () => done();
+    const t = window.setTimeout(fin, ms);
+    img.onload = () => {
+      window.clearTimeout(t);
+      fin();
+    };
+    img.onerror = () => {
+      window.clearTimeout(t);
+      fin();
+    };
+    img.src = src;
+  });
+}
+
+/** Wait for enough of a media file to start, or give up. Never rejects. */
+function warmMedia(el: HTMLMediaElement, ms = 20000): Promise<void> {
+  return new Promise((done) => {
+    const fin = () => {
+      el.oncanplay = null;
+      el.onloadeddata = null;
+      el.onerror = null;
+      done();
+    };
+    const t = window.setTimeout(fin, ms);
+    const ok = () => {
+      window.clearTimeout(t);
+      fin();
+    };
+    el.oncanplay = ok;
+    el.onloadeddata = ok;
+    el.onerror = ok;
+    el.load();
+  });
+}
+
+/**
+ * Fetch everything the theme needs before it is worn.
+ *
+ * Three things, in the order they would otherwise pop in: the still (the
+ * `#gx-wall` background), the live video behind it, and the first track of the
+ * soundtrack. The audio is fetched by the same URL the player will use, so this
+ * is a cache warm and the player starts instantly afterwards.
+ */
+async function warmTheme(t: GxTheme): Promise<void> {
+  if (preloaded.has(t.id)) return;
+  const mod = modFor(t.id);
+  const jobs: Promise<void>[] = [];
+  if (t.wall) jobs.push(warmImage(t.wall));
+  if (mod?.wall.video) {
+    const v = document.createElement('video');
+    v.preload = 'auto';
+    v.muted = true;
+    v.src = mod.wall.video;
+    jobs.push(warmMedia(v));
+  }
+  const track = mod?.layers[0];
+  if (track) {
+    const a = document.createElement('audio');
+    a.preload = 'auto';
+    a.src = track;
+    jobs.push(warmMedia(a));
+  }
+  await Promise.all(jobs);
+  preloaded.add(t.id);
+}
+
 function thumbStyle(t: GxTheme): string {
   // Single quotes inside: this string is interpolated into a style="…" attribute,
   // and a double quote here would end the attribute early.
@@ -289,6 +380,10 @@ function buildPanel() {
         <button class="gxp-x" type="button" aria-label="Close">✕</button>
       </div>
       <div class="gxp-grid"></div>
+      <div class="gxp-load">
+        <span class="gxp-pick"></span>
+        <button class="gxp-go" type="button" disabled>Load</button>
+      </div>
       <div class="gxp-foot">
         <label class="gxp-wall"><input type="checkbox" id="gxp-wall-t" /> Wallpaper on the shelf</label>
         <label class="gxp-wall"><input type="checkbox" id="gxp-snd-t" /> Interface sounds</label>
@@ -306,6 +401,7 @@ function buildPanel() {
   document.body.append(panel);
 
   (panel.querySelector('.gxp-x') as HTMLElement).onclick = closePanel;
+  (panel.querySelector('.gxp-go') as HTMLButtonElement).onclick = () => void loadPending();
   panel.onclick = (e) => {
     if (e.target === panel) closePanel();
   };
@@ -358,7 +454,7 @@ function paintModes() {
 function paintTag() {
   const tag = panel?.querySelector('#gxp-tag');
   if (!tag) return;
-  const t = themeById(choice.id);
+  const t = themeById(pending || choice.id);
   const f = FEEL_LABEL[FEEL_BY_THEME[t.id] || 'paper'];
   const s = SND_LABEL[SND_BY_THEME[t.id] || 'tick'];
   tag.textContent = `${f} · ${s}`;
@@ -383,23 +479,74 @@ function paintGrid() {
       </span>`;
     (card.querySelector('.gxp-name') as HTMLElement).textContent = t.name;
     (card.querySelector('.gxp-mod') as HTMLElement).textContent = t.mod || 'Opera GX';
+    // a card can be "on" or "pending", never both: once a theme is worn its
+    // dashed ring would just fight the solid one
+    card.classList.toggle('pending', t.id === pending && t.id !== choice.id);
+    card.setAttribute('aria-pressed', String(t.id === pending));
     card.onclick = () => {
-      choice.id = t.id;
-      save();
-      apply();
-      // audition the pack you just picked, rather than the one you left
-      play('toggle', true);
+      // pick, do not wear. `paintLoad` turns the footer button live, and the
+      // fetch starts now so that button is usually instant when it is pressed.
+      pending = t.id === pending ? null : t.id;
       paintGrid();
-      paintModes();
+      paintLoad();
+      if (pending) void warmTheme(themeById(pending));
+      play('toggle', true);
     };
     grid.append(card);
+  }
+}
+
+/** The footer of the grid: what is picked, and the button that puts it on. */
+function paintLoad() {
+  const go = panel?.querySelector<HTMLButtonElement>('.gxp-go');
+  const pick = panel?.querySelector<HTMLElement>('.gxp-pick');
+  if (!go || !pick) return;
+  const t = pending ? themeById(pending) : null;
+  const busy = !!pending && loading === pending;
+  go.disabled = !t || busy || pending === choice.id;
+  go.classList.toggle('busy', busy);
+  go.textContent = busy
+    ? 'Loading…'
+    : !t
+      ? 'Load'
+      : pending === choice.id
+        ? 'Applied'
+        : `Load ${t.name}`;
+  pick.textContent = !t
+    ? 'Pick a theme, then load it'
+    : pending === choice.id
+      ? `${t.name} is on`
+      : `${t.name} · ${t.wall ? 'wallpaper + ' : ''}soundtrack`;
+}
+
+async function loadPending() {
+  if (!pending || loading) return;
+  const id = pending;
+  loading = id;
+  paintLoad();
+  try {
+    await warmTheme(themeById(id));
+  } finally {
+    // the theme only changes once its files are in hand, so nothing pops in
+    // after the fact and the switch is one frame
+    if (pending === id) {
+      choice.id = id;
+      save();
+      apply();
+      paintGrid();
+      paintModes();
+    }
+    loading = null;
+    paintLoad();
   }
 }
 
 function openPanel() {
   buildPanel();
   if (!panel) return;
+  pending = null;
   paintGrid();
+  paintLoad();
   paintModes();
   panel.classList.add('on');
 }
@@ -792,6 +939,42 @@ html[data-gx] #gx-theme-panel .gxp-x svg{
 }
 #gx-theme-panel .gxp-card:hover{transform:translateY(-2px);border-color:var(--ac)}
 #gx-theme-panel .gxp-card.on{border-color:var(--ac);box-shadow:0 0 0 2px color-mix(in srgb, var(--ac) 30%, transparent)}
+/* the picked-but-not-loaded card: the ring is a dashed outline instead of the
+   solid one, so "wearing this" and "about to wear this" never look the same */
+#gx-theme-panel .gxp-card.pending{
+  border-color:var(--ac);
+  outline:2px dashed color-mix(in srgb, var(--ac) 70%, transparent);
+  outline-offset:-3px;
+}
+#gx-theme-panel .gxp-card.pending .gxp-thumb{opacity:.82}
+
+/* the load bar: what is picked on the left, the one button that matters on the
+   right. It sits between the grid and the settings so the eye lands on it. */
+#gx-theme-panel .gxp-load{
+  display:flex;align-items:center;gap:12px;
+  padding:10px 18px;border-top:1px solid var(--bd);
+  background:color-mix(in srgb, var(--ac) 6%, transparent);
+}
+#gx-theme-panel .gxp-pick{
+  flex:1;min-width:0;font-size:12px;color:var(--mu);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#gx-theme-panel .gxp-go{
+  flex:none;font:600 12.5px/1 inherit;padding:9px 18px;border-radius:10px;
+  border:1px solid var(--ac);background:var(--ac);color:#fff;cursor:pointer;
+  transition:opacity .15s, transform .15s;
+}
+#gx-theme-panel .gxp-go:hover:not(:disabled){transform:translateY(-1px)}
+#gx-theme-panel .gxp-go:disabled{
+  opacity:.45;cursor:default;background:transparent;color:var(--mu);border-color:var(--bd);
+}
+#gx-theme-panel .gxp-go.busy{opacity:1;color:var(--tx);border-color:var(--ac);background:transparent}
+#gx-theme-panel .gxp-go.busy::before{
+  content:'';display:inline-block;width:10px;height:10px;margin-right:7px;vertical-align:-1px;
+  border:2px solid color-mix(in srgb, var(--ac) 35%, transparent);border-top-color:var(--ac);
+  border-radius:50%;animation:gxp-spin .7s linear infinite;
+}
+@keyframes gxp-spin{to{transform:rotate(360deg)}}
 #gx-theme-panel .gxp-thumb{
   display:block;height:72px;min-height:72px;flex:0 0 auto;
   background-size:cover;background-position:center;

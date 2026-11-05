@@ -151,6 +151,10 @@ out('while page card is open', JSON.stringify(both));
 await page.screenshot({ path: `${OUT}/pgm-open-after.png` });
 
 /* ---- 7. and back the other way ---- */
+// the pill is hidden while the page card is out, so the way back is through
+// the page card's own ✕, exactly as a hand would do it
+await page.evaluate(() => window.__inkpad_pagemenu.close());
+await page.waitForTimeout(260);
 await page.evaluate(() => window.__inkpad_edmenu.open());
 await page.waitForTimeout(300);
 const rev = await page.evaluate(() => ({

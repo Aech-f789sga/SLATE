@@ -46,6 +46,10 @@ html[data-bar=compact] #edm{display:none!important}
 
 /* the engine's own Pen only / Sound labels, hidden where they sit */
 #bar2 label.edm-away{display:none!important}
+/* ...and the six tool triggers, which the page card used to carry under a
+   heading of their own. Nothing here is a page property: guides, layers,
+   animation and the two libraries are tools, and tools belong with the pens. */
+#bar2 .edm-away{display:none!important}
 
 /* ---- the card ---- */
 /* The card is a child of the body, not of the toolbar. Two reasons, both
@@ -103,6 +107,20 @@ html[data-bar=compact] #edm{display:none!important}
 #edm-card .edm-txt em{
   font-style:normal;font-size:11px;line-height:1.35;color:#8a94a6;
 }
+
+/* ---- tools: clones of the engine's own triggers ---- */
+#edm-card .edm-tools{
+  display:flex;flex-wrap:wrap;gap:5px;align-items:center;
+  padding:7px 4px 3px;margin-top:4px;border-top:1px solid #f0f3f8;
+}
+#edm-card .edm-tool{
+  width:32px;height:30px;padding:0;display:grid;place-items:center;flex:none;
+  border:1px solid #e7ecf4;border-radius:9px;background:#f6f8fc;color:#2b3542;
+  font-size:12px;cursor:pointer;
+}
+#edm-card .edm-tool:hover{background:#eef2f9;border-color:#d7e0ee}
+#edm-card .edm-tool.on{background:#e8f0fe;border-color:#2f6df6;color:#2f6df6}
+#edm-card .edm-tool svg{width:15px;height:15px;display:block}
 `;
 
 /** Three dots — the same glyph the user reached for, in the pill's own weight. */
@@ -140,6 +158,9 @@ function markAway() {
     const lab = input?.closest('label');
     if (lab && !lab.classList.contains('edm-away')) lab.classList.add('edm-away');
   }
+  for (const b of toolButtons()) {
+    if (!b.classList.contains('edm-away')) b.classList.add('edm-away');
+  }
 }
 
 function mirror() {
@@ -155,6 +176,76 @@ function push(id: string, on: boolean) {
   // `touch-action` on the canvas, and the sound bank reads `#snd` on the next
   // stroke. Setting `.checked` alone would leave both on the old value.
   r.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Tools                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The six triggers the page card used to carry.
+ *
+ * Guides, Layers, Animate, Play, Engineering symbols and the Figure library
+ * are tools, not page properties, and they were only ever in that card because
+ * the engine appends them to the same row and page-menu hung its last heading
+ * over whatever trailed. So they move here — but they are *cloned*, not moved.
+ * Their handlers belong to four other modules, several of which re-bind them on
+ * layout, and a re-parented button is a button that stops working the next time
+ * `setupBars()` runs. A clone that forwards `click()` cannot go stale.
+ */
+const TOOL_TITLE =
+  /^(Guides|Layers|Animate next drawing|Play animation|Engineering symbols|Figure library)/;
+
+/**
+ * The engine's own buttons, in row order.
+ *
+ * Matched on the title alone, deliberately. The obvious extra filter — "skip
+ * anything with `display:none`" — reads its own effect back: hiding the
+ * originals is what makes room for the clones, so the second tick saw an empty
+ * row and wiped the clones it had just made. The only button the engine hides
+ * on its own here is Insert video, and it is left out by name.
+ */
+function toolButtons(): HTMLButtonElement[] {
+  const bar = document.getElementById('bar2');
+  if (!bar) return [];
+  return Array.from(bar.children).filter(
+    (n): n is HTMLButtonElement => n.tagName === 'BUTTON' && TOOL_TITLE.test((n as HTMLElement).title || '')
+  );
+}
+
+function syncTools() {
+  const host = card?.querySelector<HTMLElement>('.edm-tools');
+  if (!host) return;
+  const src = toolButtons();
+  while (host.childElementCount > src.length) host.lastElementChild!.remove();
+  src.forEach((b, i) => {
+    let c = host.children[i] as HTMLButtonElement | undefined;
+    if (!c) {
+      c = document.createElement('button');
+      c.type = 'button';
+      c.className = 'edm-tool';
+      const idx = i;
+      c.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // look the original up again: the set can change between opens, and the
+        // captured node may be a stale clone of a row the engine has rebuilt
+        toolButtons()[idx]?.click();
+        window.setTimeout(syncTools, 140);
+      };
+      host.append(c);
+    }
+    // the glyph and the title are the button's whole state — Animate swaps its
+    // icon and its title as the effect changes, and the two libraries swap
+    // theirs on open
+    if (c.dataset.sig !== b.title) {
+      c.dataset.sig = b.title;
+      c.innerHTML = b.innerHTML;
+      c.title = b.title;
+      c.setAttribute('aria-label', b.title);
+    }
+    c.classList.toggle('on', b.classList.contains('on'));
+  });
 }
 
 function place() {
@@ -187,6 +278,7 @@ function open() {
   window.clearTimeout(closeTimer);
   card.classList.remove('closing');
   mirror();
+  syncTools();
   // one card at a time: two floating panels under the same toolbar would cover
   // each other, and the page card is the wider of the two
   try {
@@ -251,7 +343,8 @@ function build() {
     '<em>A finger pans and scrolls; only the stylus draws.</em></span></label>' +
     '<label class="edm-row"><input type="checkbox" id="edm-snd">' +
     '<span class="edm-txt"><b>Sound</b>' +
-    '<em>Paper and pen sounds as you write.</em></span></label>';
+    '<em>Paper and pen sounds as you write.</em></span></label>' +
+    '<div class="edm-tools" role="group" aria-label="Tools"></div>';
 
   po = card.querySelector('#edm-po');
   snd = card.querySelector('#edm-snd');
@@ -313,6 +406,7 @@ function build() {
 
   markAway();
   mirror();
+  syncTools();
 }
 
 function tick() {
@@ -329,6 +423,9 @@ function tick() {
     build();
   }
   markAway();
+  // the tool row is rebuilt by the engine and re-titled by three other modules,
+  // so the clones are re-read on the same slow tick as the rest of this card
+  syncTools();
 }
 
 function boot() {

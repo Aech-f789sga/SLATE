@@ -2,12 +2,17 @@
  * The mod's soundtrack and UI sounds, ported from the same idea as the
  * Cyberdeck audio engine in CELE.
  *
- * The important detail is that these mods do not ship *a song*. They ship
- * three or four **stems** of the same song — `layer1..4.mp3` all exactly the
- * same length — which Opera plays at once so it can fade individual layers in
- * and out without ever cutting the music. So the engine here is N `<audio>`
- * elements started together and kept on one clock, mixed at equal gain so a
- * four-stem mod is not twice as loud as a one-stem mod.
+ * A mod that ships more than one file under `background_music` is shipping a
+ * **playlist**, not stems. The files are all cut to the same length — which is
+ * what made this look like Opera's layer trick at first — but they are
+ * different pieces of music: measuring the loudness envelope of `layer1`
+ * against `layer2` across four mods gives a correlation between −0.23 and
+ * +0.20, i.e. no relationship at all. Stems of one performance track each other
+ * closely by definition. Playing them together, as this engine used to, was
+ * four songs at once.
+ *
+ * So: one `<audio>` at a time, `ended` moves to the next track, and the choice
+ * is remembered per mod. A mod with a single track behaves exactly as before.
  *
  * Everything is opt-in and persisted. Nothing plays before the first gesture,
  * because browsers refuse to start audio without one — `unlock()` is wired to
@@ -26,6 +31,8 @@ export type ModAudioSettings = {
 };
 
 const STORAGE_KEY = 'inkpad_mod_audio';
+/** which track of which mod was last playing, so a reload resumes the same one */
+const TRACK_KEY = 'inkpad_mod_track';
 
 /* Effects are off by default. This is a notebook: a blip on every control is
    charming for a minute and then it is a pen scratching over your thinking. */
@@ -69,14 +76,15 @@ class ModAudio {
   blocked = false;
 
   private mod: ModMedia | null = null;
-  private stems: HTMLAudioElement[] = [];
-  private stemGain = 1;
+  /** one element, one track — see the note at the top of this file */
+  private player: HTMLAudioElement | null = null;
+  /** which of the mod's tracks that element is holding */
+  private index = 0;
   private listeners = new Set<Listener>();
   private sfxPool = new Map<string, HTMLAudioElement[]>();
   private sfxTurn = new Map<string, number>();
   private lastHover = 0;
   private lastKey = 0;
-  private timer = 0;
   private booted = false;
 
   // ---------------------------------------------------------------- setup
@@ -86,6 +94,7 @@ class ModAudio {
     this.booted = true;
     this.settings = loadSettings();
     this.mod = currentMod();
+    this.index = this.mod ? this.storedIndex(this.mod.id, this.mod.layers.length) : 0;
     this.buildSfx();
 
     // Any gesture may release the audio lock, not only a pointer press: a
@@ -116,8 +125,6 @@ class ModAudio {
     if (this.settings.music) this.playMusic();
 
     this.wireUiSounds();
-    // one clock for the stems, cheap enough to leave running
-    this.timer = window.setInterval(() => this.sync(), 900);
   }
 
   private buildSfx() {
@@ -158,9 +165,10 @@ class ModAudio {
     if (next?.id === this.mod?.id) return;
     this.teardown();
     this.mod = next;
+    this.index = next ? this.storedIndex(next.id, next.layers.length) : 0;
     this.buildSfx();
     // Resume on the *setting*, never on "was it playing a moment ago".
-    // Switching to a theme with no music tears the stems down, so by the time
+    // Switching to a theme with no music tears the player down, so by the time
     // you switch back `isPlayingMusic` is already false and the soundtrack
     // stayed silent until you toggled it off and on again.
     //
@@ -173,33 +181,73 @@ class ModAudio {
   }
 
   private teardown() {
-    this.stems.forEach((el) => {
-      el.pause();
-      el.removeAttribute('src');
-      el.load();
-    });
-    this.stems = [];
+    if (!this.player) return;
+    this.player.pause();
+    this.player.removeAttribute('src');
+    this.player.load();
+    this.player = null;
   }
 
-  private ensureStems() {
-    if (this.stems.length || !this.mod) return;
-    const n = this.mod.layers.length;
-    // equal gain so loudness does not swing with the stem count
-    this.stemGain = 1 / Math.sqrt(Math.max(1, n));
-    this.stems = this.mod.layers.map((src) => {
+  /** Where this mod was left last time, clamped to the tracks it actually has. */
+  private storedIndex(id: string, count: number): number {
+    try {
+      const raw = JSON.parse(localStorage.getItem(TRACK_KEY) || '{}');
+      const v = raw?.[id];
+      return typeof v === 'number' && v >= 0 && v < count ? v : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private storeIndex() {
+    if (!this.mod) return;
+    try {
+      const raw = JSON.parse(localStorage.getItem(TRACK_KEY) || '{}');
+      raw[this.mod.id] = this.index;
+      localStorage.setItem(TRACK_KEY, JSON.stringify(raw));
+    } catch {
+      /* private mode: the track just restarts from the first one */
+    }
+  }
+
+  /**
+   * The single element, pointed at `this.index`.
+   *
+   * Built once per mod and then re-pointed, rather than one element per track:
+   * an `<audio>` that is created on every skip leaks a decoder, and Safari
+   * refuses to start the second one without another gesture.
+   */
+  private ensurePlayer() {
+    if (!this.mod?.layers.length) return;
+    if (!this.player) {
       const el = new Audio();
-      el.src = src;
-      el.loop = true;
       el.preload = 'auto';
+      el.loop = false;
       el.volume = this.musicVolume;
-      return el;
-    });
+      // The next track starts on its own. This is the whole feature: a theme
+      // with four songs should not stop dead after the first one.
+      el.addEventListener('ended', () => {
+        if (!this.settings.music) return;
+        this.next();
+      });
+      el.addEventListener('error', () => {
+        this.blocked = true;
+        this.emit();
+      });
+      this.player = el;
+    }
+    const src = this.mod.layers[this.index];
+    if (this.player.getAttribute('src') !== src) {
+      this.player.src = src;
+      this.player.load();
+    }
+    this.player.volume = this.musicVolume;
   }
 
   // ---------------------------------------------------------------- volume
 
   private get musicVolume() {
-    return Math.min(1, this.settings.volume * 0.85 * this.stemGain);
+    return Math.min(1, this.settings.volume * 0.85);
   }
 
   private get sfxVolume() {
@@ -227,7 +275,7 @@ class ModAudio {
 
   private update(patch: Partial<ModAudioSettings>) {
     this.settings = { ...this.settings, ...patch };
-    this.stems.forEach((el) => (el.volume = this.musicVolume));
+    if (this.player) this.player.volume = this.musicVolume;
     this.sfxPool.forEach((pool) => pool.forEach((el) => (el.volume = this.sfxVolume)));
     this.persist();
     this.emit();
@@ -275,42 +323,51 @@ class ModAudio {
   }
 
   private playMusic() {
-    if (!this.mod) return;
-    this.ensureStems();
-    this.stems.forEach((el) => {
-      el.volume = this.musicVolume;
-      const p = el.play();
-      if (p && typeof p.catch === 'function') {
-        p.catch(() => {
-          this.blocked = true;
-          this.emit();
-        });
-      }
-    });
+    if (!this.mod?.layers.length) return;
+    this.ensurePlayer();
+    const p = this.player?.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => {
+        this.blocked = true;
+        this.emit();
+      });
+    }
     this.emit();
   }
 
   private pauseMusic() {
-    this.stems.forEach((el) => el.pause());
+    this.player?.pause();
     this.emit();
   }
 
-  /** Keep the stems on one clock — they were cut to the same length, so a
-   *  drift of more than a beat means the browser throttled one of them. */
-  private sync() {
-    if (this.stems.length < 2) return;
-    const live = this.stems.filter((el) => !el.paused && !el.ended);
-    if (live.length < 2) return;
-    const t = live[0].currentTime;
-    for (const el of live) {
-      if (Math.abs(el.currentTime - t) > 0.18) {
-        try {
-          el.currentTime = t;
-        } catch {
-          /* seeking before metadata is ready — next tick will catch it */
-        }
-      }
-    }
+  // ---------------------------------------------------------------- tracks
+
+  /** Step through the mod's playlist, wrapping. */
+  next() {
+    this.step(1);
+  }
+
+  prev() {
+    this.step(-1);
+  }
+
+  private step(dir: number) {
+    const n = this.mod?.layers.length ?? 0;
+    if (n < 2) return;
+    this.index = (this.index + dir + n) % n;
+    this.storeIndex();
+    // no interface sound here, on purpose. A manual skip already gets the
+    // button's own click; an automatic one is signalled by the music changing,
+    // and a blip every few minutes while you are writing is not a feature.
+    this.playMusic();
+  }
+
+  select(i: number) {
+    const n = this.mod?.layers.length ?? 0;
+    if (n < 2) return;
+    this.index = Math.max(0, Math.min(n - 1, i));
+    this.storeIndex();
+    this.playMusic();
   }
 
   play(name: string, force = false) {
@@ -403,15 +460,38 @@ class ModAudio {
   // ---------------------------------------------------------------- state
 
   get isPlayingMusic() {
-    return this.stems.some((el) => !el.paused && !el.ended);
+    const el = this.player;
+    return !!el && !el.paused && !el.ended && !!el.currentSrc;
   }
 
+  /** "Anime · 2/4" for a playlist, the plain name for a single track. */
   get trackName() {
-    return this.mod?.track ?? '';
+    const name = this.mod?.track ?? '';
+    const n = this.trackCount;
+    return n > 1 ? `${name} · ${this.index + 1}/${n}` : name;
   }
 
-  get layerCount() {
+  get trackIndex() {
+    return this.index;
+  }
+
+  get trackCount() {
     return this.mod?.layers.length ?? 0;
+  }
+
+  /** The file the element is holding — the only honest proof of which track plays. */
+  get currentSrc() {
+    return this.player?.currentSrc || '';
+  }
+
+  /** Jump to a point in the current track. Used by the auto-advance probe. */
+  seek(t: number) {
+    if (!this.player) return;
+    try {
+      this.player.currentTime = t;
+    } catch {
+      /* not loaded yet */
+    }
   }
 
   get hasSfx() {
@@ -420,3 +500,22 @@ class ModAudio {
 }
 
 export const modAudio = new ModAudio();
+
+/** Small surface for the tour and for probes. */
+(window as any).__inkpad_modaudio = {
+  state: () => ({
+    index: modAudio.trackIndex,
+    count: modAudio.trackCount,
+    name: modAudio.trackName,
+    src: modAudio.currentSrc,
+    playing: modAudio.isPlayingMusic,
+    blocked: modAudio.blocked,
+    music: modAudio.settings.music,
+  }),
+  next: () => modAudio.next(),
+  prev: () => modAudio.prev(),
+  select: (i: number) => modAudio.select(i),
+  setMusic: (v: boolean) => modAudio.setMusic(v),
+  setVolume: (v: number) => modAudio.setVolume(v),
+  seek: (t: number) => modAudio.seek(t),
+};

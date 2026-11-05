@@ -151,12 +151,11 @@ const GROUPS: [string, string][] = [
   ['#zo', 'View'],
   ['#pt', 'Pen'],
   ['#sg', 'Selection'],
-  // Pen only and Sound used to close this list. They live in their own pill now
-  // (`editor-menu.ts`) — they are session switches, not page settings, and they
-  // were the two things people opened this card *for* mid-sentence. What trails
-  // after them is the engine's and the other modules' tool triggers, which were
-  // never part of an "Editor" group and now get a heading that says so.
-  ['button[title^="Guides"]', 'Tools'],
+  // Pen only, Sound and the six tool triggers used to close this list, under
+  // "Editor" and "Tools". They live in their own pill now (`editor-menu.ts`):
+  // they are session switches and tools, not page settings, and they were what
+  // people opened this card *for* mid-sentence. What is left in this card is
+  // the page — paper, ruling, colour, resolution, export.
 ];
 
 let bar2: HTMLElement | null = null;

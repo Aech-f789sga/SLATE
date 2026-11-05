@@ -140,6 +140,19 @@ const CSS = `
 .gxm-seg button[aria-pressed=true]{background:var(--gxm-ac);color:var(--gxm-acink);border-color:var(--gxm-ac)}
 .gxm-seg svg{width:9px;height:9px}
 
+/* the playlist stepper: a mod with several tracks gets ‹ 2 / 4 › under the
+   soundtrack row. Hidden for the single-track mods, which are still the
+   majority, so nothing moves in the panel for them. */
+.gxm-tracks[hidden]{display:none}
+.gxm-tstep button{
+  min-width:22px;justify-content:center;padding:4px 5px;
+  font:700 11px/1 inherit;letter-spacing:0;text-transform:none;
+}
+.gxm-tnum{
+  flex:none;font:700 9.5px/1 inherit;letter-spacing:.06em;color:var(--gxm-fg);
+  min-width:34px;text-align:center;
+}
+
 .gxm-rule{height:1px;background:var(--gxm-bd);margin:4px 0}
 .gxm-note{
   padding:7px 10px;border-top:1px solid var(--gxm-bd);
@@ -262,6 +275,17 @@ class ModPanel {
             </div>
             <button class="gxm-sw" data-no-sfx role="switch" type="button" aria-label="Soundtrack"><i></i></button>
           </div>
+          <div class="gxm-row gxm-tracks" ${mod.layers.length > 1 ? '' : 'hidden'}>
+            <span class="gxm-ico"></span>
+            <div class="gxm-grow">
+              <div class="gxm-hint gxm-tinfo"></div>
+            </div>
+            <div class="gxm-seg gxm-tstep">
+              <button data-trk="-1" data-no-sfx type="button" aria-label="Previous track">&#8249;</button>
+              <button data-trk="1" data-no-sfx type="button" aria-label="Next track">&#8250;</button>
+            </div>
+            <span class="gxm-tnum"></span>
+          </div>
           <div class="gxm-mix">
             <div class="gxm-bars" aria-hidden="true">
               ${'<span></span>'.repeat(Math.min(4, Math.max(2, mod.layers.length)))}
@@ -327,7 +351,7 @@ class ModPanel {
 
     root.querySelector('.gxm-fab-name')!.textContent = mod.name;
     (root.querySelector('.gxm-track') as HTMLElement).textContent =
-      mod.layers.length > 1 ? `${mod.layers.length} layers · synced` : `${mod.track} · one track`;
+      mod.layers.length > 1 ? `${mod.layers.length} tracks` : `${mod.track} · one track`;
     (root.querySelector('.gxm-wall-label') as HTMLElement).textContent = mod.wall.label;
     root.querySelector('.gxm-fab')!.addEventListener('click', () => this.setOpen(!this.open));
     root.querySelector('.gxm-x')!.addEventListener('click', () => this.setOpen(false));
@@ -357,6 +381,13 @@ class ModPanel {
     root.querySelectorAll('[data-look]').forEach((el) =>
       el.addEventListener('click', () => {
         wallLook.setHd((el as HTMLElement).dataset.look === 'hd');
+        this.sync();
+      }),
+    );
+    root.querySelectorAll('[data-trk]').forEach((el) =>
+      el.addEventListener('click', () => {
+        if ((el as HTMLElement).dataset.trk === '1') modAudio.next();
+        else modAudio.prev();
         this.sync();
       }),
     );
@@ -422,11 +453,24 @@ class ModPanel {
     const opct = root.querySelector('.gxm-opct');
     if (opct) opct.textContent = String(Math.round(wallLook.alpha * 100));
 
+    // the playlist stepper — one row, two buttons, and the count that tells you
+    // where in the list you are
+    const tnum = root.querySelector('.gxm-tnum');
+    if (tnum) tnum.textContent = `${modAudio.trackIndex + 1} / ${modAudio.trackCount}`;
+    const tinfo = root.querySelector('.gxm-tinfo');
+    if (tinfo) {
+      tinfo.textContent =
+        modAudio.trackCount > 1 ? 'next plays on its own' : '';
+    }
+
     const note = root.querySelector('.gxm-note');
     if (note) {
+      const many = modAudio.trackCount > 1;
       note.textContent = modAudio.blocked
         ? 'The browser blocked autoplay — press anywhere in the app to start the soundtrack.'
-        : `${mod.name} mod audio · the soundtrack loops while this theme is active.`;
+        : many
+          ? `${mod.name} mod audio · ${modAudio.trackCount} tracks, played one at a time. The next one starts when this one ends.`
+          : `${mod.name} mod audio · the soundtrack loops while this theme is active.`;
     }
   }
 }

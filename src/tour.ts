@@ -507,7 +507,7 @@ const HOME_STEPS: Step[] = [
     target: () => document.getElementById('gx-theme-btn'),
     title: 'Themes',
     body:
-      'Twenty-three themes, most with a live wallpaper and its own soundtrack. One changes the palette, the type, the paper and the motion.',
+      'Twenty-three themes, most with a live wallpaper and a soundtrack. Pick one, press <b>Load</b>, and the picture and music arrive before it switches.',
     pad: 6,
   },
   {
@@ -515,7 +515,7 @@ const HOME_STEPS: Step[] = [
     target: () => document.querySelector('.gxm-fab') as HTMLElement | null,
     title: 'The music pill',
     body:
-      'Soundtrack, wallpaper and interface sounds for the theme you picked, plus <b>Live / Still</b> for the moving background. It only shows on this screen.',
+      'Soundtrack, wallpaper and interface sounds for this theme. Themes with several tracks get <b>‹ ›</b> to change them, and the next one plays on its own.',
     pad: 8,
   },
   {
