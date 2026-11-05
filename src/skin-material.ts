@@ -143,6 +143,32 @@ html[data-gx-theme="horror"] #libm{
       color-mix(in srgb, var(--bg) 84%, transparent))!important;
 }`,
   },
+
+  /**
+   * Black Hole. There is no chrome to speak of — the mod is a single bright
+   * ring in an otherwise absolute dark. Panels go to true black with one
+   * accent hairline, and the shelf keeps a faint pull of light toward the
+   * middle so it does not read as a broken screen.
+   */
+  'black-hole': {
+    fam: 'void',
+    extra: `
+html[data-gx-theme="black-hole"] #lib{
+  background:
+    radial-gradient(62% 58% at 50% 46%,
+      color-mix(in srgb, var(--ac) 9%, transparent), transparent 72%)!important;
+}
+html[data-gx-theme="black-hole"] #tb::after{
+  opacity:1;box-shadow:0 0 14px color-mix(in srgb, var(--ac) 55%, transparent);
+}
+html[data-gx-theme="black-hole"] .card{
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--ac) 26%, transparent),
+             0 12px 34px -22px var(--ac)!important;
+}
+html[data-gx-theme="black-hole"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+}`,
+  },
 };
 
 /* ------------------------------------------------------------------ */
