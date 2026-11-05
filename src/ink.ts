@@ -2211,6 +2211,11 @@ function boot() {
       const b = [...(penPanel?.querySelectorAll('button') || [])].pop() as HTMLElement | undefined;
       if (b) openPenSettings(b);
     },
+    setDash: (m: DashMode) => {
+      setDashMode(m);
+      paintPenSheet();
+    },
+    dash: () => dashMode,
   };
 }
 

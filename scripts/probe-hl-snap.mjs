@@ -84,7 +84,7 @@ async function draw(name, tool, size, brush, path, hold = 2600) {
 }
 
 const line = Array.from({ length: 26 }, (_, i) => [200 + i * 12, 250 + i * 1]);
-const square = loop([[240, 380], [440, 380], [440, 560], [240, 560]]);
+const square = loop([[240, 380], [440, 380], [440, 580], [240, 580]]);
 
 const penLine = await draw('pen line', 'pen', 4, 'ball', line);
 const hlLine = await draw('highlighter line', 'hl', 14, 'marker', line);

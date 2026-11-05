@@ -405,6 +405,44 @@ function installShapeEngine() {
     }
 
     shp = function(c, s){
+      // A stamped brush — dashed, dotted, charcoal, the whole drawer — paints
+      // its own mark. Re-stroking the outline with a plain line would turn a
+      // dashed pen into a solid one, so the shape is stamped along the same
+      // points instead. An explicit Line Style still wins: dashes are a request.
+      if (s && s.t === 'shape' && s.v && !s.ds) {
+        var B = null;
+        try { B = (typeof BRX !== 'undefined') ? BRX[s.v] : null; } catch (e) { B = null; }
+        if (B && B.t) {
+          var P = pathOf(s);
+          if (P && P.length > 1) {
+            var closed = !!s.poly || s.k === 'circle' || s.k === 'ell';
+            c.save();
+            c.lineCap = 'round';
+            c.lineJoin = 'round';
+            if (s.ho != null) c.globalAlpha *= Math.max(0.02, Math.min(1, s.ho));
+            if (closed && s.fc) {
+              c.globalAlpha = Math.max(0.04, Math.min(1, s.fop == null ? 1 : s.fop));
+              c.fillStyle = s.fc;
+              trace(c, P, s.k === 'circle' || s.k === 'ell' || !!s.el);
+              c.closePath();
+              c.fill();
+              c.globalAlpha = 1;
+            }
+            try {
+              stampStroke(c, {
+                p: closed ? P.concat([P[0]]) : P,
+                w: s.w, c: s.c, sd: s.sd || 1, v: s.v
+              }, B);
+              c.restore();
+              return;
+            } catch (e) {
+              c.restore();
+              return origShp.apply(this, arguments);
+            }
+          }
+        }
+      }
+
       if (s && s.hl) return hlShape(c, s);
 
       // Any other translucent nib (marker, crayon, pencil) keeps its density.
@@ -438,6 +476,9 @@ function installShapeEngine() {
         c.fill();
         c.globalAlpha = 1;
       }
+
+      // Stamped brushes never reach here: shp() intercepts them above, because
+      // a plain line stroke would turn a dashed pen solid.
 
       c.strokeStyle = s.c;
       c.lineWidth = s.w;
@@ -548,6 +589,15 @@ interface Snap {
   norm: { poly?: Pt[]; el?: any; pb?: any; hb?: any };
   /** The nib the stroke was drawn with, so the shape keeps its weight. */
   ink: Ink;
+  /**
+   * The brush id, when the stroke was drawn with a stamped brush.
+   *
+   * The engine's `end()` rebuilds the stroke from a fixed field list, and the
+   * shape branch of that list has no `v` in it. A dash / dot / charcoal brush
+   * therefore came back as a plain solid line the moment it snapped. Holding
+   * the id here lets the committed shape paint itself with the same brush.
+   */
+  brush?: string;
 }
 let snap: Snap | null = null;
 /** Carried from pointerup to the deferred fix-up, once `snap` is cleared. */
@@ -757,6 +807,9 @@ function hookShapePreview() {
       // the preview has to be as wide and as translucent as the ink under the
       // finger, or the snap looks like it swapped pens mid-stroke
       applyInk(cur, snap.ink);
+      // …and stamped with the same brush, so a dash never previews as a solid
+      if (snap.brush) cur.v = snap.brush;
+      else delete cur.v;
       return;
     }
 
@@ -829,13 +882,15 @@ function beginSnap(shape: ShapeOut) {
     ? shape.a
     : [tip[0] > (b.x + b.x2) / 2 ? b.x : b.x2, tip[1] > (b.y + b.y2) / 2 ? b.y : b.y2];
 
+  const live = ev<any>('cur') || {};
   snap = {
     kind: shape.k,
     anchor,
     target: line ? shape.b : tip,
     line,
     norm: { poly: shape.poly, el: shape.el, pb: shape.pb, hb: shape.hb },
-    ink: inkOf(ev<any>('cur') || {}),
+    ink: inkOf(live),
+    brush: live.v || '',
   };
   ev('try{ draw(); }catch(e){}');
   flash(shape.k);
@@ -860,6 +915,9 @@ function finaliseSnap() {
   // `end()` rebuilds the stroke from a fixed field list, which drops the weight
   // and the density — that is how a highlighter came back as a thin pen.
   applyInk(s, sn.ink);
+  // …and the brush id, which is how a dashed stroke came back solid.
+  if (sn.brush) s.v = sn.brush;
+  else delete s.v;
   applyStyle(s, false);
   ev('try{ draw(); save(); thumbs(); }catch(e){}');
 }
