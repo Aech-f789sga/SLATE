@@ -95,7 +95,7 @@ html[data-gx-theme="lofi-chill"] #stage{
   background:
     radial-gradient(110% 80% at 50% -10%, color-mix(in srgb, var(--ac) 22%, transparent), transparent 68%),
     radial-gradient(80% 60% at 50% 108%, rgba(78,158,150,.16), transparent 66%),
-    color-mix(in srgb, var(--bg) 88%, #2a1620)!important;
+    color-mix(in srgb, var(--bg) 54%, transparent)!important;
 }
 html[data-gx-theme="lofi-chill"] #cv,
 html[data-gx-theme="lofi-chill"] .ps-sheet{
@@ -242,7 +242,7 @@ html[data-gx-theme="cyberdeck"] #stage{
   background:
     repeating-linear-gradient(0deg, color-mix(in srgb, var(--cd-cyan) 13%, transparent) 0 1px, transparent 1px 36px),
     repeating-linear-gradient(90deg, color-mix(in srgb, var(--cd-cyan) 13%, transparent) 0 1px, transparent 1px 36px),
-    radial-gradient(90% 70% at 50% 0%, color-mix(in srgb, var(--ac) 16%, #150b1e), var(--bg) 72%)!important;
+    radial-gradient(90% 70% at 50% 0%, color-mix(in srgb, var(--ac) 14%, transparent), color-mix(in srgb, var(--bg) 52%, transparent) 72%)!important;
 }
 html[data-gx-theme="cyberdeck"] #cv,
 html[data-gx-theme="cyberdeck"] .ps-sheet{
@@ -409,7 +409,9 @@ html[data-gx-theme="minecraft-sound-fireplace"] #stage{
     radial-gradient(75% 55% at 50% 112%, rgba(255,138,30,.40), transparent 70%),
     repeating-linear-gradient(0deg, rgba(0,0,0,.24) 0 1px, transparent 1px 44px),
     repeating-linear-gradient(90deg, rgba(0,0,0,.24) 0 1px, transparent 1px 44px),
-    linear-gradient(180deg,#1a0e07,#241207)!important;
+    linear-gradient(180deg,
+      color-mix(in srgb, #1a0e07 58%, transparent),
+      color-mix(in srgb, #241207 64%, transparent))!important;
 }
 html[data-gx-theme="minecraft-sound-fireplace"] #cv,
 html[data-gx-theme="minecraft-sound-fireplace"] .ps-sheet{
@@ -615,12 +617,12 @@ html[data-theme="light"][data-gx-theme="lofi-chill"] #gx-wall::after,
 html[data-theme="light"][data-gx-theme="cyberdeck"] #gx-wall::after,
 html[data-theme="light"][data-gx-theme="minecraft-sound-fireplace"] #gx-wall::after{
   background:linear-gradient(
-    color-mix(in srgb, var(--bg) 54%, transparent),
-    color-mix(in srgb, var(--bg) 76%, transparent))!important;
+    color-mix(in srgb, var(--bg) 44%, transparent),
+    color-mix(in srgb, var(--bg) 64%, transparent))!important;
 }
 /* the content column is frosted paper, tinted by the mod rather than white */
 html[data-theme="light"][data-gx-theme="lofi-chill"] #libm{
-  background:color-mix(in srgb, #fdf3ee 74%, transparent)!important}
+  background:color-mix(in srgb, #fdf3ee 64%, transparent)!important}
 html[data-theme="light"][data-gx-theme="cyberdeck"] #libm{
   background:color-mix(in srgb, #f6f9ff 90%, transparent)!important}
 html[data-theme="light"][data-gx-theme="minecraft-sound-fireplace"] #libm{
@@ -693,8 +695,8 @@ html[data-theme="light"][data-gx-theme="lofi-chill"] #stage{
     radial-gradient(110% 80% at 50% -10%, color-mix(in srgb, var(--ac) 18%, transparent), transparent 68%),
     radial-gradient(80% 60% at 50% 108%, rgba(78,158,150,.12), transparent 66%),
     linear-gradient(180deg,
-      color-mix(in srgb, #fdf4ef 84%, transparent),
-      color-mix(in srgb, #f6e3db 88%, transparent))!important;
+      color-mix(in srgb, #fdf4ef 80%, transparent),
+      color-mix(in srgb, #f6e3db 84%, transparent))!important;
 }
 
 /* ---------- Cyberdeck, daytime: white glass, magenta ink ---------- */
@@ -805,7 +807,7 @@ html[data-theme="light"][data-gx-theme="cyberdeck"] #stage{
   background:
     repeating-linear-gradient(0deg, color-mix(in srgb, var(--ac) 14%, transparent) 0 1px, transparent 1px 36px),
     repeating-linear-gradient(90deg, color-mix(in srgb, var(--ac) 14%, transparent) 0 1px, transparent 1px 36px),
-    color-mix(in srgb, var(--bg) 82%, transparent)!important;
+    color-mix(in srgb, var(--bg) 74%, transparent)!important;
 }
 html[data-theme="light"][data-gx-theme="cyberdeck"] .card .cv{filter:saturate(.92)}
 /* the night shadow is a black bloom; by day the page sits on a pale desk and
@@ -866,8 +868,8 @@ html[data-theme="light"][data-gx-theme="minecraft-sound-fireplace"] #stage{
     repeating-linear-gradient(0deg, rgba(120,72,30,.13) 0 1px, transparent 1px 44px),
     repeating-linear-gradient(90deg, rgba(120,72,30,.13) 0 1px, transparent 1px 44px),
     linear-gradient(180deg,
-      color-mix(in srgb, #f6e9d0 86%, transparent),
-      color-mix(in srgb, #ecd9b8 90%, transparent))!important;
+      color-mix(in srgb, #f6e9d0 78%, transparent),
+      color-mix(in srgb, #ecd9b8 82%, transparent))!important;
 }
 html[data-theme="light"][data-gx-theme="minecraft-sound-fireplace"] #cv,
 html[data-theme="light"][data-gx-theme="minecraft-sound-fireplace"] .ps-sheet{
@@ -933,6 +935,83 @@ html[data-gx-theme="minecraft-sound-fireplace"] #nav button{
   text-shadow:var(--mc-ts)!important;
   box-shadow:inset 2px 2px 0 var(--mc-hi), inset -2px -2px 0 var(--mc-lo)!important;
 }
+
+/* =================================================================
+   The mod player
+   -----------------------------------------------------------------
+   The board in the corner is built by mod-panel out of variables, so a
+   skin only has to answer one question: what is this board made of? A
+   plum tray with soft corners in LoFi, a chamfered readout in Cyberdeck,
+   a bevelled plank in Minecraft — the same board, three materials, and
+   the accent each mod actually uses rather than the app's own.
+   ================================================================= */
+html[data-gx-theme="lofi-chill"] #gxm{
+  --gxm-panel:linear-gradient(180deg,#4a2731,#3b2029);
+  --gxm-fg:#f7e3dd;--gxm-mu:#c8a7a1;
+  --gxm-ac:#f2735f;--gxm-acink:#3b1015;
+  --gxm-bd:color-mix(in srgb, var(--ac) 28%, transparent);
+  --gxm-r:16px;--gxm-r2:10px;
+  --gxm-shadow:0 18px 40px -18px rgba(40,16,24,.75);
+}
+html[data-theme="light"][data-gx-theme="lofi-chill"] #gxm{
+  --gxm-panel:linear-gradient(180deg,#fff8f4,#fbeae3);
+  --gxm-fg:#5d3038;--gxm-mu:#a17a74;
+  --gxm-ac:#c0453a;--gxm-acink:#fff8f4;
+  --gxm-bd:color-mix(in srgb, #c0453a 26%, transparent);
+  --gxm-shadow:0 16px 34px -18px rgba(120,60,50,.45);
+}
+
+html[data-gx-theme="cyberdeck"] #gxm{
+  --gxm-panel:color-mix(in srgb, var(--cd-glass) 94%, transparent);
+  --gxm-fg:#e9f6ff;--gxm-mu:#7f93a6;
+  --gxm-ac:#ffd94a;--gxm-acink:#12060f;
+  --gxm-bd:color-mix(in srgb, var(--cd-cyan) 36%, transparent);
+  --gxm-r:0px;--gxm-r2:0px;
+  --gxm-clip:polygon(0 10px,10px 0,calc(100% - 10px) 0,100% 10px,100% calc(100% - 10px),calc(100% - 10px) 100%,10px 100%,0 calc(100% - 10px));
+  --gxm-clip2:polygon(0 4px,4px 0,calc(100% - 4px) 0,100% 4px,100% calc(100% - 4px),calc(100% - 4px) 100%,4px 100%,0 calc(100% - 4px));
+  --gxm-shadow:0 0 28px -10px color-mix(in srgb, var(--ac) 60%, transparent);
+}
+html[data-theme="light"][data-gx-theme="cyberdeck"] #gxm{
+  --gxm-panel:color-mix(in srgb, #fff 96%, transparent);
+  --gxm-fg:#1b1030;--gxm-mu:#7a6b86;
+  --gxm-ac:#d81b60;--gxm-acink:#fff;
+  --gxm-bd:color-mix(in srgb, var(--ac) 34%, transparent);
+  --gxm-shadow:0 0 24px -12px color-mix(in srgb, var(--ac) 45%, transparent);
+}
+
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm{
+  --gxm-panel:linear-gradient(180deg,var(--mc-bar),var(--mc-bar2));
+  --gxm-fg:var(--mc-text);--gxm-mu:color-mix(in srgb, var(--mc-text) 60%, transparent);
+  --gxm-ac:var(--mc-sel);--gxm-acink:#2a1408;
+  --gxm-bd:var(--mc-edge);--gxm-r:0px;--gxm-r2:0px;
+  --gxm-shadow:4px 4px 0 rgba(0,0,0,.5);
+}
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-board,
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-fab{
+  border-width:2px;
+  box-shadow:inset 2px 2px 0 var(--mc-hi), inset -2px -2px 0 var(--mc-lo), 4px 4px 0 rgba(0,0,0,.5);
+}
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-sw,
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-sw i,
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-bars span{border-radius:0}
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-head,
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-note,
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-rule{
+  border-color:var(--mc-edge);background-color:var(--mc-edge);
+}
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-title,
+html[data-gx-theme="minecraft-sound-fireplace"] #gxm .gxm-lbl{text-shadow:var(--mc-ts)}
+
+/* the bokeh is light on a photograph, so it has to blend into it rather than
+   be added on top of it; the matrix is the opposite and is drawn in screen */
+html[data-gx-theme="lofi-chill"] #gx-wall .gx-wall-fx{mix-blend-mode:soft-light;opacity:.9}
+html[data-gx-theme="cyberdeck"] #gx-wall .gx-wall-fx{mix-blend-mode:screen;opacity:.8}
+
+/* In light mode the switches and the slider were painted for a dark board and
+   disappear into it: the track needs ink, not white. */
+html[data-theme="light"] #gxm .gxm-sw{background:rgba(0,0,0,.06)}
+html[data-theme="light"] #gxm .gxm-sw i{background:rgba(0,0,0,.26)}
+html[data-theme="light"] #gxm .gxm-vol{background:rgba(0,0,0,.14)}
 `;
 
 function mount() {

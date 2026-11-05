@@ -402,18 +402,30 @@ const CSS = `
 #gx-wall[data-on="1"]{opacity:1}
 #gx-wall::after{
   content:"";position:absolute;inset:0;
-  background:color-mix(in srgb, var(--bg) 42%, transparent);
+  /* same reasoning as the dark veil below: a light theme's --bg is almost
+     white, so a heavy wash erases a pale wallpaper instead of tinting it */
+  background:color-mix(in srgb, var(--bg) 28%, transparent);
 }
+/* A dark theme's --bg is nearly black, so a 62-84% veil of it turns a night
+   skyline into a flat black rectangle. The veil is only there to keep the
+   shelf's type legible, and #libm already carries its own frost for that, so
+   it can be much thinner and let the motion show through. */
 #gx-wall[data-on="1"][data-mode="dark"]::after{
   background:linear-gradient(
-    color-mix(in srgb, var(--bg) 62%, transparent),
-    color-mix(in srgb, var(--bg) 84%, transparent));
+    color-mix(in srgb, var(--bg) 44%, transparent),
+    color-mix(in srgb, var(--bg) 68%, transparent));
 }
 
 /* ---------------- shell takes the palette ---------------- */
 /* The shelf must be a stacking context above the wall, or the wallpaper would
    paint over the whole app instead of behind it. */
 html[data-gx] #lib{position:relative;z-index:1;background:transparent!important}
+/* The editor needs the same treatment, and for the same reason. The wall is a
+   fixed layer at z-index 0, which paints above every static block in the
+   document — so without a stacking context here the wallpaper would cover the
+   canvas instead of sitting behind it. This is why the wall used to be hidden
+   the moment a notebook opened. */
+html[data-gx] #ed{position:relative;z-index:1}
 html[data-gx] #libm{background:var(--gn-paper)!important}
 html[data-gx-wall="1"] #libm{
   background:color-mix(in srgb, var(--gn-paper) 44%, transparent)!important;
@@ -739,15 +751,11 @@ function boot() {
 
   // the search box and the top bar are re-rendered by the engine, so re-attach
   mountButton();
-  window.setInterval(() => {
-    mountButton();
-    const w = document.getElementById('gx-wall');
-    if (w) {
-      const home = document.getElementById('lib');
-      const visible = !!home && getComputedStyle(home).display !== 'none';
-      w.style.visibility = visible ? 'visible' : 'hidden';
-    }
-  }, 400);
+  // The wall used to be hidden whenever the shelf was not on screen, because
+  // it is a fixed layer and the editor would have been painted underneath it.
+  // The editor's desk is translucent now, so the mod keeps running behind the
+  // page you are writing on — which is the whole point of a live wallpaper.
+  window.setInterval(mountButton, 400);
 
   try {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
