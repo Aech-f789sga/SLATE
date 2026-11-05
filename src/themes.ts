@@ -41,7 +41,13 @@ interface Choice {
   wall: boolean;
 }
 
-const choice: Choice = { id: 'slate', mode: 'auto', wall: true };
+/**
+ * Cozy is the default. The room is warm, the palette is a sunset, and the
+ * first thing a new visitor sees should be a place they want to write in
+ * rather than a neutral grey shelf — the notebook's own voice is still one
+ * pick away, at the top of the list.
+ */
+const choice: Choice = { id: 'cozy', mode: 'auto', wall: true };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const hsl = (h: number, s: number, l: number) =>

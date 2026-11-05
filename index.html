@@ -96,6 +96,7 @@ html[data-bar=compact] #bar{padding-right:0}
 <link rel="mask-icon" href="/icon.svg" color="#2f6df6">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
+<script type="module" src="/src/intro.ts"></script>
 <script type="module" src="/src/cloudSync.ts"></script>
 <script type="module" src="/src/tour.ts"></script>
 <script type="module" src="/src/snap.ts"></script>
@@ -127,7 +128,141 @@ html[data-bar=compact] #bar{padding-right:0}
 <script type="module" src="/src/calc.ts"></script>
 <script type="module" src="/src/lasso-tools.ts"></script>
 <script type="module" src="/src/analytics.ts"></script>
+<style id="intro-style">
+/* ------------------------------------------------------------------ */
+/* Opening card                                                        */
+/* ------------------------------------------------------------------ */
+/* Painted from the document so it is up on the first frame — a module */
+/* would arrive after the library had already shown itself. The        */
+/* entrance is pure CSS; src/intro.ts only decides when it leaves.     */
+#intro{
+  position:fixed;inset:0;z-index:10000;overflow:hidden;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  background:#160e12;
+  -webkit-tap-highlight-color:transparent;
+  transition:opacity 780ms cubic-bezier(.4,0,.2,1),visibility 0s linear 780ms;
+  /* if the module never loads, the card still gets out of the way */
+  animation:intro-safety 1ms linear 12s forwards;
+}
+#intro.in-gone{opacity:0;visibility:hidden}
+@keyframes intro-safety{to{opacity:0;visibility:hidden}}
+
+#intro .in-bg{
+  position:absolute;inset:-4%;
+  background:#160e12 url("/themes/cozy.jpg") center center/cover no-repeat;
+  transform:scale(1.14);
+  opacity:0;
+  animation:in-fade 1500ms ease-out forwards,in-push 15s cubic-bezier(.16,1,.3,1) forwards;
+  will-change:transform,opacity;
+}
+@keyframes in-push{from{transform:scale(1.14)}to{transform:scale(1.02)}}
+@keyframes in-fade{from{opacity:0}to{opacity:1}}
+
+/* the room's own lamplight, drifting — the Cozy mod's dust, without a shader */
+#intro .in-dust{
+  position:absolute;inset:-12%;pointer-events:none;opacity:0;
+  background-image:
+    radial-gradient(circle 2.5px at 18% 34%,rgba(255,226,186,.55),rgba(255,226,186,0) 70%),
+    radial-gradient(circle 3.5px at 74% 26%,rgba(255,206,164,.4),rgba(255,206,164,0) 70%),
+    radial-gradient(circle 2px at 41% 72%,rgba(255,238,210,.45),rgba(255,238,210,0) 70%),
+    radial-gradient(circle 3px at 88% 64%,rgba(255,214,170,.34),rgba(255,214,170,0) 70%),
+    radial-gradient(circle 2px at 62% 88%,rgba(255,232,200,.4),rgba(255,232,200,0) 70%),
+    radial-gradient(circle 2.5px at 9% 78%,rgba(255,222,180,.32),rgba(255,222,180,0) 70%),
+    radial-gradient(circle 2px at 52% 18%,rgba(255,240,214,.38),rgba(255,240,214,0) 70%);
+  animation:in-fade 2000ms ease-out 700ms forwards,in-drift 34s ease-in-out 2s infinite alternate;
+}
+@keyframes in-drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-2.2%,-1.6%,0)}}
+
+#intro .in-scrim{
+  position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:
+    /* a soft pool under the type, so white stays white over a lit wall */
+    radial-gradient(64% 38% at 50% 47%,rgba(13,7,10,.5) 0%,rgba(13,7,10,.2) 58%,rgba(13,7,10,0) 80%),
+    radial-gradient(115% 88% at 50% 44%,rgba(12,7,10,0) 32%,rgba(12,7,10,.46) 100%),
+    linear-gradient(180deg,rgba(10,6,9,.52) 0%,rgba(10,6,9,.05) 30%,rgba(10,6,9,.08) 58%,rgba(10,6,9,.58) 100%);
+  animation:in-fade 1300ms ease-out 140ms forwards;
+}
+
+#intro .in-stage{
+  position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;
+  margin-top:-3.4vh;padding:0 22px;text-align:center;
+  transition:opacity 600ms cubic-bezier(.4,0,.2,1),transform 800ms cubic-bezier(.4,0,.2,1),filter 600ms ease;
+}
+#intro.in-gone .in-stage{opacity:0;transform:translateY(-26px) scale(.986);filter:blur(5px)}
+
+#intro .in-word{
+  display:flex;justify-content:center;gap:0;
+  font-family:"Arial Black","Helvetica Neue",Helvetica,Arial,sans-serif;
+  font-weight:900;font-size:clamp(54px,9.6vw,152px);line-height:.86;
+  letter-spacing:-.026em;color:#fff;
+  text-shadow:0 3px 30px rgba(28,10,16,.45),0 1px 3px rgba(28,10,16,.35);
+  /* the word settles as it lands: the letters start a little apart and close
+     the gap, which is what makes a title read as *placed* rather than typed */
+  animation:in-track 1700ms cubic-bezier(.16,1,.3,1) 120ms both;
+}
+@keyframes in-track{from{gap:.11em}to{gap:0}}
+#intro .in-word span{
+  display:inline-block;opacity:0;
+  transform:translateY(.34em) scale(.975);filter:blur(12px);
+  animation:in-letter 1150ms cubic-bezier(.16,1,.3,1) forwards;
+  animation-delay:calc(140ms + var(--i) * 74ms);
+}
+@keyframes in-letter{to{opacity:1;transform:none;filter:blur(0)}}
+
+#intro .in-tag{
+  margin:clamp(19px,3.4vh,32px) 0 0;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:clamp(14px,1.62vw,21px);font-weight:400;letter-spacing:.008em;
+  color:rgba(255,255,255,.96);text-shadow:0 1px 18px rgba(24,8,14,.6);
+  opacity:0;animation:in-up 950ms cubic-bezier(.16,1,.3,1) 800ms forwards;
+}
+
+#intro .in-rule{
+  width:0;height:1px;margin:clamp(14px,2.1vh,22px) 0 0;opacity:0;
+  background:linear-gradient(90deg,rgba(255,178,136,0),rgba(255,198,162,.95),rgba(255,178,136,0));
+  box-shadow:0 0 12px rgba(255,186,148,.55);
+  animation:in-rule 900ms cubic-bezier(.16,1,.3,1) 1010ms forwards;
+}
+@keyframes in-rule{from{width:0;opacity:0}to{width:52px;opacity:1}}
+
+#intro .in-pill{
+  margin-top:clamp(13px,1.9vh,20px);padding:9px 18px;border-radius:999px;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:clamp(11.5px,1.06vw,13.5px);letter-spacing:.02em;color:rgba(255,255,255,.9);
+  background:linear-gradient(180deg,rgba(46,26,32,.62),rgba(26,15,19,.56));
+  border:1px solid rgba(255,255,255,.2);
+  -webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);
+  box-shadow:0 10px 30px rgba(20,8,14,.36),inset 0 1px 0 rgba(255,255,255,.18);
+  opacity:0;animation:in-up 900ms cubic-bezier(.16,1,.3,1) 1120ms forwards;
+}
+
+@keyframes in-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
+@media (prefers-reduced-motion:reduce){
+  #intro .in-bg,#intro .in-dust,#intro .in-scrim,#intro .in-word span,
+  #intro .in-tag,#intro .in-rule,#intro .in-pill{
+    animation-duration:1ms!important;animation-delay:0ms!important;
+  }
+  #intro .in-word span{filter:none;transform:none}
+  #intro .in-stage{transition-duration:200ms}
+}
+@media (max-width:520px){
+  #intro .in-word{font-size:clamp(50px,15vw,96px);letter-spacing:-.028em}
+  #intro .in-tag{font-size:14px;line-height:1.45;max-width:17em}
+}
+</style>
 </head><body>
+<div id="intro" role="presentation" aria-hidden="true">
+  <div class="in-bg"></div>
+  <div class="in-dust"></div>
+  <div class="in-scrim"></div>
+  <div class="in-stage">
+    <div class="in-word"><span style="--i:0">S</span><span style="--i:1">L</span><span style="--i:2">A</span><span style="--i:3">T</span><span style="--i:4">E</span></div>
+    <p class="in-tag">Handwritten notes, on every screen.</p>
+    <div class="in-rule"></div>
+    <div class="in-pill">slate-omega-henna.vercel.app</div>
+  </div>
+</div>
 <div id="lib"><nav id="nav">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:0 4px">
     <div style="display:flex;align-items:center;gap:8px">

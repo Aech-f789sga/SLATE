@@ -1209,6 +1209,20 @@ html.tour-on #tour-fab{display:none!important}
 /* Boot                                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Hold a first-run step until the opening card has lifted.
+ *
+ * `src/intro.ts` publishes `__slateIntro` and it is the first module on the
+ * page, so it is there by the time this file runs. Without the wait, the home
+ * tour would start under the card and be waiting at the door the instant it
+ * opened — two greetings for the same arrival.
+ */
+function afterIntro(fn: () => void) {
+  const intro = (window as any).__slateIntro;
+  if (intro && typeof intro.whenDone === 'function') intro.whenDone(fn);
+  else fn();
+}
+
 function boot() {
   const style = document.createElement('style');
   style.id = 'tour-styles';
@@ -1220,11 +1234,11 @@ function boot() {
   watchEditor();
 
   // Home tour on first visit (give the library a moment to paint).
-  setTimeout(maybeAutoStartHome, 1100);
+  afterIntro(() => setTimeout(maybeAutoStartHome, 500));
 
   // Offer the install guide once on iOS, where the flow is least obvious.
   if (isIOS && !isStandalone && !localStorage.getItem('inkpad-install-dismissed')) {
-    setTimeout(() => {
+    afterIntro(() => setTimeout(() => {
       if (active || document.getElementById('install-md')?.classList.contains('on')) return;
       const md = buildInstallPanel();
       const body = md.querySelector('#install-body') as HTMLElement;
@@ -1238,7 +1252,7 @@ function boot() {
       body.appendChild(dismiss);
       note.textContent = 'You can reopen this any time from “📲 Install app” in the sidebar.';
       md.classList.add('on');
-    }, 2200);
+    }, 2200));
   }
 }
 

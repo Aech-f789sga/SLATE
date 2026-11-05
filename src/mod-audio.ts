@@ -34,11 +34,16 @@ const STORAGE_KEY = 'inkpad_mod_audio';
 /** which track of which mod was last playing, so a reload resumes the same one */
 const TRACK_KEY = 'inkpad_mod_track';
 
-/* Effects are off by default. This is a notebook: a blip on every control is
-   charming for a minute and then it is a pen scratching over your thinking. */
+/* The soundtrack is off by default; the effects are on.
+   A notebook should not start playing music at someone — that is a decision
+   they make, and it is one switch away in the mod panel. A click, on the other
+   hand, is the sound of the interface working, and a UI that answers back feels
+   alive in a way a silent one does not. Hover and keystroke sounds stay off:
+   those two fire constantly, and a blip on every letter is a pen scratching
+   over your thinking. */
 export const DEFAULT_SETTINGS: ModAudioSettings = {
-  music: true,
-  sfx: false,
+  music: false,
+  sfx: true,
   hover: false,
   keys: false,
   volume: 0.45,

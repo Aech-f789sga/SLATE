@@ -329,7 +329,7 @@ class ModPanel {
             <span class="gxm-ico">${ICON.power}</span>
             <div class="gxm-grow">
               <div class="gxm-lbl">Sound effects</div>
-              <div class="gxm-hint">Off by default</div>
+              <div class="gxm-hint">Clicks and switches</div>
             </div>
             <button class="gxm-sw" data-no-sfx data-set="sfx" role="switch" type="button" aria-label="Sound effects"><i></i></button>
           </div>
