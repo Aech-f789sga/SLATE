@@ -99,7 +99,14 @@ const FAMILY: Record<Family, string> = {
     --mt-tex:repeating-linear-gradient(92deg,
       rgba(0,0,0,.018) 0 1px, transparent 1px 4px);`,
 
-  /* Absolute black, one accent line, nothing else. */
+  /**
+   * Absolute black, one accent line, nothing else.
+   *
+   * Only safe when the mod's artwork is black too. At 92% opaque it does not
+   * read as "dark chrome over a picture", it reads as a black rectangle — so a
+   * bright wallpaper needs `glass` or `scan` with the opacity pulled down,
+   * which is what Josh Hutcherson ended up needing.
+   */
   void: `
     --mt-panel:color-mix(in srgb, #000 92%, var(--bg));
     --mt-panel2:color-mix(in srgb, #000 97%, var(--bg));
@@ -130,11 +137,6 @@ html[data-gx-theme="horror"] .card{
   border-color:color-mix(in srgb, var(--ac) 18%, #000)!important;
 }
 html[data-gx-theme="horror"] #tb::after{opacity:.8}
-/* the same vignette in daylight is mud, not dread */
-html[data-theme="light"][data-gx-theme="horror"] #lib::after{
-  background:radial-gradient(115% 85% at 50% 42%,
-    transparent 46%, rgba(38,42,50,.26) 100%);
-}
 html[data-gx-theme="horror"] #libm{
   background:
     var(--mt-tex),
@@ -207,6 +209,141 @@ html[data-gx-theme="anime"] #gn-tabs button.on{
 }
 html[data-gx-theme="anime"] #libm{
   border-radius:20px!important;
+}`,
+  },
+
+  /**
+   * Violet Nebula. Light coming *through* something rather than off it: the
+   * panels stay dark and the accent bleeds out of their edges, and the shelf
+   * carries a wash of the nebula's own violet so the chrome and the artwork
+   * are the same light.
+   */
+  'violet-nebula': {
+    fam: 'glow',
+    extra: `
+html[data-gx-theme="violet-nebula"] #lib{
+  background:
+    radial-gradient(70% 55% at 50% 8%,
+      color-mix(in srgb, var(--ac) 16%, transparent), transparent 70%)!important;
+}
+html[data-gx-theme="violet-nebula"] .card{
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--ac) 22%, transparent),
+             0 14px 36px -24px var(--ac)!important;
+}
+html[data-gx-theme="violet-nebula"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac), 0 6px 18px -12px var(--ac);
+}
+html[data-gx-theme="violet-nebula"] #tb{
+  border-radius:16px!important;
+}`,
+  },
+
+  /**
+   * Spaced Out. A cockpit over a nebula: the panels are glass you look
+   * *through*, held by a single cold hairline and squared-off corner ticks,
+   * so the instruments read as instruments and the sky stays the subject.
+   */
+  'spaced-out': {
+    fam: 'glass',
+    extra: `
+html[data-gx-theme="spaced-out"] #tb,html[data-gx-theme="spaced-out"] #libm{
+  border-radius:6px!important;
+}
+/* Four corner brackets, drawn as eight one-pixel gradients. A mask would be
+   tidier but this has to survive whatever browser the notebook is opened in. */
+html[data-gx-theme="spaced-out"] #libm{
+  position:relative;
+}
+html[data-gx-theme="spaced-out"] #libm::before{
+  content:"";position:absolute;inset:6px;pointer-events:none;
+  opacity:.55;
+  background:
+    linear-gradient(var(--ac),var(--ac)) 0 0/14px 1px no-repeat,
+    linear-gradient(var(--ac),var(--ac)) 0 0/1px 14px no-repeat,
+    linear-gradient(var(--ac),var(--ac)) 100% 0/14px 1px no-repeat,
+    linear-gradient(var(--ac),var(--ac)) 100% 0/1px 14px no-repeat,
+    linear-gradient(var(--ac),var(--ac)) 0 100%/14px 1px no-repeat,
+    linear-gradient(var(--ac),var(--ac)) 0 100%/1px 14px no-repeat,
+    linear-gradient(var(--ac),var(--ac)) 100% 100%/14px 1px no-repeat,
+    linear-gradient(var(--ac),var(--ac)) 100% 100%/1px 14px no-repeat;
+}
+html[data-gx-theme="spaced-out"] .card{
+  border-radius:5px!important;
+  border-color:color-mix(in srgb, var(--ac) 22%, transparent)!important;
+}
+html[data-gx-theme="spaced-out"] #gn-tabs button.on{
+  box-shadow:inset 0 -1px 0 var(--ac);
+  letter-spacing:.08em;
+}`,
+  },
+
+  /**
+   * Josh Hutcherson. The meme is a bright portrait and one purple light, so
+   * the chrome is frosted violet held well back — the face has to stay legible
+   * through it, which is the whole point of the joke. The accent is spent on
+   * almost nothing: a hairline, a tab underline, the ring on a focused field.
+   *
+   * Not the `void` family, which was the obvious reach: void is 92% black and
+   * is only right when the artwork is black too (Black Hole). Over a bright
+   * photograph it is just a black rectangle.
+   */
+  'josh-hutcherson': {
+    fam: 'glass',
+    extra: `
+/* One flat opacity cannot do both jobs: the toolbar and the heading need a
+   dense surface to sit on, and the face has to survive below them. So the veil
+   is a gradient — heaviest at the top, thinnest at the bottom, where the
+   artwork is doing the talking. */
+html[data-gx-theme="josh-hutcherson"]{
+  --mt-panel:linear-gradient(180deg,
+    color-mix(in srgb, var(--sf) 88%, transparent) 0%,
+    color-mix(in srgb, var(--sf) 68%, transparent) 38%,
+    color-mix(in srgb, var(--sf) 52%, transparent) 100%);
+  --mt-panel2:color-mix(in srgb, var(--bg) 52%, transparent);
+  --mt-blur:blur(6px) saturate(1.1);
+}
+html[data-gx-theme="josh-hutcherson"] #tb{
+  background:color-mix(in srgb, var(--sf) 92%, transparent)!important;
+}
+html[data-gx-theme="josh-hutcherson"] #tb,
+html[data-gx-theme="josh-hutcherson"] #libm{
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--ac) 22%, transparent)!important;
+}
+html[data-gx-theme="josh-hutcherson"] .card:hover{
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--ac) 45%, transparent),
+             0 16px 40px -26px var(--ac)!important;
+}
+html[data-gx-theme="josh-hutcherson"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+  text-shadow:0 0 12px color-mix(in srgb, var(--ac) 65%, transparent);
+}`,
+  },
+
+  /**
+   * Monkey RIZZ. Loud on purpose: the mod is a shout, so the accent is used
+   * as a solid bleed rather than a tint — a red wash under the shelf, a red
+   * spine down the left of every card, and corners left alone because
+   * rounding would soften it.
+   */
+  'monkey-rizz': {
+    fam: 'glow',
+    extra: `
+html[data-gx-theme="monkey-rizz"] #lib{
+  background:
+    radial-gradient(80% 60% at 50% 100%,
+      color-mix(in srgb, var(--ac) 18%, transparent), transparent 72%)!important;
+}
+html[data-gx-theme="monkey-rizz"] .card{
+  border-left:3px solid color-mix(in srgb, var(--ac) 70%, transparent)!important;
+  border-radius:2px!important;
+}
+html[data-gx-theme="monkey-rizz"] #tb,html[data-gx-theme="monkey-rizz"] #libm{
+  border-radius:2px!important;
+  border-color:color-mix(in srgb, var(--ac) 40%, transparent)!important;
+}
+html[data-gx-theme="monkey-rizz"] #gn-tabs button.on{
+  box-shadow:inset 0 -3px 0 var(--ac);
+  text-transform:uppercase;
 }`,
   },
 };
