@@ -467,10 +467,16 @@ html[data-gx-wallfx="hd"] #gx-wall[data-mode="dark"]::after{
 html[data-gx] #lib{position:relative;z-index:1;background:transparent!important}
 html[data-gx] #ed{position:relative}
 html[data-gx] #libm{background:var(--gn-paper)!important}
+/* The shelf surface. Thin enough that the picture reads as a picture rather
+   than as a tint: at 44 % over a busy photograph the home screen looked like a
+   colour wash, and at 34 % the artwork survives while the type still has a
+   surface under it. The mod themes override this with their own material veil,
+   so this rule is what the three hand-written skins and any theme without a
+   material fall back to. */
 html[data-gx-wall="1"] #libm{
-  background:color-mix(in srgb, var(--gn-paper) 44%, transparent)!important;
-  backdrop-filter:blur(7px) saturate(1.1);
-  -webkit-backdrop-filter:blur(7px) saturate(1.1);
+  background:color-mix(in srgb, var(--gn-paper) 34%, transparent)!important;
+  backdrop-filter:blur(5px) saturate(1.08);
+  -webkit-backdrop-filter:blur(5px) saturate(1.08);
 }
 html[data-gx-wall="1"] #gn-top{
   background:transparent!important;border-bottom-color:transparent!important;
@@ -482,10 +488,10 @@ html[data-gx] #nav{
   border-right-color:var(--bd)!important;
 }
 html[data-gx-wall="1"] #nav{
-  background:color-mix(in srgb, var(--sf) 62%, transparent)!important;
+  background:color-mix(in srgb, var(--sf) 54%, transparent)!important;
   border-right-color:color-mix(in srgb, var(--bd) 55%, transparent)!important;
-  backdrop-filter:blur(14px) saturate(1.3);
-  -webkit-backdrop-filter:blur(14px) saturate(1.3);
+  backdrop-filter:blur(10px) saturate(1.2);
+  -webkit-backdrop-filter:blur(10px) saturate(1.2);
 }
 
 /* ---- sharp or soft ---------------------------------------------------

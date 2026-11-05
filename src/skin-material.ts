@@ -30,6 +30,7 @@ const FAMILY: Record<Family, string> = {
   /* Clear panels over the wallpaper, one hairline, a soft drop. */
   glass: `
     --mt-panel:color-mix(in srgb, var(--sf) 78%, transparent);
+    --mt-veil:color-mix(in srgb, var(--sf) 46%, transparent);
     --mt-panel2:color-mix(in srgb, var(--bg) 62%, transparent);
     --mt-edge:color-mix(in srgb, var(--ac) 26%, var(--bd));
     --mt-r:14px;--mt-r2:9px;--mt-clip:none;
@@ -42,6 +43,9 @@ const FAMILY: Record<Family, string> = {
     --mt-panel:linear-gradient(180deg,
       color-mix(in srgb, var(--bg) 76%, transparent),
       color-mix(in srgb, var(--bg) 84%, transparent));
+    --mt-veil:linear-gradient(180deg,
+      color-mix(in srgb, var(--bg) 46%, transparent),
+      color-mix(in srgb, var(--bg) 54%, transparent));
     --mt-panel2:color-mix(in srgb, var(--bg) 88%, transparent);
     --mt-edge:color-mix(in srgb, var(--ac) 20%, rgba(255,255,255,.08));
     --mt-r:3px;--mt-r2:2px;--mt-clip:none;
@@ -54,6 +58,7 @@ const FAMILY: Record<Family, string> = {
   /* Voxel: square, thick edge, shadow with no blur. */
   voxel: `
     --mt-panel:color-mix(in srgb, var(--sf) 84%, transparent);
+    --mt-veil:color-mix(in srgb, var(--sf) 52%, transparent);
     --mt-panel2:color-mix(in srgb, var(--bg) 90%, transparent);
     --mt-edge:color-mix(in srgb, var(--bg) 55%, #000);
     --mt-r:3px;--mt-r2:2px;--mt-clip:none;
@@ -75,6 +80,9 @@ const FAMILY: Record<Family, string> = {
     --mt-panel:linear-gradient(180deg,
       color-mix(in srgb, var(--sf) 84%, transparent),
       color-mix(in srgb, var(--sf) 74%, transparent));
+    --mt-veil:linear-gradient(180deg,
+      color-mix(in srgb, var(--sf) 54%, transparent),
+      color-mix(in srgb, var(--sf) 44%, transparent));
     --mt-panel2:color-mix(in srgb, var(--bg) 78%, transparent);
     --mt-edge:color-mix(in srgb, var(--ac) 34%, var(--bd));
     --mt-r:4px;--mt-r2:3px;--mt-clip:none;
@@ -88,6 +96,9 @@ const FAMILY: Record<Family, string> = {
     --mt-panel:linear-gradient(180deg,
       color-mix(in srgb, var(--bg) 70%, transparent),
       color-mix(in srgb, var(--bg) 80%, transparent));
+    --mt-veil:linear-gradient(180deg,
+      color-mix(in srgb, var(--bg) 44%, transparent),
+      color-mix(in srgb, var(--bg) 52%, transparent));
     --mt-panel2:color-mix(in srgb, var(--bg) 84%, transparent);
     --mt-edge:color-mix(in srgb, var(--ac) 34%, var(--bd));
     --mt-r:11px;--mt-r2:8px;--mt-clip:none;
@@ -106,6 +117,7 @@ const FAMILY: Record<Family, string> = {
    */
   paper: `
     --mt-panel:color-mix(in srgb, var(--sf) 88%, #fff 4%);
+    --mt-veil:color-mix(in srgb, var(--sf) 56%, #fff 3%);
     --mt-panel2:color-mix(in srgb, var(--bg) 80%, transparent);
     --mt-edge:color-mix(in srgb, var(--ac) 24%, var(--bd));
     --mt-r:9px;--mt-r2:6px;--mt-clip:none;
@@ -118,13 +130,16 @@ const FAMILY: Record<Family, string> = {
   /**
    * Absolute black, one accent line, nothing else.
    *
-   * Only safe when the mod's artwork is black too. At 92% opaque it does not
-   * read as "dark chrome over a picture", it reads as a black rectangle — so a
-   * bright wallpaper needs `glass` or `scan` with the opacity pulled down,
-   * which is what Josh Hutcherson ended up needing.
+   * The solid panel stays near-black, because that is the look. The veil is
+   * the version that goes over a picture, and it has to be much thinner: Black
+   * Hole's artwork is a single bright ring in an otherwise absolute dark, so a
+   * 92 % black shelf covers the one thing the mod was ported for and the home
+   * screen reads as a broken display. Inside a note there is no shelf, which is
+   * why the same theme looked correct there and black on the home screen.
    */
   void: `
     --mt-panel:color-mix(in srgb, #000 92%, var(--bg));
+    --mt-veil:color-mix(in srgb, #000 38%, transparent);
     --mt-panel2:color-mix(in srgb, #000 97%, var(--bg));
     --mt-edge:color-mix(in srgb, var(--ac) 28%, #000);
     --mt-r:2px;--mt-r2:2px;--mt-clip:none;
@@ -737,7 +752,7 @@ function block(id: string, mat: Mat) {
   const sel = `html[data-gx-theme="${id}"]`;
   return `${sel}{${fam}
   }
-${sel} #tb,${sel} #libm,${sel} #bar2,${sel} #gn-foot .pill{
+${sel} #tb,${sel} #bar2,${sel} #gn-foot .pill{
   background:var(--mt-panel)!important;
   border-color:var(--mt-edge)!important;
   border-radius:var(--mt-r)!important;
@@ -745,6 +760,24 @@ ${sel} #tb,${sel} #libm,${sel} #bar2,${sel} #gn-foot .pill{
   clip-path:var(--mt-clip)!important;
   backdrop-filter:var(--mt-blur,none);
   -webkit-backdrop-filter:var(--mt-blur,none);
+}
+/* The shelf is the one surface big enough to matter, so it is the one that
+   answers to the wallpaper. Everywhere else the full material stands — a bar
+   or a pill is a few hundred pixels of chrome and can afford to be solid. */
+${sel} #libm{
+  background:var(--mt-panel)!important;
+  border-color:var(--mt-edge)!important;
+  border-radius:var(--mt-r)!important;
+  box-shadow:var(--mt-shadow)!important;
+  clip-path:var(--mt-clip)!important;
+  backdrop-filter:var(--mt-blur,none);
+  -webkit-backdrop-filter:var(--mt-blur,none);
+}
+/* With a picture behind it the shelf takes the family's veil instead. The two
+   attributes buy the specificity to outrank the rule above and the hand-written
+   extra blocks, which are all one attribute and an id. */
+html[data-gx-wall="1"][data-gx-theme="${id}"] #libm{
+  background:var(--mt-veil,var(--mt-panel))!important;
 }
 ${sel} #bar2{border-radius:var(--mt-r)!important}
 ${sel} #gn-tabs,${sel} #gn-foot{

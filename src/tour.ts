@@ -1270,6 +1270,211 @@ const DEMOS: Record<string, Demo> = {
       g.restore();
     },
   },
+
+  /* --- paper cycling through templates and colours ------------------- */
+  paper: {
+    ms: 4200,
+    draw(g, w, h, p) {
+      const tints = ['#ffffff', '#fdf6e3', '#f4f1ea', '#e8eef7'];
+      const ti = Math.floor(p * tints.length * 1.0001) % tints.length;
+      const tj = (ti + 1) % tints.length;
+      const k = clamp((p * tints.length) % 1, 0, 1);
+      const mix = (a: string, b: string) => {
+        const pa = [1, 3, 5].map((o) => parseInt(a.slice(o, o + 2), 16));
+        const pb = [1, 3, 5].map((o) => parseInt(b.slice(o, o + 2), 16));
+        return `rgb(${pa.map((v, n) => Math.round(v + (pb[n] - v) * k)).join(',')})`;
+      };
+
+      g.fillStyle = '#eef2f9';
+      g.fillRect(0, 0, w, h);
+      const pw = w * 0.62;
+      const ph = h * 0.82;
+      const x = (w - pw) / 2;
+      const y = (h - ph) / 2;
+      g.fillStyle = mix(tints[ti], tints[tj]);
+      g.fillRect(x, y, pw, ph);
+
+      // the template changes on the same clock: lines, grid, dots, Cornell
+      const mode = Math.floor(p * 4 * 1.0001) % 4;
+      g.strokeStyle = 'rgba(120,140,175,.35)';
+      g.lineWidth = 1;
+      if (mode === 0) {
+        for (let ly = y + 14; ly < y + ph; ly += 14) {
+          g.beginPath();
+          g.moveTo(x, ly + 0.5);
+          g.lineTo(x + pw, ly + 0.5);
+          g.stroke();
+        }
+      } else if (mode === 1) {
+        for (let lx = x + 14; lx < x + pw; lx += 14) {
+          g.beginPath();
+          g.moveTo(lx + 0.5, y);
+          g.lineTo(lx + 0.5, y + ph);
+          g.stroke();
+        }
+        for (let ly = y + 14; ly < y + ph; ly += 14) {
+          g.beginPath();
+          g.moveTo(x, ly + 0.5);
+          g.lineTo(x + pw, ly + 0.5);
+          g.stroke();
+        }
+      } else if (mode === 2) {
+        g.fillStyle = 'rgba(120,140,175,.4)';
+        for (let lx = x + 12; lx < x + pw; lx += 14) {
+          for (let ly = y + 12; ly < y + ph; ly += 14) {
+            g.beginPath();
+            g.arc(lx, ly, 1, 0, Math.PI * 2);
+            g.fill();
+          }
+        }
+      } else {
+        for (let ly = y + 14; ly < y + ph; ly += 14) {
+          g.beginPath();
+          g.moveTo(x, ly + 0.5);
+          g.lineTo(x + pw, ly + 0.5);
+          g.stroke();
+        }
+        g.strokeStyle = 'rgba(120,140,175,.55)';
+        g.beginPath();
+        g.moveTo(x, y + ph * 0.3);
+        g.lineTo(x + pw, y + ph * 0.3);
+        g.moveTo(x + pw * 0.32, y);
+        g.lineTo(x + pw * 0.32, y + ph);
+        g.stroke();
+      }
+
+      chip(g, x + 8, y + 8, ['Lined', 'Grid', 'Dotted', 'Cornell'][mode], '#2f6df6', '#fff', 9);
+      const pts = sPath(pw, ph, 30).map(([px, py]) => [px + x, py + y]);
+      ribbon(g, pts, () => 3, INK, 0.9);
+    },
+  },
+
+  /* --- a wallpaper cycling under the shelf --------------------------- */
+  theme: {
+    ms: 4200,
+    draw(g, w, h, p) {
+      // four washes that cross-fade, the way switching themes redraws the page
+      const stops = [
+        ['#1e3a8a', '#3b82f6', '#fbbf24'],
+        ['#831843', '#ec4899', '#fbcfe8'],
+        ['#064e3b', '#10b981', '#bbf7d0'],
+        ['#4c1d95', '#8b5cf6', '#e9d5ff'],
+      ];
+      const at = p * stops.length;
+      const i = Math.floor(at) % stops.length;
+      const j = (i + 1) % stops.length;
+      const k = clamp((at % 1 - 0.65) / 0.35, 0, 1);
+      const mix = (a: string, b: string) => {
+        const pa = [1, 3, 5].map((o) => parseInt(a.slice(o, o + 2), 16));
+        const pb = [1, 3, 5].map((o) => parseInt(b.slice(o, o + 2), 16));
+        return pa.map((v, n) => Math.round(v + (pb[n] - v) * k));
+      };
+      const c0 = mix(stops[i][0], stops[j][0]);
+      const c1 = mix(stops[i][1], stops[j][1]);
+      const c2 = mix(stops[i][2], stops[j][2]);
+      const bg = g.createLinearGradient(0, 0, w, h);
+      bg.addColorStop(0, `rgb(${c0.join(',')})`);
+      bg.addColorStop(0.55, `rgb(${c1.join(',')})`);
+      bg.addColorStop(1, `rgb(${c2.join(',')})`);
+      g.fillStyle = bg;
+      g.fillRect(0, 0, w, h);
+
+      // the shelf panel: a thin frost so the picture reads through it. Veiling
+      // with the theme's own dark colour muddied the wash into grey.
+      g.save();
+      g.fillStyle = 'rgba(255,255,255,.16)';
+      roundRect(g, w * 0.12, h * 0.14, w * 0.76, h * 0.72, 12);
+      g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.42)';
+      g.lineWidth = 1;
+      g.stroke();
+      g.restore();
+
+      // a row of cards, so it reads as the library rather than a colour field
+      const cw = w * 0.17;
+      const ch = h * 0.3;
+      for (let n = 0; n < 3; n++) {
+        const x = w * 0.19 + n * (cw + w * 0.05);
+        const y = h * 0.3;
+        g.fillStyle = 'rgba(255,255,255,.9)';
+        roundRect(g, x, y, cw, ch, 6);
+        g.fill();
+        g.fillStyle = 'rgba(120,135,160,.5)';
+        for (let l = 0; l < 4; l++) g.fillRect(x + 8, y + 12 + l * 9, cw - 16 - l * 5, 2.5);
+      }
+
+      // the theme dot in the corner, turning
+      g.save();
+      g.translate(w - 26, 24);
+      g.rotate(p * Math.PI * 2);
+      g.beginPath();
+      g.arc(0, 0, 9, 0, Math.PI);
+      g.fillStyle = `rgb(${c1.join(',')})`;
+      g.fill();
+      g.beginPath();
+      g.arc(0, 0, 9, Math.PI, Math.PI * 2);
+      g.fillStyle = `rgb(${c2.join(',')})`;
+      g.fill();
+      g.restore();
+    },
+  },
+
+  /* --- the page growing toward 800 % --------------------------------- */
+  zoom: {
+    ms: 4200,
+    draw(g, w, h, p) {
+      g.fillStyle = '#eef2f9';
+      g.fillRect(0, 0, w, h);
+      // The number is the real range, 50 % to 800 %. The paper cannot grow by
+      // sixteen times inside a 260 px box without becoming one grey pixel, so
+      // the drawing takes the square root of the factor: the label tells the
+      // truth and the picture stays legible.
+      const factor = 0.5 * Math.pow(16, p);
+      const s = 0.3 + 0.62 * Math.sqrt(p);
+      const pw = w * s;
+      const ph = h * s * 1.3;
+      const x = w / 2 - pw / 2;
+      const y = h / 2 - ph / 2;
+      g.save();
+      g.shadowColor = 'rgba(20,40,80,.18)';
+      g.shadowBlur = 12;
+      g.fillStyle = '#fff';
+      g.fillRect(x, y, pw, ph);
+      g.restore();
+      g.save();
+      g.beginPath();
+      g.rect(x, y, pw, ph);
+      g.clip();
+      g.strokeStyle = '#dde7f7';
+      g.lineWidth = 1;
+      const step = 14 * s;
+      for (let ly = y + step; ly < y + ph; ly += step) {
+        g.beginPath();
+        g.moveTo(x, ly);
+        g.lineTo(x + pw, ly);
+        g.stroke();
+      }
+      const pts = sPath(pw, ph, 40).map(([px, py]) => [px + x, py + y]);
+      ribbon(g, pts, (i) => 2 + 5 * s, INK);
+      g.restore();
+
+      chip(g, 8, h - 26, `${Math.round(factor * 100)}%`, '#2f6df6', '#fff', 10);
+      // a pinch hint on the way back down
+      const k = clamp((p - 0.75) / 0.25, 0, 1);
+      if (k > 0) {
+        g.save();
+        g.globalAlpha = Math.sin(k * Math.PI) * 0.85;
+        g.strokeStyle = ACC;
+        g.lineWidth = 2;
+        for (const dir of [-1, 1]) {
+          g.beginPath();
+          g.arc(w / 2, h / 2, 26 + k * 14, dir < 0 ? Math.PI : 0, dir < 0 ? Math.PI * 1.5 : Math.PI * 0.5);
+          g.stroke();
+        }
+        g.restore();
+      }
+    },
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -1355,7 +1560,10 @@ interface Step {
   after?: () => void;
 }
 
-const TOUR_VER = 'v2';
+// Bumped whenever the steps change: the flag is what stops the tour from
+// replaying at someone who has already seen it, so a stale flag would hide a
+// rewritten tour from every returning user.
+const TOUR_VER = 'v3';
 const HOME_FLAG = `inkpad-tour-home-${TOUR_VER}`;
 const EDITOR_FLAG = `inkpad-tour-editor-${TOUR_VER}`;
 
@@ -1639,21 +1847,71 @@ function navLink(filter: string): HTMLElement | null {
   return document.querySelector(`#nav a[data-f="${filter}"]`);
 }
 
-function openOverflowIfNeeded(sel: string) {
-  const t = document.querySelector(sel) as HTMLElement | null;
-  const tb = document.getElementById('tb');
-  if (t && !isVisible(t) && tb) tb.classList.add('more');
+/**
+ * The page controls live behind one pill now.
+ *
+ * This used to work by adding `#tb.more`, which turned `#bar2` into a dropdown.
+ * `#bar2` is no longer a second row of controls: it is a single Page pill, and
+ * `html[data-bar=full] #bar2:not(.open) > *:not(#pgm-head){display:none}`
+ * hides everything else until the pill is clicked. So the old code still moved
+ * the row around but revealed nothing, and every step aimed at a page control —
+ * paper, zoom, full screen, export, layers, guides — dimmed the screen and
+ * highlighted an empty space. Clicking the pill is the only thing that opens
+ * the card.
+ */
+function ensureOverflow() {
+  const bar2 = document.getElementById('bar2');
+  const pgm = document.getElementById('pgm');
+  if (!bar2 || !pgm) return;
+  if (!bar2.classList.contains('open')) pgm.click();
 }
 
 function closeOverflow() {
+  const bar2 = document.getElementById('bar2');
+  const pgm = document.getElementById('pgm');
+  if (bar2?.classList.contains('open')) pgm?.click();
   document.getElementById('tb')?.classList.remove('more');
 }
 
-/** Open the overflow panel only where the sub-toolbar is actually hidden. */
-function ensureOverflow() {
-  const b2 = document.getElementById('bar2');
-  const tb = document.getElementById('tb');
-  if (b2 && tb && !isVisible(b2)) tb.classList.add('more');
+/**
+ * The Accessories menu, where the controls that left the toolbar went.
+ * `#acc-pop` holds one `.acc-item` row per feature; opening it is a click on
+ * `#acc-trigger`, and it closes itself when a row is used.
+ */
+function accPop(): HTMLElement | null {
+  return document.getElementById('acc-pop');
+}
+
+function ensureAcc() {
+  const pop = accPop();
+  if (!pop) return;
+  if (getComputedStyle(pop).display === 'none') {
+    (document.getElementById('acc-trigger') as HTMLElement | null)?.click();
+  }
+}
+
+function closeAcc() {
+  const pop = accPop();
+  if (pop && getComputedStyle(pop).display !== 'none') {
+    (document.getElementById('acc-trigger') as HTMLElement | null)?.click();
+  }
+}
+
+/** A row inside the Accessories menu, matched by its label. */
+function accItem(label: string) {
+  return () => {
+    const pop = accPop();
+    const row =
+      pop &&
+      Array.from(pop.querySelectorAll<HTMLElement>('.acc-item')).find((n) =>
+        (n.textContent || '').toLowerCase().includes(label.toLowerCase()),
+      );
+    // The menu is built the first time it opens, so before that the row does
+    // not exist. Returning null would drop the step from the tour silently —
+    // the tour filters out any step whose target is missing — so fall back to
+    // the button that opens the menu.
+    return row || document.getElementById('acc-trigger');
+  };
 }
 
 /**
@@ -1673,6 +1931,32 @@ function byTitle(title: string, prefix = false) {
   };
 }
 
+/** The floating ink pill: nibs, widths, swatches and the pen settings gear. */
+function pill() {
+  return document.getElementById('ink-pen');
+}
+
+function pillGroup(n: number) {
+  return () => (pill()?.querySelectorAll<HTMLElement>('.grp')[n] ?? null);
+}
+
+function pillButton(title: string, prefix = false) {
+  return () => {
+    const all = Array.from(pill()?.querySelectorAll<HTMLElement>('button') ?? []);
+    return (
+      all.find((n) => {
+        const t = n.getAttribute('title') || '';
+        return prefix ? t.startsWith(title) : t === title;
+      }) || null
+    );
+  };
+}
+
+/** A tool in the top row, by its engine name. */
+function tool(name: string) {
+  return () => document.querySelector<HTMLElement>(`#bar button[data-t="${name}"]`);
+}
+
 const HOME_STEPS: Step[] = [
   {
     title: 'Welcome to Inkpad 👋',
@@ -1682,9 +1966,17 @@ const HOME_STEPS: Step[] = [
   },
   {
     target: () => document.getElementById('nav'),
+    demo: 'fav',
     title: 'Your shelves',
     body:
       '<b>Documents</b> holds every notebook, <b>Favorites</b> pins the ones you open daily, and <b>Trash</b> keeps deleted notebooks until you empty it.',
+  },
+  {
+    target: () => document.getElementById('nav-hide'),
+    title: 'Get the sidebar out of the way',
+    body:
+      'This folds the whole shelf away and gives the page its full width — handy on a small screen. The button stays put, so pressing it again brings the sidebar back. Your choice is remembered.',
+    pad: 8,
   },
   {
     target: () => document.querySelector('.new') as HTMLElement | null,
@@ -1694,10 +1986,26 @@ const HOME_STEPS: Step[] = [
     pad: 6,
   },
   {
-    target: () => document.getElementById('find'),
+    target: () => document.getElementById('gn-search'),
     title: 'Find anything fast',
     body: 'Search filters your notebooks by title as you type. It works offline too.',
     demo: 'search',
+  },
+  {
+    target: () => document.getElementById('gx-theme-btn'),
+    title: 'Themes, wallpapers and music',
+    body:
+      'Every notebook can wear a theme — twenty-three ported from Opera GX mods. Most carry the mod’s <b>live wallpaper</b> and its own <b>soundtrack</b>, not just a colour scheme. Pick one and the whole app changes: palette, type, paper and motion.',
+    demo: 'theme',
+    pad: 6,
+  },
+  {
+    // only exists while a theme with media is applied, so the step filters out
+    target: () => document.querySelector('.gxm-fab') as HTMLElement | null,
+    title: 'The music pill',
+    body:
+      'The pill at the bottom-right is the soundtrack for the theme you picked. Tap it for music, wallpaper and interface-sound switches, and a <b>Live / Still</b> control for the moving wallpaper.',
+    pad: 8,
   },
   {
     target: () => byText('#libm button', 'Import backup'),
@@ -1753,283 +2061,319 @@ const EDITOR_STEPS: Step[] = [
   {
     title: 'The tool tour',
     body:
-      'Every tool is shown with a looping animation so you can see it working. Move with <b>Next</b>, or press <b>Esc</b> to leave.',
+      'Most steps carry a looping animation so you can see the thing working rather than read about it. Move with <b>Next</b>, or press <b>Esc</b> to leave.',
     demo: 'pen',
+  },
+
+  /* ---- the two surfaces that run the whole editor ------------------ */
+  {
+    target: () => document.getElementById('bar'),
+    demo: 'pen',
+    title: 'The tool row',
+    body:
+      'One row of tools, left to right: <b>pen</b>, <b>highlighter</b>, <b>eraser</b>, <b>text</b>, <b>lasso</b>, <b>laser</b>, <b>paint bucket</b>, then <b>shapes</b>, <b>accessories</b> and the page pill. Everything that did not fit lives in those last two.',
+  },
+  {
+    target: () => document.getElementById('pen-dock'),
+    demo: 'pen',
+    title: 'The pen dock',
+    body:
+      'Six pens sit in a pocket down the left edge, like a case. Tap one to pick it up — each slot is a whole preset with its own nib, width and colour. Open a slot’s settings to swap it for a brush, a highlighter, an eraser or a laser, or to add up to eight.',
+    pad: 10,
+  },
+  {
+    target: () => pill(),
+    title: 'The ink pill',
+    body:
+      'The floating bar carries everything about the line you are drawing: <b>nib</b>, <b>width</b> and <b>colour</b>, plus a settings gear. It follows the tool, so it always shows what the pen in your hand will do.',
+    demo: 'colors',
+    pad: 8,
+  },
+  {
+    target: pillGroup(0),
+    demo: 'pen',
+    title: 'Six nibs',
+    body:
+      'Ballpoint, fountain, brush, pencil, crayon and marker. Each has its own taper and texture, so a page can change feel halfway through without changing tool.',
+    pad: 8,
+  },
+  {
+    target: pillGroup(1),
+    title: 'Thickness in millimetres',
+    body:
+      'Three quick widths — 0.53, 1.1 and 1.8 mm — and the gear opens a logarithmic slider from 0.1 mm to 100 mm. Millimetres first means a 0.3 mm fineliner and a 40 mm marker are both one gesture away, with a mouse or a finger.',
+    demo: 'pressure',
+    pad: 8,
+  },
+  {
+    target: pillGroup(2),
+    title: 'Colour',
+    body:
+      'Six ready swatches, plus the round picker for any shade. The choice applies to pens, highlighter, shapes and text.',
+    demo: 'colors',
+    pad: 8,
+  },
+  {
+    target: pillButton('Pen settings'),
+    demo: 'pressure',
+    title: 'Pressure, taper and smoothing',
+    body:
+      'The gear opens the pen’s own sheet: pressure response, smoothing, taper and the exact width. Turn pressure down for a flat technical line, up for calligraphy.',
+    pad: 10,
   },
 
   /* ---- writing ---------------------------------------------------- */
   {
-    target: () => document.querySelector('[data-t="pen"]') as HTMLElement | null,
+    target: tool('pen'),
     title: '✎ Pen',
     body:
-      'Your main writing tool. <b>Pressure changes the line width</b> — press lightly for hairlines, harder for bold strokes.',
+      'Your main writing tool. <b>Pressure changes the line width</b> — press lightly for hairlines, harder for bold strokes. A mouse or finger still works; pressure is a bonus, not a requirement.',
     demo: 'pen',
   },
   {
-    // the nib list lives in the pen's own panel, so the pen button is the target
-    target: () => document.querySelector('[data-t="pen"]') as HTMLElement | null,
-    title: 'Pen nib',
-    body:
-      'Tap the pen again to open its panel: six nibs — ballpoint, fountain, brush, pencil, crayon and marker. Each has its own taper and texture, so a page can switch feel halfway through.',
-  },
-  {
-    target: () => document.querySelector('[data-t="hl"]') as HTMLElement | null,
+    target: tool('hl'),
     title: '🖍 Highlighter',
     body:
       'Draws a wide, translucent band that lets the text underneath show through. Perfect for marking up a page you already wrote.',
     demo: 'hl',
   },
   {
-    target: () => document.querySelector('[data-t="er"]') as HTMLElement | null,
+    target: tool('er'),
     title: 'Eraser',
     body:
       'Wipes strokes back to blank paper. If your stylus has an <b>eraser end</b>, flipping the pen switches to the eraser automatically — set that up in <b>Stylus &amp; pen</b>.',
     demo: 'er',
   },
   {
-    // both eraser modes sit behind the eraser button
-    target: () => document.querySelector('[data-t="er"]') as HTMLElement | null,
+    target: tool('er'),
     title: 'Whole-stroke eraser',
     body:
-      'The eraser panel holds two modes: rub through a stroke like a real eraser, or remove the <b>entire stroke</b> with one touch. The second is much faster when you want a line gone completely.',
+      'The eraser carries two modes: rub through a stroke like a real eraser, or remove the <b>entire stroke</b> with one touch. The second is much faster when you want a line gone completely.',
     demo: 'er',
   },
   {
     title: 'Scribble to erase',
     body:
-      'Scratch back and forth over a word, a doodle or a shape and it disappears — no need to switch tools. Only a dense scratch triggers it, so ordinary writing is never touched. Turn it off under <b>Settings → Scribble to erase</b>.',
+      'Scratch back and forth over a word, a doodle or a shape and it disappears — no need to switch tools. Only a dense scratch triggers it, so ordinary writing is never touched. Turn it off under <b>Accessories → Smart ink</b>.',
     demo: 'er',
   },
 
   /* ---- selecting -------------------------------------------------- */
   {
-    target: () => document.querySelector('[data-t="sel"]') as HTMLElement | null,
+    target: tool('sel'),
     title: 'Lasso select',
     body:
-      'Circle anything to select it, then <b>drag to move</b>. The selection controls in the toolbar let you enlarge ⤢, shrink ⤡ or delete it.',
+      'Circle anything to select it, then <b>drag to move</b>. With a selection active, the page card grows enlarge ⤢, shrink ⤡ and delete controls.',
     demo: 'sel',
   },
   {
-    target: () => document.getElementById('sg'),
+    // No target: `#sg` only exists once something is selected, and nothing is
+    // selected during a tour. Aiming at it dimmed the screen and highlighted
+    // an empty corner, so this reads as the follow-up card it is.
     title: 'Resize or delete a selection',
     body:
-      'With something selected, ⤢ enlarges it, ⤡ shrinks it and the bin removes it. Scaling works on handwriting, shapes and images alike.',
-    before: ensureOverflow,
-    after: closeOverflow,
+      'With something selected, the page card grows ⤢ enlarge, ⤡ shrink and a bin. Scaling works on handwriting, shapes and images alike.',
+    demo: 'sel',
   },
 
   /* ---- shapes ----------------------------------------------------- */
   {
-    // rectangle, oval, arrow, hidden line and axes all live in this one panel
-    target: () => document.querySelector('[data-t="line"]') as HTMLElement | null,
+    target: () => document.getElementById('sh-trigger'),
     title: 'Shapes, arrows & axes',
     body:
-      'One panel holds a straight <b>line</b>, an <b>arrow</b>, a dashed <b>hidden line</b>, <b>rectangles</b>, <b>ovals</b>, and 2D / 3D <b>axes</b> for graphs. Drag to size — the preview follows your finger.',
+      'One menu holds a straight <b>line</b>, an <b>arrow</b>, a dashed <b>hidden line</b>, <b>rectangles</b>, <b>ovals</b>, and 2D / 3D <b>axes</b> for graphs. Pick one, then drag to size — the preview follows your finger.',
     demo: 'shape',
+    pad: 8,
   },
   {
-    target: () => document.querySelector('[data-t="bk"]') as HTMLElement | null,
+    target: tool('bk'),
     title: 'Paint bucket',
     body:
       'Tap inside a closed shape to fill it, or tap a line to recolour it. Fill a rough circle you drew by hand and it behaves like a real shape.',
     demo: 'fill',
   },
 
-  /* ---- text and media --------------------------------------------- */
+  /* ---- text ------------------------------------------------------- */
   {
-    target: () => document.querySelector('[data-t="text"]') as HTMLElement | null,
+    target: tool('text'),
     title: 'Text',
     body:
-      'Tap anywhere to type. Text stays editable, unlike handwriting, and it can be moved or restyled later.',
+      'Tap anywhere to type. Text stays editable, unlike handwriting, and it can be moved or restyled later. Tap an existing text box and the style sheet opens — presets, plain / sticky / callout / tint / outline / tag, plus the typeface.',
     demo: 'text',
   },
+
+  /* ---- accessories ------------------------------------------------ */
   {
-    target: () => document.getElementById('fnt'),
-    title: 'Fonts',
+    target: () => document.getElementById('acc-trigger'),
+    title: 'Accessories',
     body:
-      'Pick the typeface for new text — Arnie, Georgia, Courier and more. Existing text keeps the font it was written in.',
-    before: ensureOverflow,
-    after: closeOverflow,
+      'The grid icon opens everything that is not a drawing tool: <b>Zoom Window</b>, <b>Time Keeper</b>, <b>Toolbar Customization</b>, <b>Smart ink</b>, <b>Hold to snap</b>, <b>Insert media</b>, <b>Stickers</b>, <b>Sticky note</b> and <b>Object snap</b>.',
+    pad: 8,
   },
   {
-    target: () => document.getElementById('img'),
-    title: 'Insert an image',
+    target: accItem('Insert media'),
+    title: 'Insert an image or a video',
     body:
-      'Drop a photo or diagram onto the page. Move and resize it like any other object, then draw on top of it.',
+      'Drop a photo, diagram or clip onto the page. Move and resize it like any other object, draw on top of it, and a video plays right there — useful for lectures or a worked example you want beside your notes.',
     demo: 'image',
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
   },
   {
-    target: byTitle('Insert video'),
-    title: 'Insert a video',
-    body:
-      'Embed a clip on the page and play it right there — useful for lectures, recorded experiments or a worked example you want to keep beside your notes.',
-  },
-  {
-    target: byTitle('Figure library'),
-    title: 'Figure library',
-    body:
-      'Ready-made shapes for science and maths — circuits, arrows, containers and more — so you can assemble a diagram without drawing every part by hand.',
-  },
-  {
-    target: () => document.getElementById('gn-stk-btn'),
+    target: accItem('Stickers'),
+    demo: 'fav',
     title: 'Stickers',
     body:
       'Stars, arrows, ticks, leaves and more. Tap one to drop it on the page, then drag or resize it like any picture. Stickers export with the page and sync with the notebook.',
-    pad: 10,
-    before: ensureOverflow,
-    after: closeOverflow,
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
   },
   {
-    target: byTitle('Engineering symbols'),
-    title: 'Engineering symbols',
+    target: accItem('Sticky note'),
+    demo: 'text',
+    title: 'Sticky notes',
     body:
-      'A palette of symbols you can stamp straight onto the page: resistors, capacitors, valves, flow arrows and the rest of the usual notation.',
+      'A coloured note that sits on the page without joining the ink — grab it, resize it, edit the text inside. Good for a margin comment you may want to move later.',
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
   },
-
-  /* ---- drawing aids ----------------------------------------------- */
   {
-    target: () => document.querySelector('[data-t="laser"]') as HTMLElement | null,
+    target: accItem('Object snap'),
+    title: '🧲 Object snap',
+    body:
+      'With snap on, the pen <b>magnetises</b> to the tip or corner of an existing object, and to the point where two lines cross. Close a shape exactly, join a stroke to the end of another, or land on an intersection — the marker shows the target before you commit.',
+    demo: 'snap',
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
+  },
+  {
+    target: accItem('Hold to snap'),
+    demo: 'snap',
+    title: 'Hold to snap',
+    body:
+      'Prefer snap only sometimes? Turn this on and snap engages while you <b>hold</b> — for one deliberate join — then lets go. The best of both without leaving a switch flipped.',
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
+  },
+  {
+    target: accItem('Smart ink'),
+    demo: 'er',
+    title: 'Smart ink',
+    body:
+      'The recognition layer: scribble to erase, hold a stroke still to straighten it into a line or tidy it into a shape. Everything here is optional and undoable.',
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
+  },
+  {
+    target: accItem('Zoom Window'),
+    title: 'Zoom Window',
+    body:
+      'A magnified inset that follows your pen, so you can see the exact pixel you are on while the rest of the page stays at reading size. Made for fine detail work on a small screen.',
+    demo: 'zoom',
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
+  },
+  {
+    target: accItem('Time Keeper'),
+    title: 'Time Keeper',
+    body:
+      'A session timer and clock on the page. Start it when you begin writing and see how long a piece actually took — useful for exams and for timing yourself.',
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
+  },
+  {
+    target: accItem('Toolbar Customization'),
+    title: 'Toolbar Customization',
+    body:
+      'Choose which tools the row carries and in what order. If you never use the laser, take it out; if you draw shapes constantly, put them first.',
+    before: ensureAcc,
+    after: closeAcc,
+    pad: 6,
+  },
+  {
+    target: tool('laser'),
     title: 'Laser pointer',
     body:
       'A glowing dot that fades as you move — handy when teaching or presenting on a projector. Nothing is saved to the page.',
     demo: 'laser',
   },
-  {
-    target: byTitle('Guides, symmetry and perspective'),
-    title: 'Guides & symmetry',
-    body:
-      'Overlay ruled guides, mirror everything you draw across an axis, or snap to a perspective grid — the fastest way to keep a sketch in proportion.',
-  },
-  {
-    target: byTitle('Layers (per page)'),
-    title: 'Layers',
-    body:
-      'Each page can hold several layers. Keep annotations on one and artwork on another, then hide or reorder them without touching the ink itself.',
-  },
-  {
-    target: byTitle('Animate next drawing', true),
-    title: 'Animate a drawing',
-    body:
-      'Turn animation on, draw, and Inkpad records the stroke. Press ▶ to play it back — handy for showing how a diagram was built up.',
-  },
 
-  /* ---- colour and thickness --------------------------------------- */
+  /* ---- the page card ---------------------------------------------- */
   {
-    target: () => document.getElementById('sws'),
-    title: 'Colour',
+    target: () => document.getElementById('pgm'),
+    title: 'The page card',
     body:
-      'Five ready swatches, plus the round picker for any shade you like. The choice applies to pens, highlighter, shapes and text.',
-    demo: 'colors',
+      'Every page control lives behind this one pill, so the canvas gets the height instead of a strip of buttons: paper, colour, resolution, zoom, full screen, thumbnails, export and clear. Press it again — or <b>Esc</b> — to close.',
+    pad: 6,
   },
-  {
-    target: () => document.getElementById('size'),
-    title: 'Thickness & pressure',
-    body:
-      'The slider sets the base thickness in 0.1 steps, and the number beside it accepts an exact value. Pressure response scales it while you draw.',
-    demo: 'pressure',
-    pad: 12,
-    place: 'dock',
-    before: ensureOverflow,
-    after: closeOverflow,
-  },
-  {
-    target: () => document.getElementById('prs'),
-    title: 'Pressure response',
-    body:
-      'How strongly the line reacts to how hard you press. Turn it down for a flatter, more technical line; up for expressive calligraphy.',
-    before: ensureOverflow,
-    after: closeOverflow,
-  },
-
-  /* ---- snap -------------------------------------------------------- */
-  {
-    target: () => document.getElementById('snap-btn'),
-    title: '🧲 Snap',
-    body:
-      'Toggle this on and the pen <b>magnetises</b> to the tip or corner of an existing object, and to the point where two lines cross. Close a shape exactly, join a stroke to the end of another, or land on an intersection — the marker shows the target before you commit.',
-    demo: 'snap',
-    pad: 10,
-    before: ensureOverflow,
-    after: closeOverflow,
-  },
-
-  /* ---- view -------------------------------------------------------- */
-  {
-    target: () => document.getElementById('zi'),
-    title: 'Zoom',
-    body:
-      'Zoom in and out, or pinch on a touchscreen. Pan with two fingers, or hold <b>Space</b> and drag on a computer.',
-    before: ensureOverflow,
-    after: closeOverflow,
-  },
-  {
-    target: () => document.getElementById('side-t'),
-    title: 'Page thumbnails',
-    body:
-      'Opens a strip of live page previews down the left. Tap any page to jump straight to it — the quickest way around a long notebook.',
-    before: ensureOverflow,
-    after: closeOverflow,
-  },
-  {
-    target: () => document.getElementById('fs'),
-    title: 'Full screen',
-    body:
-      'Hides every panel so only paper is left. Tap again, or press <b>Esc</b>, to bring the tools back.',
-    before: ensureOverflow,
-    after: closeOverflow,
-  },
-
-  /* ---- paper ------------------------------------------------------- */
   {
     target: () => document.getElementById('tpl'),
+    demo: 'paper',
     title: 'Paper template',
     body:
       'Blank, lined, grid, dotted or Cornell — change it per page at any time. Your ink stays exactly where it is.',
     before: ensureOverflow,
     after: closeOverflow,
+    pad: 6,
   },
   {
     target: () => document.getElementById('pc'),
+    demo: 'paper',
     title: 'Paper colour',
     body:
       'White, cream, and darker shades for low light. Handy for matching a real notebook, or for a page you plan to print.',
     before: ensureOverflow,
     after: closeOverflow,
+    pad: 6,
   },
   {
-    target: () => document.querySelector('#bar2 [title="Page resolution"]') as HTMLElement | null,
+    target: byTitle('Page resolution'),
+    demo: 'share',
     title: 'Export resolution',
     body:
       'How many dots per inch the page is rendered at when you export. Higher is sharper and heavier — 300 dpi is a good print default.',
     before: ensureOverflow,
     after: closeOverflow,
+    pad: 6,
   },
   {
-    target: () => document.getElementById('clr'),
-    title: 'Clear page',
+    target: () => document.getElementById('zi'),
+    title: 'Zoom — up to 800 %',
     body:
-      'Empties the current page in one go. Other pages are untouched, and <b>undo</b> still brings the ink back if you change your mind.',
+      'Zoom in and out, pinch on a touchscreen, or hold <b>Space</b> and drag to pan. The page goes from <b>50 %</b> to <b>800 %</b>, so you can work on a single letter of a headline or fit a whole spread on screen.',
+    demo: 'zoom',
     before: ensureOverflow,
     after: closeOverflow,
-  },
-
-  /* ---- history and pages ------------------------------------------ */
-  {
-    target: () => document.getElementById('undo'),
-    title: 'Undo & redo',
-    body:
-      'Every stroke is undoable — ↶ steps back, ↷ steps forward. Nothing is lost until you clear the page.',
-    demo: 'undo',
+    pad: 6,
   },
   {
-    target: () => document.getElementById('pg'),
-    title: 'Pages',
-    body:
-      'Add, duplicate and delete pages, and step through them with ‹ ›. Each page keeps its own paper style and background colour.',
+    target: () => document.getElementById('side-t'),
     demo: 'pages',
+    title: 'Page thumbnails',
+    body:
+      'Opens a strip of live page previews down the left. Tap any page to jump straight to it — the quickest way around a long notebook.',
+    before: ensureOverflow,
+    after: closeOverflow,
+    pad: 6,
   },
-
-  /* ---- output ------------------------------------------------------ */
+  {
+    target: () => document.getElementById('fs'),
+    demo: 'zoom',
+    title: 'Full screen',
+    body:
+      'Hides every panel so only paper is left. Tap again, or press <b>Esc</b>, to bring the tools back.',
+    before: ensureOverflow,
+    after: closeOverflow,
+    pad: 6,
+  },
   {
     target: () => document.getElementById('share'),
     title: 'Export & share',
@@ -2038,6 +2382,90 @@ const EDITOR_STEPS: Step[] = [
     demo: 'share',
     before: ensureOverflow,
     after: closeOverflow,
+    pad: 6,
+  },
+  {
+    target: () => document.getElementById('clr'),
+    demo: 'undo',
+    title: 'Clear page',
+    body:
+      'Empties the current page in one go. Other pages are untouched, and <b>undo</b> still brings the ink back if you change your mind.',
+    before: ensureOverflow,
+    after: closeOverflow,
+    pad: 6,
+  },
+  {
+    target: byTitle('Guides, symmetry and perspective'),
+    demo: 'shape',
+    title: 'Guides & symmetry',
+    body:
+      'Overlay ruled guides, mirror everything you draw across an axis, or snap to a perspective grid — the fastest way to keep a sketch in proportion.',
+    before: ensureOverflow,
+    after: closeOverflow,
+    pad: 6,
+  },
+  {
+    target: byTitle('Layers (per page)'),
+    demo: 'pages',
+    title: 'Layers',
+    body:
+      'Each page can hold several layers. Keep annotations on one and artwork on another, then hide or reorder them without touching the ink itself.',
+    before: ensureOverflow,
+    after: closeOverflow,
+    pad: 6,
+  },
+  {
+    target: byTitle('Animate next drawing', true),
+    demo: 'pen',
+    title: 'Animate a drawing',
+    body:
+      'Turn animation on, draw, and Inkpad records the stroke. Press ▶ to play it back — handy for showing how a diagram was built up.',
+    before: ensureOverflow,
+    after: closeOverflow,
+    pad: 6,
+  },
+  {
+    target: byTitle('Figure library'),
+    demo: 'shape',
+    title: 'Figure library',
+    body:
+      'Ready-made shapes for science and maths — circuits, arrows, containers and more — so you can assemble a diagram without drawing every part by hand.',
+    before: ensureOverflow,
+    after: closeOverflow,
+    pad: 6,
+  },
+  {
+    target: byTitle('Engineering symbols'),
+    demo: 'shape',
+    title: 'Engineering symbols',
+    body:
+      'A palette of symbols you can stamp straight onto the page: resistors, capacitors, valves, flow arrows and the rest of the usual notation.',
+    before: ensureOverflow,
+    after: closeOverflow,
+    pad: 6,
+  },
+
+  /* ---- history, pages, output ------------------------------------- */
+  {
+    target: () => document.getElementById('undo'),
+    title: 'Undo & redo',
+    body:
+      'Every stroke is undoable — ↶ steps back, ↷ steps forward. Nothing is lost until you clear the page.',
+    demo: 'undo',
+  },
+  {
+    target: () => document.getElementById('gn-foot'),
+    title: 'Pages',
+    body:
+      'Add, duplicate and delete pages, and step through them with ‹ ›. Each page keeps its own paper style and background colour.',
+    demo: 'pages',
+  },
+  {
+    target: () => document.getElementById('more'),
+    title: 'Fold the page controls away',
+    body:
+      'One press hides the page pill and gives the canvas the height back; another brings it back. The setting is remembered, so a small screen can stay in writing mode.',
+    pad: 8,
   },
   {
     target: () => document.getElementById('back'),
@@ -2048,7 +2476,7 @@ const EDITOR_STEPS: Step[] = [
   {
     title: 'You’re ready to write ✍️',
     body:
-      'Replay this tour any time with the <b>?</b> button at the bottom-right of the canvas.',
+      'Replay this tour any time with the <b>?</b> button at the bottom-right of the canvas. Themes, wallpapers and soundtracks are on the library screen, behind the <b>◐</b> button.',
   },
 ];
 
