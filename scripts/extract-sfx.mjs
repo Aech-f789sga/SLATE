@@ -17,9 +17,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const BASE =
   'C:/Users/gamao/AppData/Roaming/Opera Software/Opera GX Stable/Default/Extensions';
+
+/** There is no ffmpeg on PATH on this machine; the bundled imageio build is. */
+const FFMPEG =
+  'C:/Users/gamao/AppData/Local/Programs/Python/Python311/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe';
 
 /**
  * Our slot -> the mod's keys, most preferred first.
@@ -32,7 +37,7 @@ const BASE =
  * minimal. The extractor prints which ones were substituted.
  */
 const SLOTS = {
-  hover: ['HOVER'],
+  hover: ['HOVER', 'HOVER_UP', 'CLICK'],
   click: ['CLICK', 'IMPORTANT_CLICK', 'TAB_INSERT', 'HOVER'],
   toggle: ['SWITCH_TOGGLE', 'FEATURE_SWITCH_ON', 'LIMITER_ON', 'CLICK', 'TAB_INSERT'],
   tab: ['TAB_INSERT', 'LEVEL_UPGRADE'],
@@ -64,10 +69,38 @@ function findMod(name) {
   return best;
 }
 
-/** The mod stores `sounds` inside a one-element array of sound sets. */
+/**
+ * The sound table comes in two shapes across installed mods and both mean the
+ * same thing. Older mods wrap a set in a one-element array of
+ * `{ id, name, sounds: { CLICK: [...] } }`; newer ones (Black Hole, Monkey
+ * RIZZ, Elden Ring and the rest of the batch added late) put the key map at the
+ * top level with no wrapper at all. Reading only the array form is what made
+ * the first pass report `0/5 slots` for nine mods that plainly had sounds.
+ */
 function soundMap(list) {
-  if (!Array.isArray(list) || !list.length) return {};
-  return list[0]?.sounds ?? {};
+  if (!list) return {};
+  if (Array.isArray(list)) return list[0]?.sounds ?? {};
+  if (typeof list === 'object') return list.sounds ?? list;
+  return {};
+}
+
+/**
+ * The table hard-codes `.mp3` for every slot, and the audio engine plays these
+ * through an `HTMLAudioElement`, so the bytes have to actually be MP3 — a WAV
+ * renamed to `.mp3` is served as `audio/mpeg` and will not decode. Most mods
+ * already ship mp3 and are copied untouched; the ones that ship `.wav` (Monkey
+ * RIZZ's keyboard, for one) are transcoded.
+ */
+function place(src, dest) {
+  if (path.extname(src).toLowerCase() === '.mp3') {
+    fs.copyFileSync(src, dest);
+    return;
+  }
+  execFileSync(
+    FFMPEG,
+    ['-y', '-loglevel', 'error', '-i', src, '-vn', '-ac', '1', '-c:a', 'libmp3lame', '-b:a', '96k', dest],
+    { stdio: 'pipe' },
+  );
 }
 
 const [name, slug] = process.argv.slice(2);
@@ -96,10 +129,11 @@ function take(slot, keys) {
     if (!rel) continue;
     const src = path.join(mod.dir, rel);
     if (!fs.existsSync(src)) continue;
-    fs.copyFileSync(src, path.join(outDir, `${slot}.mp3`));
+    place(src, path.join(outDir, `${slot}.mp3`));
     const kb = (fs.statSync(src).size / 1024).toFixed(0);
     const note = i === 0 ? '' : '  (stand-in)';
-    console.log(`  ${slot.padEnd(7)} <- ${rel} (${kb} KB)${note}`);
+    const fmt = path.extname(src).toLowerCase() === '.mp3' ? '' : ` [${path.extname(src).slice(1)}->mp3]`;
+    console.log(`  ${slot.padEnd(7)} <- ${rel} (${kb} KB)${note}${fmt}`);
     return true;
   }
   return false;
@@ -116,7 +150,7 @@ const letters = (keyboard.TYPING_LETTER ?? []).filter((rel) =>
   fs.existsSync(path.join(mod.dir, rel)),
 );
 letters.forEach((rel, i) => {
-  fs.copyFileSync(path.join(mod.dir, rel), path.join(outDir, `key${i + 1}.mp3`));
+  place(path.join(mod.dir, rel), path.join(outDir, `key${i + 1}.mp3`));
 });
 if (letters.length) console.log(`  keys    <- ${letters.length} letter samples`);
 

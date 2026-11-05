@@ -105,6 +105,7 @@ export const MODS: Record<string, ModMedia> = {
     sfx: sfx('anime', 4),
     wall: {
       still: '/themes/anime.jpg',
+      video: `${root('anime')}/wall/live.mp4`,
       fx: 'petals',
       label: 'Sakura, drifting',
     },
@@ -173,6 +174,7 @@ export const MODS: Record<string, ModMedia> = {
     sfx: sfx('horror', 6),
     wall: {
       still: '/themes/horror.jpg',
+      video: `${root('horror')}/wall/live.mp4`,
       fx: 'rain',
       label: 'Rain on the glass',
     },
@@ -199,6 +201,7 @@ export const MODS: Record<string, ModMedia> = {
     sfx: sfx('medieval', 5),
     wall: {
       still: '/themes/medieval.jpg',
+      video: `${root('medieval')}/wall/live.mp4`,
       fx: 'embers',
       label: 'Embers of the keep',
     },
@@ -225,6 +228,7 @@ export const MODS: Record<string, ModMedia> = {
     sfx: sfx('legendary-rift', 4),
     wall: {
       still: '/themes/legendary-rift.jpg',
+      video: `${root('legendary-rift')}/wall/live.mp4`,
       fx: 'embers',
       label: 'Riftlight',
     },
@@ -238,6 +242,7 @@ export const MODS: Record<string, ModMedia> = {
     sfx: sfx('the-traveller', 5),
     wall: {
       still: '/themes/the-traveller.jpg',
+      video: `${root('the-traveller')}/wall/live.mp4`,
       fx: 'snow',
       label: 'Snow, and the road',
     },
@@ -265,6 +270,7 @@ export const MODS: Record<string, ModMedia> = {
     sfx: sfx('blockified', 4),
     wall: {
       still: '/themes/blockified.jpg',
+      video: `${root('blockified')}/wall/live.mp4`,
       fx: 'embers',
       label: 'Embers over the block world',
     },
@@ -278,8 +284,134 @@ export const MODS: Record<string, ModMedia> = {
     sfx: sfx('day-one', 5),
     wall: {
       still: '/themes/day-one.jpg',
+      // Day One is the one mod that animates its *light* wallpaper and leaves
+      // the dark side a still. There is no light mode here, so the light loop
+      // is the only motion the mod has and it is what gets ported.
+      video: `${root('day-one')}/wall/live.mp4`,
       fx: 'dust',
       label: 'Morning dust',
+    },
+  },
+
+  /* ---- the third wave: every installed mod that still had nothing ------- */
+
+  'black-hole': {
+    id: 'black-hole',
+    name: 'Black Hole',
+    track: 'Black Hole',
+    layers: stems('black-hole', 1),
+    sfx: sfx('black-hole', 5),
+    wall: {
+      still: '/themes/black-hole.jpg',
+      video: `${root('black-hole')}/wall/live.mp4`,
+      label: 'The accretion disc',
+    },
+  },
+
+  'creamy-keyboard': {
+    id: 'creamy-keyboard',
+    name: 'Creamy Keyboard',
+    track: 'Creamy Keyboard',
+    layers: stems('creamy-keyboard', 4),
+    sfx: sfx('creamy-keyboard', 3),
+    wall: {
+      still: '/themes/creamy-keyboard.jpg',
+      // like Day One, this mod animates the light side only
+      video: `${root('creamy-keyboard')}/wall/live.mp4`,
+      label: 'Cream, in motion',
+    },
+  },
+
+  'elden-ring': {
+    id: 'elden-ring',
+    name: 'Elden Ring',
+    track: 'Elden Ring',
+    layers: stems('elden-ring', 1),
+    sfx: sfx('elden-ring', 1),
+    wall: {
+      still: '/themes/elden-ring.jpg',
+      video: `${root('elden-ring')}/wall/live.mp4`,
+      label: 'Ranni, and the moon',
+    },
+  },
+
+  'grand-theft-auto-san-andreas': {
+    id: 'grand-theft-auto-san-andreas',
+    name: 'Grand Theft Auto: San Andreas',
+    track: 'San Andreas',
+    layers: stems('grand-theft-auto-san-andreas', 1),
+    sfx: sfx('grand-theft-auto-san-andreas', 1),
+    wall: {
+      still: '/themes/grand-theft-auto-san-andreas.jpg',
+      video: `${root('grand-theft-auto-san-andreas')}/wall/live.mp4`,
+      label: 'Grove Street',
+    },
+  },
+
+  'hollow-knight': {
+    id: 'hollow-knight',
+    name: 'Hollow Knight',
+    track: 'Hollow Knight',
+    layers: stems('hollow-knight', 1),
+    sfx: sfx('hollow-knight', 1),
+    wall: {
+      still: '/themes/hollow-knight.jpg',
+      video: `${root('hollow-knight')}/wall/live.mp4`,
+      label: 'Hallownest, below',
+    },
+  },
+
+  'japanese-lofi-mix': {
+    id: 'japanese-lofi-mix',
+    name: 'Japanese lofi Mix',
+    track: 'Japanese lofi Mix',
+    layers: stems('japanese-lofi-mix', 1),
+    // The one mod with no interface sounds at all: its payload is music and a
+    // wallpaper and nothing else. Left out on purpose, so the panel's sound
+    // switch stays off for it rather than offering a switch that plays silence.
+    wall: {
+      still: '/themes/japanese-lofi-mix.jpg',
+      video: `${root('japanese-lofi-mix')}/wall/live.mp4`,
+      label: 'The window at dusk',
+    },
+  },
+
+  'josh-hutcherson': {
+    id: 'josh-hutcherson',
+    name: 'Josh Hutcherson',
+    track: 'Josh Hutcherson',
+    layers: stems('josh-hutcherson', 1),
+    sfx: sfx('josh-hutcherson', 1),
+    wall: {
+      still: '/themes/josh-hutcherson.jpg',
+      fx: 'stars',
+      label: 'Whistle, and it turns',
+    },
+  },
+
+  'monkey-rizz': {
+    id: 'monkey-rizz',
+    name: 'Monkey RIZZ',
+    track: 'Monkey RIZZ',
+    layers: stems('monkey-rizz', 1),
+    sfx: sfx('monkey-rizz', 3),
+    wall: {
+      still: '/themes/monkey-rizz.jpg',
+      video: `${root('monkey-rizz')}/wall/live.mp4`,
+      label: 'The monkey, unbothered',
+    },
+  },
+
+  'naruto-itachi-uchiha': {
+    id: 'naruto-itachi-uchiha',
+    name: 'Naruto Itachi Uchiha',
+    track: 'Itachi',
+    layers: stems('naruto-itachi-uchiha', 4),
+    sfx: sfx('naruto-itachi-uchiha', 3),
+    wall: {
+      still: '/themes/naruto-itachi-uchiha.jpg',
+      video: `${root('naruto-itachi-uchiha')}/wall/live.mp4`,
+      label: 'Crows over the Uchiha',
     },
   },
 };

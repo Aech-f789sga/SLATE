@@ -175,12 +175,18 @@ class ModWall {
     if (!layer) return;
     const mod = currentMod();
     const themeId = document.documentElement.dataset.gxTheme || '';
-    // Every theme gets a live layer now. The three ported mods bring their own
-    // video or shader; the rest fall back to a procedural effect chosen to
-    // suit the artwork. `data-on` is already the wallpaper switch, so a theme
-    // with no wallpaper still gets nothing.
-    const fx: Fx | null = mod?.wall.fx ?? THEME_FX[themeId] ?? null;
+    // Every theme gets a live layer now. Mods that ship their own animated
+    // wallpaper use that video; the rest fall back to a procedural effect
+    // chosen to suit the artwork. `data-on` is already the wallpaper switch, so
+    // a theme with no wallpaper still gets nothing.
     const videoSrc = mod?.wall.video ?? null;
+    // A video wins outright. Painting drifting dust over real animation reads
+    // as a filter on top of the artwork rather than as weather in it, and now
+    // that the mods' own loops are ported there is nothing left for the
+    // procedural layer to stand in for.
+    const fx: Fx | null = videoSrc
+      ? null
+      : (mod?.wall.fx ?? THEME_FX[themeId] ?? null);
     const on = layer.dataset.on === '1';
     const want = `${mod?.id ?? themeId}|${on ? 1 : 0}|${this.live ? 1 : 0}|${fx ?? ''}`;
     if (want === this.applied) {
