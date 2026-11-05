@@ -149,12 +149,14 @@ if (doVideo) {
         '-y',
         '-i',
         src,
-        // 720p, 24fps, no audio. crf 31 keeps a full-length loop (the mod's
-        // own loop point, so it stays seamless) at a few hundred KB instead of
-        // re-timing the clip to a length that would jump.
+        // No audio. 1600 px wide at CRF 26 — the earlier 720p / CRF 31 pass was
+        // tuned for size and showed it: these wallpapers are almost all flat
+        // gradient, which is exactly what a high CRF bands and blocks. See
+        // scripts/upgrade-walls.mjs, which re-encodes the clips already in the
+        // repo from the same sources at these settings.
         '-an',
         '-vf',
-        'scale=-2:720:flags=lanczos,fps=24',
+        "scale='min(1600,iw)':-2:flags=lanczos,fps=30",
         '-c:v',
         'libx264',
         '-profile:v',
@@ -162,9 +164,9 @@ if (doVideo) {
         '-pix_fmt',
         'yuv420p',
         '-crf',
-        '31',
+        '26',
         '-preset',
-        'veryfast',
+        'slow',
         '-movflags',
         '+faststart',
         out,
