@@ -407,6 +407,84 @@ function elapsed(): number {
   return timer.ms + (timer.running ? Date.now() - timer.startedAt : 0);
 }
 
+/* ------------------------------------------------------------------ */
+/* The timer, as a flip clock                                          */
+/* ------------------------------------------------------------------ */
+
+/** One digit: two static halves plus the two leaves that flip between them. */
+const DIGIT_HTML =
+  '<b class="tk-h tk-h-t"><i>0</i></b><b class="tk-h tk-h-b"><i>0</i></b>' +
+  '<b class="tk-h tk-f tk-f-t"><i>0</i></b><b class="tk-h tk-f tk-f-b"><i>0</i></b>';
+
+let tkCells: HTMLElement[] = [];
+let tkGroups = 0;
+let tkShown = '';
+
+/** mm:ss, or h:mm:ss once there is an hour to show. */
+function digitsOf(ms: number): string[] {
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return h ? [p(h), p(m), p(s)] : [p(m), p(s)];
+}
+
+function buildFace(groups: number) {
+  if (!timerFace || groups === tkGroups) return;
+  tkGroups = groups;
+  tkShown = '';
+  tkCells = [];
+  timerFace.innerHTML = '';
+  for (let g = 0; g < groups; g++) {
+    if (g) timerFace.append(div('tk-sep', ':'));
+    const pair = div('tk-pair');
+    for (let k = 0; k < 2; k++) {
+      const d = div('tk-d');
+      d.innerHTML = DIGIT_HTML;
+      pair.append(d);
+      tkCells.push(d);
+    }
+    timerFace.append(pair);
+  }
+}
+
+/**
+ * Turn one second over.
+ *
+ * Only the digits that actually change flip, so a clock at 0:07→0:08 moves one
+ * card rather than the whole face. The leaf that falls shows the old digit, the
+ * one that lands shows the new one — that is the whole illusion, and it needs
+ * both halves repainted in the same frame the class goes on.
+ */
+function setFace(ms: number) {
+  const groups = digitsOf(ms);
+  buildFace(groups.length);
+  const text = groups.join('');
+  if (text === tkShown) return;
+  const prev = tkShown.padStart(text.length, '0');
+  tkShown = text;
+
+  tkCells.forEach((cell, i) => {
+    const from = prev[i] ?? '0';
+    const to = text[i] ?? '0';
+    const q = (sel: string) => cell.querySelector<HTMLElement>(sel);
+    const st = q('.tk-h-t i');
+    const sb = q('.tk-h-b i');
+    if (st) st.textContent = to;
+    if (sb) sb.textContent = to;
+    if (from === to) return;
+    const ft = q('.tk-f-t i');
+    const fb = q('.tk-f-b i');
+    if (ft) ft.textContent = from;
+    if (fb) fb.textContent = to;
+    cell.classList.remove('go');
+    void cell.offsetWidth;
+    cell.classList.add('go');
+    window.setTimeout(() => cell.classList.remove('go'), 360);
+  });
+}
+
 function fmt(ms: number): string {
   const total = Math.floor(ms / 1000);
   const h = Math.floor(total / 3600);
@@ -422,7 +500,9 @@ function buildTimer() {
   timerEl.id = 'gn-timekeeper';
 
   const dot = div('tk-dot');
-  timerFace = div('tk-face', '0:00');
+  timerFace = div('tk-face');
+  buildFace(2);
+  setFace(0);
   const play = btn('tk-btn');
   play.title = 'Start / pause';
   play.dataset.role = 'play';
@@ -449,13 +529,25 @@ function buildTimer() {
     paintTimer();
   };
 
-  timerEl.append(dot, timerFace, play, reset);
+  const close = btn('tk-btn');
+  close.title = 'Hide the timer';
+  close.setAttribute('aria-label', 'Hide the timer');
+  close.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  close.onclick = () => {
+    state.timer = false;
+    saveState();
+    paintTimer();
+    paintMenu();
+  };
+
+  timerEl.append(dot, timerFace, play, reset, close);
   document.body.append(timerEl);
 
   window.clearInterval(timerTick);
   timerTick = window.setInterval(() => {
     if (!state.timer || !editorOpen()) return;
-    if (timerFace) timerFace.textContent = fmt(elapsed());
+    setFace(elapsed());
   }, 500);
 }
 
@@ -464,7 +556,8 @@ function paintTimer() {
   const on = state.timer && editorOpen();
   timerEl.classList.toggle('on', on);
   timerEl.classList.toggle('run', timer.running);
-  if (timerFace) timerFace.textContent = fmt(elapsed());
+  setFace(elapsed());
+  timerEl.setAttribute('aria-label', `Timer ${fmt(elapsed())}`);
   const play = timerEl.querySelector<HTMLElement>('[data-role="play"]');
   if (play) {
     play.innerHTML = timer.running
@@ -1299,23 +1392,59 @@ const CSS = `
 
 #gn-timekeeper{
   position:fixed;left:16px;z-index:28;display:none;
-  align-items:center;gap:7px;padding:5px 7px 5px 10px;border-radius:999px;
+  align-items:center;gap:6px;padding:4px 6px 4px 9px;border-radius:999px;
   background:#fff;border:1px solid #eef1f6;font-family:inherit;
   box-shadow:0 8px 24px rgba(8,20,38,.18),0 1px 3px rgba(8,20,38,.08);
 }
 #gn-timekeeper.on{display:flex}
 #gn-timekeeper .tk-dot{width:7px;height:7px;border-radius:50%;background:#c8d0da;flex:none}
 #gn-timekeeper.run .tk-dot{background:#e5383b;box-shadow:0 0 0 3px rgba(229,56,59,.18)}
-#gn-timekeeper .tk-face{
-  font:700 12.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
-  color:#2b3542;font-variant-numeric:tabular-nums;min-width:44px;
+#gn-timekeeper .tk-face{display:flex;align-items:center;gap:2px}
+#gn-timekeeper .tk-pair{display:flex;gap:1.5px}
+#gn-timekeeper .tk-sep{
+  font:700 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#9aa5b5;
+  padding:0 0.5px;transform:translateY(-1px);
 }
+#gn-timekeeper.run .tk-sep{animation:tkBlink 2s steps(1,end) infinite}
+@keyframes tkBlink{0%,49%{opacity:1}50%,100%{opacity:.25}}
+
+#gn-timekeeper .tk-d{
+  position:relative;width:15px;height:21px;border-radius:3.5px;
+  background:#2b3542;perspective:70px;flex:none;
+  box-shadow:inset 0 0 0 0.5px rgba(255,255,255,.07);
+}
+#gn-timekeeper .tk-d::after{
+  content:'';position:absolute;left:0;right:0;top:calc(50% - .5px);height:1px;
+  background:rgba(8,14,26,.34);z-index:4;pointer-events:none;
+}
+#gn-timekeeper .tk-h{
+  position:absolute;left:0;width:100%;height:50%;overflow:hidden;
+  background:#2b3542;backface-visibility:hidden;
+}
+#gn-timekeeper .tk-h i{
+  position:absolute;left:0;right:0;display:block;height:200%;
+  font:700 13.5px/21px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-style:normal;color:#f4f7fb;text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+#gn-timekeeper .tk-h-t{top:0;border-radius:3px 3px 0 0}
+#gn-timekeeper .tk-h-b{bottom:0;border-radius:0 0 3px 3px}
+#gn-timekeeper .tk-h-t i{top:0}
+#gn-timekeeper .tk-h-b i{top:-100%}
+#gn-timekeeper .tk-f{display:none}
+#gn-timekeeper .tk-d.go .tk-f{display:block;z-index:3}
+#gn-timekeeper .tk-f-t{top:0;transform-origin:bottom center;border-radius:3px 3px 0 0}
+#gn-timekeeper .tk-f-b{bottom:0;transform-origin:top center;border-radius:0 0 3px 3px;transform:rotateX(90deg)}
+#gn-timekeeper .tk-d.go .tk-f-t{animation:tkFlipTop .17s ease-in forwards}
+#gn-timekeeper .tk-d.go .tk-f-b{animation:tkFlipBot .17s ease-out .17s forwards}
+@keyframes tkFlipTop{from{transform:rotateX(0)}to{transform:rotateX(-90deg)}}
+@keyframes tkFlipBot{from{transform:rotateX(90deg)}to{transform:rotateX(0)}}
 #gn-timekeeper .tk-btn{
-  width:26px;height:26px;border-radius:50%;border:0!important;background:#f2f5fa!important;
+  width:22px;height:22px;border-radius:50%;border:0!important;background:#f2f5fa!important;
   color:#3c4654;display:grid;place-items:center;cursor:pointer;padding:0!important;flex:none;
 }
 #gn-timekeeper .tk-btn:hover{background:#e6ecf6!important}
-#gn-timekeeper .tk-btn svg{width:13px;height:13px;display:block}
+#gn-timekeeper .tk-btn svg{width:11px;height:11px;display:block}
 @media(max-width:620px){
   #gn-zoomwin{width:140px;height:140px}
   #gn-zoomwin canvas{width:140px;height:140px}
