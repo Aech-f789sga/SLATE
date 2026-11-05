@@ -95,10 +95,18 @@ const FAMILY: Record<Family, string> = {
     --mt-blur:blur(10px) saturate(1.15);
     --mt-hair:color-mix(in srgb, var(--ac) 60%, transparent);`,
 
-  /* Warm stock: cream panels, a rule under the bar, a little grain. */
+  /**
+   * Warm stock: cream panels, a rule under the bar, a little grain.
+   *
+   * 88/80% rather than the 93% it started at, for the same reason stone was
+   * thinned: a panel opaque enough to be a sheet of paper is also opaque
+   * enough to delete the wallpaper behind it. The grain and the warm white are
+   * what make it paper; the last few percent of opacity were only hiding the
+   * picture.
+   */
   paper: `
-    --mt-panel:color-mix(in srgb, var(--sf) 93%, #fff 7%);
-    --mt-panel2:color-mix(in srgb, var(--bg) 88%, transparent);
+    --mt-panel:color-mix(in srgb, var(--sf) 88%, #fff 4%);
+    --mt-panel2:color-mix(in srgb, var(--bg) 80%, transparent);
     --mt-edge:color-mix(in srgb, var(--ac) 24%, var(--bd));
     --mt-r:9px;--mt-r2:6px;--mt-clip:none;
     --mt-shadow:0 10px 26px -20px rgba(40,26,12,.7);
@@ -469,6 +477,109 @@ html[data-gx-theme="hollow-knight"] .card{
 }
 html[data-gx-theme="hollow-knight"] #gn-tabs button.on{
   box-shadow:inset 0 -1px 0 color-mix(in srgb, var(--ac) 70%, transparent);
+}`,
+  },
+
+  /**
+   * Cozy. A lamp on in the corner: warm stock, softer corners than the rest of
+   * the paper family, and a wash of lamplight rising from the bottom of the
+   * page rather than falling from the top like every other theme.
+   */
+  cozy: {
+    fam: 'paper',
+    extra: `
+html[data-gx-theme="cozy"]{--mt-r:12px;--mt-r2:8px}
+html[data-gx-theme="cozy"] #lib{
+  background:
+    radial-gradient(82% 58% at 50% 104%,
+      color-mix(in srgb, var(--ac) 11%, transparent), transparent 76%)!important;
+}
+html[data-gx-theme="cozy"] .card{
+  border-radius:12px!important;
+  border-color:color-mix(in srgb, var(--ac) 22%, var(--bd))!important;
+}
+html[data-gx-theme="cozy"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+}`,
+  },
+
+  /**
+   * Creamy Keyboard. The mod is a pastel keycap set, so cards get a keycap's
+   * bottom edge — a short solid offset with no blur — and the corners are the
+   * roundest in the family. Playful without becoming a cartoon.
+   */
+  'creamy-keyboard': {
+    fam: 'paper',
+    extra: `
+html[data-gx-theme="creamy-keyboard"]{--mt-r:13px;--mt-r2:9px}
+html[data-gx-theme="creamy-keyboard"] .card{
+  border-radius:13px!important;
+  box-shadow:0 3px 0 color-mix(in srgb, var(--bg) 72%, #000),
+             0 12px 26px -22px rgba(0,0,0,.55)!important;
+}
+html[data-gx-theme="creamy-keyboard"] #tb,
+html[data-gx-theme="creamy-keyboard"] #libm{
+  border-radius:13px!important;
+  box-shadow:0 3px 0 color-mix(in srgb, var(--bg) 76%, #000),
+             var(--mt-shadow)!important;
+}
+html[data-gx-theme="creamy-keyboard"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+  border-radius:8px;
+}`,
+  },
+
+  /**
+   * Capybara Party. The softest theme in the set: the roundest corners of any
+   * theme here, a pastel wash off the top of the page, and borders left
+   * almost invisible so nothing interrupts the roundness.
+   */
+  'capybara-party': {
+    fam: 'paper',
+    extra: `
+html[data-gx-theme="capybara-party"]{--mt-r:18px;--mt-r2:12px}
+html[data-gx-theme="capybara-party"] #lib{
+  background:
+    radial-gradient(72% 50% at 50% 0%,
+      color-mix(in srgb, var(--ac) 13%, transparent), transparent 74%)!important;
+}
+html[data-gx-theme="capybara-party"] .card{
+  border-radius:18px!important;
+  border-color:color-mix(in srgb, var(--ac) 18%, transparent)!important;
+}
+html[data-gx-theme="capybara-party"] #tb,
+html[data-gx-theme="capybara-party"] #libm{
+  border-radius:18px!important;
+  border-color:color-mix(in srgb, var(--ac) 16%, transparent)!important;
+}
+html[data-gx-theme="capybara-party"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+  border-radius:10px;
+}`,
+  },
+
+  /**
+   * Japanese lofi Mix. Stationery rather than scenery: a bound edge down the
+   * left of the content, a thin red rule under the bar, and the grain left
+   * alone. The restraint is the point — this is the theme for working.
+   */
+  'japanese-lofi-mix': {
+    fam: 'paper',
+    extra: `
+html[data-gx-theme="japanese-lofi-mix"] #libm{
+  border-left:2px solid color-mix(in srgb, var(--ac) 34%, transparent)!important;
+}
+html[data-gx-theme="japanese-lofi-mix"] #tb{
+  box-shadow:
+    var(--mt-shadow),
+    inset 0 -1px 0 color-mix(in srgb, var(--ac) 42%, transparent)!important;
+}
+html[data-gx-theme="japanese-lofi-mix"] .card{
+  border-radius:6px!important;
+}
+html[data-gx-theme="japanese-lofi-mix"] #gn-tabs button.on{
+  box-shadow:inset 0 -1px 0 var(--ac);
+  letter-spacing:.04em;
 }`,
   },
 };

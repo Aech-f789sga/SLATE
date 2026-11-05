@@ -215,7 +215,7 @@ html[data-bar=compact] #tb #more{
 #gn-top .grow{flex:1;display:flex;align-items:center;gap:10px}
 #gn-search{
   display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--gn-line);
-  border-radius:999px;padding:7px 13px;min-width:220px;max-width:360px;flex:1;
+  border-radius:999px;padding:7px 13px;min-width:150px;max-width:360px;flex:1;
   box-shadow:0 1px 3px rgba(16,32,64,.05);
 }
 #gn-search input{border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;width:100%;color:#1c2430}

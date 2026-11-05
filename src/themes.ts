@@ -516,6 +516,15 @@ html[data-gx] #grid.list .card{
   background:color-mix(in srgb, var(--sf) 86%, transparent)!important;
   border-color:var(--bd)!important;color:var(--tx)!important;
 }
+/* The skin re-fonts this button at 15px, which is wider than the 12.5px the
+   study module measured its label at, so "Study" broke onto two lines and the
+   icon floated above the word. Pinned here rather than in study.ts because the
+   theme is what widened it.
+
+   Note the id: the button is gn-study-btn, while every rule written for it —
+   in study.ts, themes-skin.ts and here — selects #gn-study, which matches
+   nothing. That is why its own white-space:nowrap never applied. */
+html[data-gx] #gn-study-btn{white-space:nowrap!important}
 html[data-gx] #gn-search input{color:var(--tx)!important}
 html[data-gx] #gn-search input::placeholder{color:var(--mu)!important}
 html[data-gx] #gn-board:hover,
@@ -693,7 +702,7 @@ html[data-gx] #gx-theme-panel .gxp-x svg{
 #gx-theme-row #find{margin-bottom:0!important;flex:1 1 auto;max-width:none!important}
 
 #gx-theme-btn{
-  display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;max-width:170px;
+  display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;max-width:196px;
   font:600 12.5px/1 inherit;padding:8px 13px;border-radius:10px;cursor:pointer;
   border:1px solid var(--bd);background:color-mix(in srgb, var(--sf) 86%, transparent);
   color:var(--tx);white-space:nowrap;overflow:hidden;
