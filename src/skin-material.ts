@@ -62,12 +62,20 @@ const FAMILY: Record<Family, string> = {
     --mt-hair:color-mix(in srgb, var(--bg) 55%, #000);
     --mt-bw:2px;`,
 
-  /* Engraved stone and vellum: inset bevel, serif capitals. */
+  /**
+   * Engraved stone and vellum: inset bevel, serif capitals.
+   *
+   * Kept at 82/74% rather than the near-opaque 96% it started at. At 96% the
+   * wallpaper stopped existing behind the content area — the shelf was a flat
+   * rectangle of --sf and the artwork only survived in the sidebar, which is
+   * the exact thing the mod was ported for. The bevel is what makes it stone;
+   * the opacity was only ever hiding the picture.
+   */
   stone: `
     --mt-panel:linear-gradient(180deg,
-      color-mix(in srgb, var(--sf) 96%, #fff 4%),
-      color-mix(in srgb, var(--sf) 90%, #000 10%));
-    --mt-panel2:color-mix(in srgb, var(--bg) 90%, transparent);
+      color-mix(in srgb, var(--sf) 84%, transparent),
+      color-mix(in srgb, var(--sf) 74%, transparent));
+    --mt-panel2:color-mix(in srgb, var(--bg) 78%, transparent);
     --mt-edge:color-mix(in srgb, var(--ac) 34%, var(--bd));
     --mt-r:4px;--mt-r2:3px;--mt-clip:none;
     --mt-shadow:inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent),
@@ -344,6 +352,123 @@ html[data-gx-theme="monkey-rizz"] #tb,html[data-gx-theme="monkey-rizz"] #libm{
 html[data-gx-theme="monkey-rizz"] #gn-tabs button.on{
   box-shadow:inset 0 -3px 0 var(--ac);
   text-transform:uppercase;
+}`,
+  },
+
+  /**
+   * Medieval. Vellum and carved oak: warm stock, a double rule around the
+   * content the way a manuscript page is ruled, and corners left square
+   * because nothing in the period was rounded.
+   */
+  medieval: {
+    fam: 'stone',
+    extra: `
+html[data-gx-theme="medieval"] #libm{
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ac) 30%, transparent),
+    inset 0 0 0 6px transparent,
+    inset 0 0 0 7px color-mix(in srgb, var(--ac) 14%, transparent),
+    var(--mt-shadow)!important;
+}
+html[data-gx-theme="medieval"] #tb{
+  border-radius:2px!important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ac) 22%, transparent),
+    var(--mt-shadow)!important;
+}
+html[data-gx-theme="medieval"] .card{
+  border-radius:2px!important;
+  border-color:color-mix(in srgb, var(--ac) 26%, var(--bd))!important;
+}
+html[data-gx-theme="medieval"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac);
+}`,
+  },
+
+  /**
+   * Legendary Rift. The artwork already *is* the rift — a magenta sky with a
+   * column of light straight up the middle — so the chrome's job is to stay
+   * out of its way rather than to add a second tear. My first pass drew a
+   * glowing vertical seam down the centre, which was both redundant and
+   * misaligned with the one in the picture. The panels are thinner here than
+   * the rest of the stone family, and the only accent is a low glow that
+   * reads as light coming up off the ground.
+   */
+  'legendary-rift': {
+    fam: 'stone',
+    extra: `
+html[data-gx-theme="legendary-rift"]{
+  --mt-panel:linear-gradient(180deg,
+    color-mix(in srgb, var(--sf) 74%, transparent),
+    color-mix(in srgb, var(--sf) 62%, transparent));
+  --mt-panel2:color-mix(in srgb, var(--bg) 66%, transparent);
+}
+html[data-gx-theme="legendary-rift"] #lib{
+  background:
+    radial-gradient(48% 46% at 50% 84%,
+      color-mix(in srgb, var(--ac) 15%, transparent), transparent 74%)!important;
+}
+html[data-gx-theme="legendary-rift"] #gn-tabs button.on{
+  box-shadow:inset 0 -2px 0 var(--ac),
+             0 4px 16px -10px var(--ac);
+}`,
+  },
+
+  /**
+   * Elden Ring. Cold steel on stone — the mod's accent is a pale desaturated
+   * blue, not gold, so the hairline under the bar reads as gilding turned
+   * grey, and cards are framed on the inside so the edge looks inset into the
+   * page instead of stuck onto it.
+   */
+  'elden-ring': {
+    fam: 'stone',
+    extra: `
+html[data-gx-theme="elden-ring"] #tb{
+  box-shadow:
+    var(--mt-shadow),
+    inset 0 -1px 0 color-mix(in srgb, var(--ac) 55%, transparent)!important;
+}
+html[data-gx-theme="elden-ring"] #lib{
+  background:
+    radial-gradient(72% 42% at 50% 0%,
+      color-mix(in srgb, var(--ac) 11%, transparent), transparent 72%)!important;
+}
+html[data-gx-theme="elden-ring"] .card{
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ac) 24%, transparent),
+    0 10px 26px -20px rgba(0,0,0,.8)!important;
+}
+html[data-gx-theme="elden-ring"] #gn-tabs button.on{
+  box-shadow:inset 0 -1px 0 var(--ac);
+  letter-spacing:.06em;
+}`,
+  },
+
+  /**
+   * Hollow Knight. Drawn rather than lit: cold blue-black, one engraved
+   * hairline, no glow anywhere, and the tightest radii of the stone family so
+   * the panels read as etched plates rather than carved blocks.
+   */
+  'hollow-knight': {
+    fam: 'stone',
+    extra: `
+html[data-gx-theme="hollow-knight"]{
+  --mt-r:3px;--mt-r2:2px;
+  --mt-shadow:inset 0 1px 0 color-mix(in srgb, #fff 10%, transparent),
+              0 6px 20px -16px rgba(0,0,0,.9);
+}
+html[data-gx-theme="hollow-knight"] #tb,
+html[data-gx-theme="hollow-knight"] #libm{
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ac) 18%, transparent),
+    var(--mt-shadow)!important;
+}
+html[data-gx-theme="hollow-knight"] .card{
+  border-radius:2px!important;
+  border-color:color-mix(in srgb, var(--ac) 22%, var(--bd))!important;
+}
+html[data-gx-theme="hollow-knight"] #gn-tabs button.on{
+  box-shadow:inset 0 -1px 0 color-mix(in srgb, var(--ac) 70%, transparent);
 }`,
   },
 };
