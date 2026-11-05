@@ -235,6 +235,11 @@ const CSS = `
 }
 #ink-pen button:hover{background:#f2f5fa}
 #ink-pen button.on{background:#e3edff!important;color:#1f4fbf}
+/* A selected swatch is shown by the ring around it, never by repainting it:
+   the button.on rule is a more specific selector than .sw, so it used to win
+   and the colour you were holding became a pale blue circle that named
+   nothing. */
+#ink-pen button.sw.on{background:var(--swc,#111)!important}
 #ink-pen button svg{width:19px;height:19px;display:block}
 #ink-pen .w{display:grid;place-items:center}
 #ink-pen .w i{display:block;border-radius:999px;background:currentColor}
