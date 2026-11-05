@@ -7,12 +7,13 @@
  * Everything below is read straight from each mod's own `manifest.json`
  * (`mod.payload`), so the paths and the track count are the mod's, not ours.
  *
- * The soundtracks are all the same shape, which is the interesting part:
+ * Twenty-three of the installed mods have media here, and seventeen of them
+ * animate their wallpaper. The shape varies more than the first few suggested:
  *
  *   LoFi Chill   four stems mixed as one track, a still photograph, and a
  *                shader that draws drifting bokeh over it.
- *   Cyberdeck    three stems, an animated webm of the skyline, and a shader
- *                that adds glitch and a binary matrix.
+ *   Cyberdeck    three stems, an animated webm of the skyline, plus the
+ *                shader's binary matrix, which the wall engine redraws.
  *   Minecraft    one 17-minute track, and a 17-minute video of a fireplace.
  *   Blockified   a single track — the one mod here that ships a whole song
  *                rather than layers of one.
@@ -20,9 +21,9 @@
  * A mod ships *stems*, not a song: `layer1..5.mp3`, all exactly the same
  * length, which Opera plays at once so it can fade layers in and out without
  * ever cutting the music. The engine does the same, so `layers` is just the
- * count the mod uses.
+ * count the mod uses. Mods that ship one whole song still land as `layer1`.
  *
- * Audio is re-encoded to 64 kbps AAC and video to 720p; the originals are
+ * Audio is re-encoded to 64 kbps AAC and video to 720p24; the originals are
  * untouched in the mod folder.
  */
 

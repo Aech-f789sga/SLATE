@@ -9,13 +9,18 @@
  * `#gx-wall`, and the editor's desk is left translucent so the mod keeps
  * playing behind the page you are writing on.
  *
- * Three mods, three kinds of "live", because that is what they ship:
+ * Two kinds of "live", because that is what the mods ship:
  *
- *   LoFi Chill   a photograph, and a shader that drifts bokeh over it. The
- *                bokeh is redrawn here on a canvas.
- *   Cyberdeck    a six-second webm of the skyline, plus the shader's binary
- *                matrix, which is redrawn here on a canvas.
- *   Minecraft    a video of a fireplace. Nothing to add; the fire is the point.
+ *   a video      seventeen of them animate the wallpaper outright, from a
+ *                six-second webm of the Cyberdeck skyline to a 17-minute
+ *                fireplace. Nothing is added; the loop is the point.
+ *   a shader     LoFi Chill is a photograph with a bokeh shader, Cyberdeck
+ *                keeps its binary matrix on top of the video, and the mods
+ *                with a still wallpaper get a weather chosen to suit the
+ *                picture. All of those are redrawn here on a canvas.
+ *
+ * A video wins outright: drifting dust over real animation reads as a filter
+ * on the artwork rather than as weather in it.
  *
  * A "Still" switch is kept for the same reason the mod's own wallpaper
  * settings have one: a moving picture behind a page of handwriting is not
