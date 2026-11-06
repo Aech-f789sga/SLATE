@@ -105,6 +105,8 @@ html[data-bar=compact] #bar{padding-right:0}
 <script type="module" src="/src/toolbar.ts"></script>
 <script type="module" src="/src/ink.ts"></script>
 <script type="module" src="/src/shapes.ts"></script>
+<script type="module" src="/src/curve-line.ts"></script>
+<script type="module" src="/src/warp.ts"></script>
 <script type="module" src="/src/text.ts"></script>
 <script type="module" src="/src/accessories.ts"></script>
 <script type="module" src="/src/library.ts"></script>
@@ -353,7 +355,7 @@ const IM={};function img(s){let i=IM[s.src];if(!i){i=IM[s.src]=new Image();i.onl
 function fnt(c,s){c.font=`${s.s}px ${FF(s.f)}`;c.textBaseline="top"}
 function bb0(s,c=ctx){if(s.t==="text"){const L=wrap(c,s);return[s.x,s.y,s.x+Math.max(12,...L.map(l=>c.measureText(l).width)),s.y+L.length*s.s*1.3]}
  if(s.t==="img"||s.t==="vid")return[s.x,s.y,s.x+s.w,s.y+s.h];
- if(s.t==="shape"){const z=s.k==="ax3"?zEnd(s):s.a;return[Math.min(s.a[0],s.b[0],z[0]),Math.min(s.a[1],s.b[1],z[1]),Math.max(s.a[0],s.b[0],z[0]),Math.max(s.a[1],s.b[1],z[1])]}
+ if(s.t==="shape"){if(s.k==="qcurve"){const C=qFrame(s).c;return[Math.min(s.a[0],s.b[0],C[0]),Math.min(s.a[1],s.b[1],C[1]),Math.max(s.a[0],s.b[0],C[0]),Math.max(s.a[1],s.b[1],C[1])]}const z=s.k==="ax3"?zEnd(s):s.a;return[Math.min(s.a[0],s.b[0],z[0]),Math.min(s.a[1],s.b[1],z[1]),Math.max(s.a[0],s.b[0],z[0]),Math.max(s.a[1],s.b[1],z[1])]}
  const xs=s.p.map(q=>q[0]),ys=s.p.map(q=>q[1]);return[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)]}
 function mv(a,dx,dy){a.forEach(s=>{if(s.p)s.p=s.p.map(q=>q.length>2?[q[0]+dx,q[1]+dy,q[2]]:[q[0]+dx,q[1]+dy]);if(s.er)s.er=s.er.map(e=>({w:e.w,p:e.p.map(q=>[q[0]+dx,q[1]+dy])}));if(s.a){s.a=[s.a[0]+dx,s.a[1]+dy];s.b=[s.b[0]+dx,s.b[1]+dy]}if(s.x!==undefined){s.x+=dx;s.y+=dy}})}
 function stroke(c,s){if(s.t==='fxw'){const f=s.f,q=s.c,h=f[8];c.save();c.translate(q[0]+f[0],q[1]+f[1]);c.rotate(f[4]);c.scale(f[2],f[3]);if(f[6]||f[7])c.transform(1,f[7],f[6],1,0,0);c.translate(-q[0],-q[1]);c.globalAlpha*=f[5];if(h){c.shadowColor='rgba(0,0,0,'+h[3]+')';c.shadowOffsetX=h[0];c.shadowOffsetY=h[1];c.shadowBlur=h[2]}stroke(c,s.s);c.restore();if(s.ov)(Array.isArray(s.ov)?s.ov:[s.ov]).forEach(o=>fxOv(c,o));return}
@@ -460,7 +462,8 @@ function pw(q,sp,l){const g=+$("#prs").value||1,pr=normP(q.pressure),al=q.altitu
 $("#prs").onchange=()=>{PC={min:1,max:0,n:0};try{localStorage.removeItem("inkpad-pc")}catch(e){}};
 function dens(p,st){const o=[p[0]];for(let i=1;i<p.length;i++){const a=p[i-1],b=p[i],d=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.ceil(d/st);for(let k=1;k<n;k++){const t=k/n;o.push(b.length>2&&a.length>2?[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]:[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t])}o.push(b)}return o}
 function shapePts(s){const a=s.a,b=s.b,L=[],line=(u,v)=>{const n=Math.max(1,Math.ceil(Math.hypot(v[0]-u[0],v[1]-u[1])/6));for(let i=0;i<=n;i++)L.push([u[0]+(v[0]-u[0])*i/n,u[1]+(v[1]-u[1])*i/n])};
- if(s.k==="line"||s.k==="arrow"||s.k==="hid")line(a,b);else if(s.k==="ax2"||s.k==="ax3"){line(a,[b[0],a[1]]);line(a,[a[0],b[1]]);if(s.k==="ax3")line(a,zEnd(s))}else if(s.k==="rect"){const c=[a,[b[0],a[1]],b,[a[0],b[1]],a];for(let i=0;i<4;i++)line(c[i],c[i+1])}else{const cx=(a[0]+b[0])/2,cy=(a[1]+b[1])/2,rx=Math.abs(b[0]-a[0])/2,ry=Math.abs(b[1]-a[1])/2;for(let i=0;i<=72;i++){const t=i/72*Math.PI*2;L.push([cx+rx*Math.cos(t),cy+ry*Math.sin(t)])}}return L}
+ if(s.k==="qcurve"){const F=qFrame(s),C=F.c,n=Math.max(16,Math.ceil((F.L+2*Math.hypot(C[0]-F.m[0],C[1]-F.m[1]))/5));for(let i=0;i<=n;i++){const t=i/n,u=1-t;L.push([u*u*a[0]+2*u*t*C[0]+t*t*b[0],u*u*a[1]+2*u*t*C[1]+t*t*b[1]])}}
+ else if(s.k==="line"||s.k==="arrow"||s.k==="hid")line(a,b);else if(s.k==="ax2"||s.k==="ax3"){line(a,[b[0],a[1]]);line(a,[a[0],b[1]]);if(s.k==="ax3")line(a,zEnd(s))}else if(s.k==="rect"){const c=[a,[b[0],a[1]],b,[a[0],b[1]],a];for(let i=0;i<4;i++)line(c[i],c[i+1])}else{const cx=(a[0]+b[0])/2,cy=(a[1]+b[1])/2,rx=Math.abs(b[0]-a[0])/2,ry=Math.abs(b[1]-a[1])/2;for(let i=0;i<=72;i++){const t=i/72*Math.PI*2;L.push([cx+rx*Math.cos(t),cy+ry*Math.sin(t)])}}return L}
 function partial(x,y){const r=8+size*1.2,out=[];let ch=false;
  for(const s of pg().strokes){let q=s;
   if(q.t==="shape"){const b=bb(q),m=r+q.w;if(x<b[0]-m||x>b[2]+m||y<b[1]-m||y>b[3]+m){out.push(s);continue}q={t:"pen",c:s.c,w:s.w,v:"ball",ly:s.ly,p:shapePts(s)}}
@@ -783,12 +786,25 @@ addEventListener('pointerdown',e=>{if(e.pointerType!=='touch'||!e.target.closest
 addEventListener('pointermove',e=>{if(!PT.has(e.pointerId))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(pinch&&PT.size>=2){e.stopPropagation();const[a,b]=[...PT.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,s=$('#stage');z=Math.min(8,Math.max(.5,pinch.z*d/pinch.d));layout();s.scrollLeft-=mx-pinch.mx;s.scrollTop-=my-pinch.my;pinch.mx=mx;pinch.my=my}},true);
 const pEnd=e=>{PT.delete(e.pointerId);if(PT.size<2)pinch=null};addEventListener('pointerup',pEnd,true);addEventListener('pointercancel',pEnd,true);
 function zEnd(s){const L=Math.max(Math.abs(s.b[0]-s.a[0]),Math.abs(s.b[1]-s.a[1]))*.6;return[s.a[0]-L*.7,s.a[1]+L*.7]}
+/* Quadratic Bézier frame for the Curvable Line (kind 'qcurve').
+   s.q = [along, normal] is the bend of the curve MIDPOINT, in units of the
+   chord length, expressed in the line's own frame. The quadratic control
+   point sits twice as far from the chord, because B(0.5) = (A+2C+B)/4.
+   Keeping the bend normalised means move / resize / rotate all keep working
+   through the engine's existing a/b transforms without extra bookkeeping. */
+function qFrame(s){const a=s.a,b=s.b,q=Array.isArray(s.q)?s.q:[0,0];
+ const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L;
+ const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2;
+ const ox=L*((+q[0]||0)*ux-(+q[1]||0)*uy),oy=L*((+q[0]||0)*uy+(+q[1]||0)*ux);
+ return{m:[mx,my],h:[mx+ox,my+oy],c:[mx+2*ox,my+2*oy],L:L,ux:ux,uy:uy,n:[-uy,ux]}}
+window.__qFrame=qFrame;
 function shp(c,s){c.save();c.strokeStyle=c.fillStyle=s.c;c.lineWidth=s.w;c.lineCap=c.lineJoin='round';if(s.ds){if(s.dm==="dot"){c.lineCap="round";c.setLineDash([0.1,Math.max(5,s.w*2.8)])}else{c.lineCap="butt";c.setLineDash([Math.max(7,s.w*4),Math.max(6,s.w*3)])}}const[x0,y0]=s.a,[x1,y1]=s.b,k=s.k;
  const ah=(x,y,dx,dy,col)=>{const L=Math.hypot(dx,dy)||1,u=[dx/L,dy/L],h=12+s.w*3.5;c.save();c.setLineDash([]);c.fillStyle=col||s.c;c.beginPath();c.moveTo(x,y);c.lineTo(x-u[0]*h+u[1]*h*.28,y-u[1]*h-u[0]*h*.28);c.lineTo(x-u[0]*h-u[1]*h*.28,y-u[1]*h+u[0]*h*.28);c.closePath();c.fill();c.restore()};
  if(k==="rect"){c.beginPath();c.rect(x0,y0,x1-x0,y1-y0);c.stroke()}
  else if(k==="ell"){c.beginPath();c.ellipse((x0+x1)/2,(y0+y1)/2,Math.abs(x1-x0)/2,Math.abs(y1-y0)/2,0,0,7);c.stroke()}
  else if(k==="ax2"||k==="ax3"){const A=s.ac||axc,ax=(p,q,col,lb)=>{const L=Math.hypot(q[0]-p[0],q[1]-p[1])||1;c.strokeStyle=col;c.beginPath();const e=(12+s.w*3.5)*.8;c.moveTo(p[0],p[1]);c.lineTo(q[0]-(q[0]-p[0])/L*e,q[1]-(q[1]-p[1])/L*e);c.stroke();ah(q[0],q[1],q[0]-p[0],q[1]-p[1],col);c.save();c.setLineDash([]);c.fillStyle=col;c.font='bold 16px sans-serif';c.textBaseline='middle';c.fillText(lb,q[0]+(q[0]-p[0])/L*16-4,q[1]+(q[1]-p[1])/L*16);c.restore()};
   ax([x0,y0],[x1,y0],A[0],'x');ax([x0,y0],[x0,y1],A[1],'y');if(k==="ax3")ax([x0,y0],zEnd(s),A[2],'z')}
+ else if(k==="qcurve"){const F=qFrame(s);c.beginPath();c.moveTo(x0,y0);c.quadraticCurveTo(F.c[0],F.c[1],x1,y1);c.stroke()}
  else{const L=Math.hypot(x1-x0,y1-y0)||1,e=k==="arrow"?(12+s.w*3.5)*.8:0;c.beginPath();c.moveTo(x0,y0);c.lineTo(x1-(x1-x0)/L*e,y1-(y1-y0)/L*e);c.stroke();if(k==="arrow")ah(x1,y1,x1-x0,y1-y0)}
  c.restore()}
 function hr(n){const x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x)}

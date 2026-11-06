@@ -4,14 +4,17 @@
  * The notebook's promise is "draw it roughly, get it perfectly". That needs two
  * separate things:
  *
- *   1. a decision — is this a circle or a rectangle, a parabola or a hyperbola,
- *      a square or a rhombus? and
+ *   1. a decision — is this a circle or a rectangle, a square or a rhombus? and
  *   2. a description — the numbers that let the renderer draw the ideal shape
  *      instead of the shaky one.
  *
- * Everything here is pure geometry on a resampled path: conic fitting for the
- * curved families, corner extraction plus side/angle tests for the polygon
+ * Everything here is pure geometry on a resampled path: conic fitting (used by
+ * fitEllipse), corner extraction plus side/angle tests for the polygon
  * families, and a small set of residuals to decide between them.
+ *
+ * The `parab` / `hyper` kinds below are retained purely so notebooks saved
+ * before the Conics insert option was removed still open and render correctly.
+ * Nothing in the UI creates them any more.
  */
 
 export type Pt = [number, number];
@@ -648,13 +651,12 @@ export function recogniseShape(raw: Pt[], opts: RecogniseOptions = {}): ShapeDef
   const closed = gap < diag * 0.3;
 
   if (!closed) {
-    // Open strokes are lines or nothing. Conic fitting used to live here, and it
-    // was a bad trade: an arc, a bracket, a long 'c', the top of a '2' and a
-    // hand-drawn parabola are the same evidence, so the fit fired on ordinary
-    // handwriting far more often than on a deliberate conic — and when it fired
-    // it replaced the stroke with a curve the writer never drew. Parabola and
-    // hyperbola are still in the shape picker for anyone who wants one on
-    // purpose; they are simply never guessed at.
+    // Open strokes are lines or nothing. Conic *recognition* used to live here,
+    // and it was a bad trade: an arc, a bracket, a long 'c', the top of a '2'
+    // and a hand-drawn parabola are the same evidence, so the fit fired on
+    // ordinary handwriting far more often than on a deliberate conic. The
+    // Conics insert option has since been removed from the Shapes picker too;
+    // open curves are drawn on purpose with the Curvable Line tool instead.
     const dev = maxDev(P, P[0], P[P.length - 1]);
     if (dev < diag * 0.075) {
       return { kind: 'line', a: P[0], b: P[P.length - 1], score: 0.95 };
@@ -828,6 +830,7 @@ export const SHAPE_NAMES: Record<string, string> = {
   trap: 'Trapezoid',
   rhomb: 'Rhombus',
   poly: 'Polygon',
+  qcurve: 'Curvable Line',
   parab: 'Parabola',
   hyper: 'Hyperbola',
 };

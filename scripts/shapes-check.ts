@@ -83,8 +83,10 @@ const cases: [string, Pt[], string][] = [
   ['pentagon', polygon(poly(300, 300, 120, 5)), 'poly'],
   ['hexagon', polygon(poly(300, 300, 120, 6)), 'poly'],
   ['octagon', polygon(poly(300, 300, 120, 8)), 'poly'],
-  // Conics are never guessed at: the fit fired on ordinary handwriting far more
-  // often than on a deliberate parabola, so an open curve stays a stroke.
+  // Open curves are never guessed at: the fit fired on ordinary handwriting far
+  // more often than on a deliberate curve. The Conics insert option was removed
+  // from the Shapes picker; a curved line is now drawn on purpose with the
+  // Curvable Line tool. These two remain as regression cases for recognition.
   ['parabola', parabola(300, 300, 260, 160), 'none'],
   ['hyperbola', hyperbola(300, 300, 60, 90), 'none'],
   ['line', Array.from({ length: 40 }, (_, i) => jitter([100 + i * 8, 120 + i * 5], 2)), 'line'],

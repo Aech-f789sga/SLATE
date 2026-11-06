@@ -816,6 +816,20 @@ function hookShapePreview() {
     }
 
     if (cur.t !== 'shape' || !forced || !rawA || !rawB) return;
+
+    // The curvable line is an open curve, so the drag endpoints must keep their
+    // direction — shapeFromBox() normalises them to min/max corners, which would
+    // flip every line drawn right-to-left. Its bend lives in `q` (normalised to
+    // the line's own frame) and is rendered by src/curve-line.ts.
+    if (forced === 'qcurve') {
+      cur.k = 'qcurve';
+      cur.a = [...rawA];
+      cur.b = [...rawB];
+      if (!cur.q) cur.q = [0, 0];
+      setDerived(cur, {});
+      return;
+    }
+
     const geo = shapeFromBox(forced as GeoKind, rawA, rawB, { sides: polySides });
     cur.k = forced;
     cur.a = geo.a;
@@ -964,7 +978,14 @@ function applyStyle(s: any, geometry: boolean) {
   // The picker keeps its selection, so every stroke with that kind selected is
   // rebuilt from its box: the box is the authority, the outline is normalised
   // inside it, which is what makes a drag a resize rather than a redraw.
-  if (geometry && forced) {
+  if (geometry && forced === 'qcurve') {
+    // `end()` copies a/b verbatim, so the direction drawn is preserved. Only
+    // the kind and the flat bend (q = [0, 0]) need stamping back on.
+    s.k = 'qcurve';
+    if (!s.q) s.q = [0, 0];
+    setDerived(s, {});
+    changed = true;
+  } else if (geometry && forced) {
     const geo = shapeFromBox(forced as GeoKind, s.a, s.b, { sides: polySides });
     s.k = forced;
     s.a = geo.a;
@@ -1141,7 +1162,7 @@ function commit(raw: Pt[]) {
       made.ds = true;
       made.dm = style.dash;
     }
-    if (style.fill && shape.k !== 'line' && shape.k !== 'parab' && shape.k !== 'hyper') {
+    if (style.fill && shape.k !== 'line' && shape.k !== 'qcurve') {
       made.fc = style.fill;
       made.fop = style.opacity;
     }
@@ -1165,11 +1186,11 @@ let hintTimer = 0;
 
 const SHAPE_TOOLS = [
   'line', 'rect', 'ell', 'arrow', 'hid', 'ax2', 'ax3',
-  'tri', 'square', 'circle', 'para', 'trap', 'rhomb', 'poly', 'parab', 'hyper',
+  'tri', 'square', 'circle', 'para', 'trap', 'rhomb', 'poly', 'qcurve',
 ];
 
 /** Kinds the engine cannot build itself: they arrive as a rect and are renamed. */
-const DERIVED = new Set(['tri', 'square', 'circle', 'para', 'trap', 'rhomb', 'poly', 'parab', 'hyper']);
+const DERIVED = new Set(['tri', 'square', 'circle', 'para', 'trap', 'rhomb', 'poly', 'qcurve']);
 
 /** How many sides the polygon tool draws. */
 let polySides = 6;
@@ -1398,8 +1419,9 @@ function paint() {
  * The engine's toolbar only surfaces line / rect / oval, but its draw path
  * already handles `arrow`, `ax2` (elbow connector) and `ax3` (curved
  * connector) — they are just unreachable. A picker in the primary row exposes
- * all seven in one popover, which also keeps the choice out of the crowded
- * secondary row where it used to get clipped.
+ * them all in one popover, which also keeps the choice out of the crowded
+ * secondary row where it used to get clipped. Groups are built by filtering
+ * KINDS, so removing a group removes its heading, grid and buttons together.
  */
 interface ShapeKind {
   id: string;
@@ -1411,7 +1433,7 @@ interface ShapePick {
   id: string;
   label: string;
   svg: string;
-  group: 'basic' | 'poly' | 'curve';
+  group: 'basic' | 'poly' | 'line';
 }
 
 const KINDS: ShapePick[] = [
@@ -1426,17 +1448,28 @@ const KINDS: ShapePick[] = [
   { id: 'para', label: 'Parallelogram', group: 'basic', svg: '<path d="M7 6h13l-3 12H4z"/>' },
   { id: 'trap', label: 'Trapezoid', group: 'basic', svg: '<path d="M7 6h10l4 12H3z"/>' },
   { id: 'poly', label: 'Polygon', group: 'poly', svg: '<path d="M12 4l7 4v8l-7 4-7-4V8z"/>' },
-  { id: 'parab', label: 'Parabola', group: 'curve', svg: '<path d="M4 5c0 9 4 14 8 14s8-5 8-14"/>' },
-  { id: 'hyper', label: 'Hyperbola', group: 'curve', svg: '<path d="M5 19c6 0 3-14 7-14M19 5c-6 0-3 14-7 14"/>' },
   { id: 'ax2', label: 'Axes', group: 'basic', svg: '<path d="M4 4v15h16"/><path d="M4 4l-2 3M4 4l3-2M20 19l-3 2M20 19l2-3"/>' },
   { id: 'ax3', label: '3 axes', group: 'basic', svg: '<path d="M12 20V5M12 20l-8-4M12 20l8-4"/><path d="M12 5l-2 3M12 5l2 3"/>' },
   { id: 'hid', label: 'Dashed', group: 'basic', svg: '<path d="M4 12h4M11 12h4M18 12h2"/>' },
+  {
+    id: 'qcurve',
+    label: 'Curvable Line',
+    group: 'line',
+    svg: '<path d="M3 18 Q12 4 21 18"/><circle cx="12" cy="11" r="2.1" fill="currentColor" stroke="none"/>',
+  },
 ];
 
-const GROUPS: { id: 'basic' | 'poly' | 'curve'; title: string }[] = [
+/**
+ * The Conics group used to sit here with Parabola / Hyperbola. It is gone: the
+ * buttons, their group heading and their own grid were removed as one unit, so
+ * CSS Grid's auto-placement simply closes the row — there is no placeholder
+ * cell, empty `<div>` or dead `onclick` left behind. "Curves" takes its place
+ * and is the only home of the new interactive line tool.
+ */
+const GROUPS: { id: 'basic' | 'poly' | 'line'; title: string }[] = [
   { id: 'basic', title: 'Shapes' },
   { id: 'poly', title: 'Polygons' },
-  { id: 'curve', title: 'Conics' },
+  { id: 'line', title: 'Curves' },
 ];
 
 let picker: HTMLElement | null = null;
@@ -1469,7 +1502,9 @@ function buildPicker() {
     picker.append(head);
 
     const grid = el('div', '');
-    grid.className = 'sh-pg';
+    // A single wide control instead of a 3-up grid with two dead cells: the
+    // Curves section has one tool, and a full-width button leaves no gap.
+    grid.className = g.id === 'line' ? 'sh-pg sh-wide' : 'sh-pg';
 
     for (const k of KINDS.filter((x) => x.group === g.id)) {
       const b = el('button', '') as HTMLButtonElement;
@@ -1505,6 +1540,12 @@ function buildPicker() {
         row.append(b);
       }
       picker.append(row);
+    }
+
+    if (g.id === 'line') {
+      const tip = el('p', '', 'Draw a line, then drag the ◆ handle in its middle to bend it.');
+      tip.className = 'sh-tip';
+      picker.append(tip);
     }
   }
 
@@ -1693,6 +1734,36 @@ const CSS = `
 }
 #sh-pick .sh-sides button.on{background:#eaf1ff;border-color:var(--gn-acc,#2f6df6);color:#1f4fbf}
 #sh-pick .sh-pb.on span{color:#1f4fbf}
+
+/* The Curves section has exactly one tool. A single-column grid keeps the
+   button full width, so removing the old Conics group leaves no orphan row and
+   no half-empty 3-up grid. */
+#sh-pick .sh-pg.sh-wide{grid-template-columns:1fr}
+#sh-pick .sh-wide .sh-pb{
+  flex-direction:row;justify-content:flex-start;gap:10px;
+  padding:9px 10px!important;text-align:left;background:#f1f6fd!important;
+}
+#sh-pick .sh-wide .sh-pb svg{width:22px;height:22px;flex:none}
+#sh-pick .sh-wide .sh-pb span{
+  justify-content:flex-start;text-align:left;max-width:none;min-height:0;
+  font-size:11px;
+}
+#sh-pick .sh-tip{
+  margin:6px 3px 2px;font:500 10px/1.45 var(--slate-font);color:#8b95a3;
+}
+
+/* An orphan cell in a 3-up grid is a gap, not a design choice. Let a lone
+   last row span the full width instead of leaving two dead columns — this
+   covers the final "Dashed" shape and the single Polygon button too, so the
+   whole picker closes cleanly after the Conics group was removed. */
+#sh-pick .sh-pg > .sh-pb:last-child:nth-child(3n+1){
+  grid-column:1/-1;flex-direction:row;justify-content:flex-start;gap:10px;
+  padding:9px 10px!important;text-align:left;background:#f1f6fd!important;
+}
+#sh-pick .sh-pg > .sh-pb:last-child:nth-child(3n+1) svg{width:22px;height:22px;flex:none}
+#sh-pick .sh-pg > .sh-pb:last-child:nth-child(3n+1) span{
+  justify-content:flex-start;text-align:left;max-width:none;min-height:0;font-size:11px;
+}
 `;
 
 function boot() {
