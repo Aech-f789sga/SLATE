@@ -59,9 +59,17 @@ const CSS = `
 html,body,button,input,select,textarea{font-family:var(--slate-font)}
 
 /* Icons are centred by geometry, not by the accidents of a font's metrics.
-   markIcons() tags buttons whose only content is a glyph or an SVG. */
+   normaliseButton() tags buttons whose only content is a glyph or an SVG.
+
+   "display" is deliberately NOT !important here. An important declaration
+   outranks both a component's own display:none rule and an inline
+   style.display = 'none', so every icon-only button that hides itself was
+   pinned open — the padlock and the "?" launcher stayed on the library screen,
+   where neither belongs, and the pen dock's grip showed up outside lock mode.
+   The centring declarations stay important; only the question of whether the
+   button exists at all is left to the component that owns it. */
 button[data-slate-icon]{
-  display:inline-grid!important;place-items:center!important;align-content:center;
+  display:inline-grid;place-items:center!important;align-content:center;
   line-height:1!important;text-align:center!important;
 }
 button[data-slate-icon] > svg{display:block;margin:0;flex:none}
