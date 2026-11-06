@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "deploy:rules": "firebase deploy --only firestore:rules",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit && node scripts/check-inline.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
