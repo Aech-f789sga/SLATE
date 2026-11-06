@@ -9,16 +9,22 @@
  *
  * Two rules are what make this feel like a surface rather than a buzz:
  *
- *   1. Pulses are gated by TRAVEL, not by a timer. A pen resting on the glass
- *      stays silent; only movement earns a tick. That is what ties the texture
- *      to the nib instead of to the clock, and it is why lifting the pen or
- *      pausing to think produces no feedback at all.
+ *   1. It runs only while the nib is MOVING. Rest the pen on the glass and it
+ *      goes quiet within ~160 ms, so pausing to think produces nothing and the
+ *      texture tracks the hand instead of the clock.
  *
- *   2. A minimum gap between pulses caps the rate. `navigator.vibrate()`
- *      cancels whatever is already playing, so two ticks arriving in the same
- *      frame would truncate each other into two near-invisible clicks instead
- *      of one tick. The gap is what gives the pulse width any meaning, and it
- *      is also what stops a fast stroke from turning into a solid buzz.
+ *   2. Each call hands the motor a whole PATTERN, not a single pulse. This is
+ *      the part that decides whether a real phone feels anything at all.
+ *      Calling `vibrate(7)` thirty times a second looks fine in a test but is
+ *      an IPC round trip to the system vibration service every 34 ms, and
+ *      Android drops or coalesces a good share of those — worse, a 7 ms pulse
+ *      is below what many OEM motors resolve, so the result is silence rather
+ *      than a weak tick. One `vibrate([on, off, on, off, …])` covering half a
+ *      second is a single request the platform handles natively, and it lets
+ *      the pulse be long enough (12–26 ms) to actually move the mass.
+ *
+ * The cost of a pattern is that it keeps playing on its own, so the watchdog
+ * below is what stops it when the pen stops: nothing else would.
  *
  * Platform reality, because it shapes what this file can promise:
  *
@@ -28,6 +34,10 @@
  *   - iOS and iPadOS Safari do not implement it at all. An Apple Pencil gets
  *     no feedback from here, and no amount of tuning changes that — the Pencil
  *     has no motor of its own either.
+ *
+ * It is OFF by default. The panel has a Test button and a live readout of
+ * whether the last call was accepted, because "did the browser take it" is the
+ * one question a phone can answer and a desktop cannot.
  *
  * The engine keeps calling `HA.begin` / `HA.tick` / `HA.end`; this module
  * replaces those no-ops at boot. If the module never loads, drawing is exactly
@@ -43,58 +53,72 @@ type Level = 'off' | 'light' | 'medium' | 'firm';
 interface Preset {
   /** How long the motor runs for each tick, in ms. */
   pulse: number;
-  /** Minimum ms between the start of two ticks. */
+  /** Silence between ticks, in ms. */
   gap: number;
-  /** Screen px the nib must travel to earn the next tick. */
+  /** Screen px the nib must travel to restart after a pause. */
   step: number;
 }
 
 /**
  * The three strengths.
  *
- * These are deliberately on the quiet side. A phone's linear resonant actuator
- * turns anything above roughly a quarter duty cycle into an obvious buzz, which
- * is the "too strong" failure — it stops reading as paper and starts reading as
- * a notification. Medium is the default and sits just under that line: about
- * one fifth of the time vibrating, roughly thirty ticks a second.
- *
- * `step` shrinks as the level rises so a firmer setting also feels denser, not
- * just louder — the two together are what separate "light pencil" from "ball
- * point pressed hard".
+ * Pulse lengths are deliberately in the teens rather than single digits: below
+ * roughly 10 ms a lot of Android motors either ignore the request or spin up
+ * too little to feel, which reads as "no haptics" rather than "gentle haptics".
+ * The quiet end is reached through the GAP instead — a 12 ms pulse with 46 ms
+ * of silence is a light, papery grain, where 12 ms with 10 ms of silence would
+ * be a buzz.
  */
 const PRESETS: Record<Exclude<Level, 'off'>, Preset> = {
-  light: { pulse: 4, gap: 52, step: 14 },
-  medium: { pulse: 7, gap: 34, step: 11 },
-  firm: { pulse: 11, gap: 24, step: 8 },
+  light: { pulse: 12, gap: 46, step: 12 },
+  medium: { pulse: 18, gap: 32, step: 10 },
+  firm: { pulse: 26, gap: 26, step: 8 },
 };
 
 const LEVELS: Level[] = ['off', 'light', 'medium', 'firm'];
-const KEY = 'slate-haptics';
 
-/** No single tick may run longer than this, whatever the maths says. */
-const MAX_PULSE = 20;
-/** Below this a pulse is not felt at all on most motors — better to skip it. */
-const MIN_PULSE = 3;
-/** The nib landing gets a touch more than a passing tick. */
-const LAND_GAIN = 1.3;
+/** Bumped from v1: the first version shipped on by default and felt like
+    nothing on hardware, so nobody should inherit that stored choice. */
+const KEY = 'slate-haptics-v2';
+
+/** Pulses per pattern call. 10 × ~50 ms ≈ half a second of texture. */
+const BURST = 10;
+
+/** Re-issue once this fraction of the pattern has played. */
+const REFRESH = 0.65;
+
+/** Silence after the nib stops moving, in ms. */
+const IDLE_MS = 160;
+
+const MAX_PULSE = 34;
+const MIN_PULSE = 8;
+const LAND_GAIN = 1.15;
 
 /* ------------------------------------------------------------------ */
 /* State                                                              */
 /* ------------------------------------------------------------------ */
 
-let level: Level = 'medium';
+let level: Level = 'off';
 
 /** True only between begin() and end() — i.e. a freehand stroke is in flight. */
 let active = false;
 
-/** Distance accumulated since the last tick, in screen px. */
+/** True while a pattern we handed the motor is still meant to be playing. */
+let playing = false;
+
+let patternStart = 0;
+let patternMs = 0;
+
+/** Distance accumulated since the last restart, in screen px. */
 let travelled = 0;
 let lastX = 0;
 let lastY = 0;
-let lastPulse = 0;
+let lastMove = 0;
 
-/** Ring buffer of recent ticks, for the diagnostics surface and the probe. */
-const recent: { ms: number; at: number }[] = [];
+/** What the browser said about the most recent call, and how many we made. */
+let lastOk: boolean | null = null;
+let issued = 0;
+let watchdog = 0;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
@@ -114,26 +138,66 @@ function supported(): boolean {
   return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
 }
 
-/** One pulse. Duration only: the API has no amplitude to give us. */
-function send(ms: number): void {
-  const d = Math.round(clamp(MIN_PULSE, MAX_PULSE, ms));
-  recent.push({ ms: d, at: performance.now() });
-  if (recent.length > 64) recent.shift();
+/** Hand the motor one pattern. Returns whether the browser accepted it. */
+function issue(gain: number): void {
+  if (!supported() || level === 'off') return;
+
+  const p = PRESETS[level];
+  const on = Math.round(clamp(MIN_PULSE, MAX_PULSE, p.pulse * gain));
+  const off = Math.round(p.gap);
+
+  const arr: number[] = [];
+  for (let i = 0; i < BURST; i++) {
+    arr.push(on);
+    arr.push(off);
+  }
+
+  patternMs = BURST * (on + off);
+  patternStart = performance.now();
+  playing = true;
+  issued++;
+
   try {
-    navigator.vibrate(d);
+    // `false` means the browser declined — no user activation, page hidden, or
+    // the platform refuses. Surfaced in the panel rather than swallowed.
+    lastOk = navigator.vibrate(arr);
   } catch {
-    /* Some browsers throw outside a secure context; the stroke is unaffected. */
+    lastOk = false;
   }
 }
 
-/** Stop anything in flight, without queueing a new one. */
-function silence(): void {
+/** Cut the pattern short. Needed because a pattern outlives the stroke. */
+function stop(): void {
+  if (!playing) return;
+  playing = false;
   if (!supported()) return;
   try {
     navigator.vibrate(0);
   } catch {
     /* ignore */
   }
+}
+
+/** Stops the texture when the nib stops moving. Nothing else would. */
+function startWatchdog(): void {
+  if (watchdog) return;
+  watchdog = window.setInterval(() => {
+    if (!active) return;
+    if (playing && performance.now() - lastMove > IDLE_MS) stop();
+  }, 90);
+}
+
+function stopWatchdog(): void {
+  if (!watchdog) return;
+  window.clearInterval(watchdog);
+  watchdog = 0;
+}
+
+/** Strength nudge from how fast and how hard the nib is moving. */
+function gainOf(speed: number, pressure: number): number {
+  const fast = clamp01((speed - 0.35) / 1.4);
+  const press = clamp01(pressure);
+  return 0.92 + fast * 0.22 + press * 0.16;
 }
 
 /* ------------------------------------------------------------------ */
@@ -154,9 +218,10 @@ function begin(e: PointerEvent): void {
   travelled = 0;
   lastX = e.clientX;
   lastY = e.clientY;
-  lastPulse = performance.now();
+  lastMove = performance.now();
 
-  send(PRESETS[level].pulse * LAND_GAIN);
+  startWatchdog();
+  issue(LAND_GAIN);
 }
 
 /**
@@ -167,50 +232,36 @@ function begin(e: PointerEvent): void {
 function tick(e: PointerEvent, speed: number): void {
   if (!active || level === 'off') return;
 
-  const p = PRESETS[level];
-
-  // Wall clock, not `e.timeStamp`. A burst of coalesced samples carries
-  // timestamps spread across the frame but arrives in one synchronous loop, so
-  // gating on event time would let several pulses be issued back to back — and
-  // the motor, which lives in real time, would truncate all but the last.
   const now = performance.now();
-
   const d = Math.hypot(e.clientX - lastX, e.clientY - lastY);
-  if (d > 0) {
-    travelled += d;
-    lastX = e.clientX;
-    lastY = e.clientY;
+  if (d <= 0) return;
+
+  travelled += d;
+  lastX = e.clientX;
+  lastY = e.clientY;
+  lastMove = now;
+
+  const gain = gainOf(speed, typeof e.pressure === 'number' ? e.pressure : 0.5);
+
+  if (!playing) {
+    // The watchdog stopped us while the pen was still. Only start again once
+    // the nib has actually covered some ground, so a jittery hold stays quiet.
+    if (travelled < PRESETS[level].step) return;
+    travelled = 0;
+    issue(gain);
+    return;
   }
 
-  // Not far enough, or too soon: either way the accumulated distance is kept,
-  // so a slow drag still ticks the moment the gap expires.
-  if (travelled < p.step) return;
-  if (now - lastPulse < p.gap) return;
-
-  travelled = 0;
-  lastPulse = now;
-
-  // Speed and pressure nudge the strength but never dominate it. A constant
-  // texture that tracks the hand feels like a surface; one that swings with
-  // every sample feels like a fault.
-  const fast = clamp01((speed - 0.35) / 1.4);
-  const press = clamp01(typeof e.pressure === 'number' ? e.pressure : 0.5);
-  const gain = 0.92 + fast * 0.22 + press * 0.16;
-
-  send(p.pulse * gain);
+  if (now - patternStart >= patternMs * REFRESH) issue(gain);
 }
 
-/**
- * The stroke ended.
- *
- * Anything in flight is left to finish: a tick is at most 20 ms, so letting it
- * play out is imperceptible, while cancelling would clip the last tick of every
- * stroke — the one you feel as the pen leaves the paper.
- */
+/** The stroke ended: silence immediately rather than let the pattern run out. */
 function end(): void {
   if (!active) return;
   active = false;
   travelled = 0;
+  stop();
+  stopWatchdog();
 }
 
 /* ------------------------------------------------------------------ */
@@ -224,7 +275,9 @@ function readStored(): Level {
   } catch {
     /* private mode */
   }
-  return 'medium';
+  // Off until asked for. This is a physical side effect on someone's phone;
+  // it is not something to switch on for them.
+  return 'off';
 }
 
 function store(): void {
@@ -235,42 +288,86 @@ function store(): void {
   }
 }
 
-/** Three quick taps so the choice can be felt the moment it is made. */
+/** Three taps so the choice can be felt the moment it is made. */
 function preview(): void {
   if (!supported() || level === 'off') return;
   const p = PRESETS[level];
-  const one = Math.round(p.pulse * 1.15);
+  const one = Math.round(clamp(MIN_PULSE, MAX_PULSE, p.pulse));
   try {
-    navigator.vibrate([one, 70, one, 70, one]);
+    lastOk = navigator.vibrate([one, 70, one, 70, one]);
+    issued++;
   } catch {
-    /* ignore */
+    lastOk = false;
   }
+  syncStatus();
 }
 
 function setLevel(v: string): void {
   if ((LEVELS as string[]).indexOf(v) === -1) return;
+  const changed = v !== level;
   level = v as Level;
   store();
   syncSelect();
-  if (level === 'off') silence();
-  else preview();
+  if (level === 'off') {
+    stop();
+  } else if (changed) {
+    preview();
+  }
+}
+
+/** Human-readable account of what the browser is doing, for the panel. */
+function statusText(): string {
+  if (!supported()) return 'This browser has no vibration API — nothing can be sent.';
+  if (level === 'off') return 'Ready. Choose a level above to feel a sample.';
+  if (lastOk === false) return 'The browser refused the last vibration request.';
+  if (lastOk === null) return 'Vibration API available. Press Test to try it.';
+  return `Sending patterns of ${PRESETS[level].pulse} ms pulses. Last request accepted.`;
+}
+
+function syncStatus(): void {
+  const el = document.getElementById('pen-hap-status');
+  if (el) el.textContent = statusText();
 }
 
 /** Mirror the current level into the stylus panel, and explain a dead API. */
 function syncSelect(): void {
   const sel = document.getElementById('pen-hap') as HTMLSelectElement | null;
-  if (!sel) return;
-  sel.value = level;
+  const test = document.getElementById('pen-hap-test') as HTMLButtonElement | null;
   const ok = supported();
-  sel.disabled = !ok;
-  sel.title = ok ? 'Vibration under the nib while drawing' : 'This browser has no vibration API';
-  const row = sel.closest('.row');
-  if (row) row.classList.toggle('pen-hap-off', !ok);
+
+  if (sel) {
+    sel.value = level;
+    sel.disabled = !ok;
+    sel.title = ok ? 'Vibration under the nib while drawing' : 'This browser has no vibration API';
+    const row = sel.closest('.row');
+    if (row) row.classList.toggle('pen-hap-off', !ok);
+  }
+  if (test) {
+    test.disabled = !ok || level === 'off';
+    test.title = level === 'off' ? 'Choose a level first' : 'Feel the current level';
+  }
+  syncStatus();
 }
 
 /* ------------------------------------------------------------------ */
 /* Boot                                                               */
 /* ------------------------------------------------------------------ */
+
+function hookPanel(): void {
+  const sel = document.getElementById('pen-hap') as HTMLSelectElement | null;
+  if (sel && !sel.dataset.hooked) {
+    sel.dataset.hooked = '1';
+    sel.addEventListener('change', () => setLevel(sel.value));
+  }
+  const test = document.getElementById('pen-hap-test') as HTMLButtonElement | null;
+  if (test && !test.dataset.hooked) {
+    test.dataset.hooked = '1';
+    test.addEventListener('click', () => {
+      preview();
+    });
+  }
+  syncSelect();
+}
 
 function install(): void {
   level = readStored();
@@ -280,45 +377,41 @@ function install(): void {
   (window as any).__slateHaptics = {
     ...api,
     syncSelect,
+    hookPanel,
+    test: preview,
     levels: LEVELS.slice(),
     preset: () => PRESETS[level === 'off' ? 'medium' : level],
-    recent: () => recent.slice(),
-    count: () => recent.length,
+    status: statusText,
+    state: () => ({ level, active, playing, issued, lastOk, patternMs }),
     reset: () => {
-      recent.length = 0;
+      issued = 0;
+      lastOk = null;
       active = false;
+      playing = false;
       travelled = 0;
+      stopWatchdog();
     },
-    state: () => ({ level, active, travelled, lastPulse }),
   };
 
-  // The panel may already exist (the engine builds it lazily, but this module
-  // can load after it if the user opened the sheet first).
-  syncSelect();
-
-  const sel = document.getElementById('pen-hap') as HTMLSelectElement | null;
-  if (sel && !sel.dataset.hooked) {
-    sel.dataset.hooked = '1';
-    sel.addEventListener('change', () => setLevel(sel.value));
-  }
+  hookPanel();
 
   // The engine owns the stroke lifecycle, but a stroke can also be cancelled
   // out from under it — a second finger starting a pinch sets `cur` to null
   // without ever reaching end(). Clearing here keeps the state machine honest.
-  const stop = (): void => end();
-  window.addEventListener('pointerup', stop, true);
-  window.addEventListener('pointercancel', stop, true);
+  const halt = (): void => end();
+  window.addEventListener('pointerup', halt, true);
+  window.addEventListener('pointercancel', halt, true);
 
-  // A pulse must not outlive the tab, and a backgrounded page must not buzz.
+  // A pattern must not outlive the tab, and a backgrounded page must not buzz.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       end();
-      silence();
+      stop();
     }
   });
   window.addEventListener('pagehide', () => {
     end();
-    silence();
+    stop();
   });
 }
 
@@ -328,13 +421,5 @@ if (document.readyState === 'loading') {
   install();
 }
 
-// The pen panel is created on demand; re-sync whenever it is opened so the
-// select shows the stored level rather than whatever the markup defaults to.
-document.addEventListener('pointerdown', () => {
-  const sel = document.getElementById('pen-hap') as HTMLSelectElement | null;
-  if (sel && !sel.dataset.hooked) {
-    sel.dataset.hooked = '1';
-    sel.addEventListener('change', () => setLevel(sel.value));
-    syncSelect();
-  }
-}, true);
+// The stylus panel is built on demand, so the controls may not exist yet.
+document.addEventListener('pointerdown', hookPanel, true);

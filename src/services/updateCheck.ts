@@ -15,16 +15,39 @@
  * makes an "update available" prompt meaningful: the new files are already on
  * the server, we just decide *when* to throw away the cached copy and reload.
  *
- * Deliberately quiet while the user is working: the card only appears on the
- * library screen, never over a note, and hides itself the moment a note opens.
+ * Two failure modes drove the current shape:
+ *
+ *   - The check used to run every three hours and "Later" snoozed for three
+ *     more, so in practice nobody ever saw the card. It now polls once a
+ *     minute, and again whenever the app regains focus, the tab becomes
+ *     visible, or the network comes back. "Later" re-asks after five minutes.
+ *
+ *   - It only ever showed on the library screen. Someone who lives in a note
+ *     never got told. It may now appear over a note as well, but only once the
+ *     pen has been still for a couple of seconds, and it is positioned clear of
+ *     the page bar — an update prompt must never land on a stroke.
+ *
+ * An installed PWA additionally gets `registration.update()`, because a stale
+ * service worker can otherwise keep answering from its precache no matter how
+ * often we ask the network.
  */
 
 declare const __SLATE_VERSION__: string;
 
-const CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000; // how often to look for a new build
-const SNOOZE_MS = 3 * 60 * 60 * 1000; // "Later" buys one more interval
+const CHECK_INTERVAL_MS = 60 * 1000; // how often to look for a new build
+const SNOOZE_MS = 5 * 60 * 1000; // "Later" re-asks after five minutes
 const FIRST_CHECK_DELAY_MS = 8000; // let the app paint before touching the network
 const HOME_POLL_MS = 1000; // how often to re-evaluate whether the card may show
+
+/**
+ * How long the pen has to be still before the card may appear over a note.
+ *
+ * The library is fair game at any time, but dropping a card onto a canvas
+ * mid-stroke would be worse than the stale build it is warning about, so in
+ * the editor it waits for a pause. The engine reports a pointermove for every
+ * sample, so a moving nib keeps resetting this.
+ */
+const EDITOR_IDLE_MS = 2500;
 
 const LS_LAST = 'slate.upd.last';
 const LS_SNOOZE = 'slate.upd.snooze';
@@ -110,6 +133,52 @@ function isBackgrounded(): boolean {
     }
   }
   return document.visibilityState === 'hidden';
+}
+
+/* ------------------------------------------------------------ when to show */
+
+/**
+ * Timestamp of the last interaction with the page.
+ *
+ * Only consulted in the editor. The engine dispatches a pointermove per pen
+ * sample, so a moving nib refreshes this continuously and the card stays away
+ * until the hand stops.
+ */
+let lastInput = Date.now();
+
+function noteInput(): void {
+  lastInput = Date.now();
+}
+
+function inEditor(): boolean {
+  return !isHome();
+}
+
+/** May the card be on screen right now? */
+function mayShow(): boolean {
+  if (overlayOpen()) return false;
+  if (isHome()) return true;
+  return Date.now() - lastInput >= EDITOR_IDLE_MS;
+}
+
+/**
+ * Keep the card clear of whatever owns the bottom of the screen.
+ *
+ * The library has nothing there; the editor has the page bar, whose height
+ * changes with the viewport (it becomes a floating pill on short screens).
+ * Measuring it beats hard-coding an offset that would be wrong on some device.
+ */
+function place(): void {
+  if (!card) return;
+  let bottom = 20;
+  if (inEditor()) {
+    const pg = document.getElementById('pg');
+    if (pg) {
+      const h = pg.getBoundingClientRect().height;
+      if (h > 0) bottom = h + 14;
+    }
+  }
+  card.style.bottom = `calc(${Math.round(bottom)}px + env(safe-area-inset-bottom, 0px))`;
 }
 
 /* --------------------------------------------------------------- the request */
@@ -231,8 +300,8 @@ function show(): void {
   if (!card) card = buildCard();
   const msg = card.querySelector('.msg') as HTMLElement;
   msg.textContent = pending.version
-    ? `Version ${pending.version} is ready. It takes a moment to apply.`
-    : 'A newer version is ready.';
+    ? `Version ${pending.version} is ready. Reload to use it — choose Later and you will be asked again in five minutes.`
+    : 'A newer version is ready. Reload to use it — choose Later and you will be asked again in five minutes.';
   card.classList.add('on');
 }
 
@@ -240,11 +309,12 @@ function hide(): void {
   card?.classList.remove('on');
 }
 
-/** Shows or hides the card so it is never visible over a note or a modal. */
+/** Shows or hides the card so it is never visible over a modal or a stroke. */
 function sync(): void {
   if (!pending) return hide();
-  if (!isHome() || overlayOpen()) return hide();
+  if (!mayShow()) return hide();
   if (Date.now() < readNum(LS_SNOOZE)) return hide();
+  place();
   show();
 }
 
@@ -282,9 +352,27 @@ async function onUpdateNow(): Promise<void> {
 
 /* ----------------------------------------------------------------- the check */
 
+/**
+ * Ask the service worker to look for a new one.
+ *
+ * Only matters for an installed PWA: workbox answers navigations from its
+ * precache, so a stale worker can keep serving the old shell no matter how
+ * often this module asks the network what the current build is.
+ */
+function nudgeServiceWorker(): void {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker
+    .getRegistration()
+    .then((reg) => reg?.update())
+    .catch(() => {
+      /* no registration, or update raced a reload — not worth reporting */
+    });
+}
+
 async function check(): Promise<void> {
   if (!navigator.onLine) return;
   writeNum(LS_LAST, Date.now());
+  nudgeServiceWorker();
 
   const latest = await fetchLatest();
   if (!latest) return;
@@ -324,15 +412,35 @@ export function initUpdateCheck(): void {
   // the way entirely rather than showing a card that can never resolve.
   if (import.meta.env.DEV) return;
 
+  lastInput = Date.now();
+
+  // Only the editor needs this, but listening once here is cheaper than
+  // checking which screen we are on for every sample the pen produces.
+  for (const t of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) {
+    window.addEventListener(t, noteInput, { passive: true, capture: true });
+  }
+
   window.setTimeout(() => {
     void check();
   }, FIRST_CHECK_DELAY_MS);
 
+  // Once a minute, for as long as the tab lives. The payload is a few dozen
+  // bytes and `no-store`, so this is cheaper than a single sticker.
   window.setInterval(() => {
     void check();
   }, CHECK_INTERVAL_MS);
 
   window.addEventListener('online', () => {
+    void check();
+  });
+
+  // A PWA that is resumed from the background never fires visibilitychange on
+  // every platform, but it does get focus when the user returns to it.
+  window.addEventListener('focus', () => {
+    void check();
+  });
+
+  window.addEventListener('pageshow', () => {
     void check();
   });
 
@@ -351,6 +459,24 @@ export function initUpdateCheck(): void {
   // has to react to that without hooking every navigation path. Polling a single
   // computed style once a second costs nothing.
   window.setInterval(sync, HOME_POLL_MS);
+
+  // Test seam: the policy is the interesting part of this module, and none of
+  // it is observable from the DOM. A probe can read the numbers here instead of
+  // waiting an hour to see whether the card comes back.
+  (window as any).__slateUpd = {
+    config: () => ({
+      checkMs: CHECK_INTERVAL_MS,
+      snoozeMs: SNOOZE_MS,
+      firstMs: FIRST_CHECK_DELAY_MS,
+      idleMs: EDITOR_IDLE_MS,
+    }),
+    state: () => ({
+      local: LOCAL_VERSION,
+      pending: pending ? pending.version : null,
+      showing: !!card && card.classList.contains('on'),
+      snoozeUntil: readNum(LS_SNOOZE),
+    }),
+  };
 }
 
 /** Test seam: lets a probe force a check without waiting for the timer. */

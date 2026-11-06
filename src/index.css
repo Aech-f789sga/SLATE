@@ -441,9 +441,12 @@ input[type=range] {
    `touch-action: none` stops scroll and double-tap zoom on the stroke surface.
    `overscroll-behavior` stops the two gestures it cannot: Android's
    pull-to-refresh and the iOS rubber-band, which otherwise steals a stroke
-   that begins while the page is already scrolled to the top. */
-html,
-body,
+   that begins while the page is already scrolled to the top.
+
+   Deliberately NOT on html/body. The stroke surface and its scroll container
+   are enough to protect a stroke, and disabling the gesture document-wide took
+   away pull-to-refresh on the library — the one manual way a user has of asking
+   for a fresh copy when an installed PWA is sitting on a cached shell. */
 #stage,
 #wrap,
 #cv {

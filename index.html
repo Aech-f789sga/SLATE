@@ -277,13 +277,6 @@ html[data-bar=compact] #bar{padding-right:0}
 <div id="lib"><nav id="nav">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:0 4px">
     <div style="display:flex;align-items:center;gap:8px">
-      <button id="nav-toggle-btn" type="button" aria-label="Toggle navigation panel" title="Hide navigation panel" class="ic" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border-radius:8px;cursor:pointer;background:color-mix(in srgb,var(--sf) 88%,transparent);border:1px solid var(--bd);color:inherit">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="3.5" y1="6" x2="20.5" y2="6"/>
-          <line x1="3.5" y1="12" x2="20.5" y2="12"/>
-          <line x1="3.5" y1="18" x2="20.5" y2="18"/>
-        </svg>
-      </button>
       <b style="font-size:22px;margin:0;padding:0">Slate</b>
     </div>
     <span id="cloud-status" style="font-size:11px;color:var(--mu);font-weight:600">💻 Guest</span>
@@ -1366,8 +1359,9 @@ function openPenPanel(){
       '<div class="row"><span>Palm rejection</span><select id="pen-palm"><option value="auto">Automatic</option><option value="pen">Pen only</option><option value="off">Off</option></select></div>'+
       '<div class="row"><span>Pressure range</span><button id="pen-recal" style="border:1px solid var(--bd);background:transparent;border-radius:7px;font-size:11px;padding:3px 8px;cursor:pointer;color:inherit">Recalibrate</button></div>'+
       '<h4>Feel</h4>'+
-      '<div class="row"><span>Surface haptics</span><select id="pen-hap"><option value="off">Off</option><option value="light">Light</option><option value="medium">Medium</option><option value="firm">Firm</option></select></div>'+
-      '<div class="pen-hint">A faint vibration under the nib while you draw, so the page answers back like paper. It stops the moment the pen stops moving, so it never buzzes while you think. Pick a level and you will feel a sample straight away. This needs a vibration motor: it works on Android tablets and phones, and does nothing on iPad, iPhone or a desktop, where the browser has no vibration to give.</div>'+
+      '<div class="row"><span>Surface haptics</span><span style="display:flex;align-items:center;gap:6px"><button id="pen-hap-test" type="button" style="border:1px solid var(--bd);background:transparent;border-radius:7px;font-size:11px;padding:3px 8px;cursor:pointer;color:inherit">Test</button><select id="pen-hap"><option value="off">Off</option><option value="light">Light</option><option value="medium">Medium</option><option value="firm">Firm</option></select></span></div>'+
+      '<div class="pen-hint" id="pen-hap-status"></div>'+
+      '<div class="pen-hint">A faint vibration under the nib while you draw, so the page answers back like paper. It stops the moment the pen stops moving, so it never buzzes while you think. This needs a vibration motor: it works on Android tablets and phones, and does nothing on iPad, iPhone or a desktop, where the browser has no vibration to give.</div>'+
       '<div class="pen-hint">Automatic palm rejection blocks touch while the pen is down, hovering, or within a moment of lifting. Two-finger pan and pinch keep working either way. The pen tip always draws with the current tool; the eraser end and barrel buttons can be mapped to any tool, and the previous tool returns as soon as you lift the pen. XP-Pen, Huion and Wacom only send pressure and button data to the browser when Windows Ink / pointer events is enabled in their driver.</div>'+
       '<div style="display:flex;justify-content:flex-end"><button id="pen-done" class="on">Done</button></div>'+
     '</div>';
@@ -1396,10 +1390,7 @@ function openPenPanel(){
   var prs=document.getElementById('prs');if(prs)document.getElementById('pen-prs').value=prs.value;
   var palm=document.getElementById('pen-palm');if(palm&&window.__slatePen)palm.value=window.__slatePen.palmMode();
   var hap=document.getElementById('pen-hap');
-  if(hap&&window.__slateHaptics){
-    window.__slateHaptics.syncSelect();
-    if(!hap.dataset.hooked){hap.dataset.hooked='1';hap.addEventListener('change',function(){window.__slateHaptics.setLevel(this.value)})}
-  }
+  if(hap&&window.__slateHaptics)window.__slateHaptics.hookPanel();
   penMeta();
   md.classList.add('on');
 }

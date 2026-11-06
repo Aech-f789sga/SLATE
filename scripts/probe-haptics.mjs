@@ -5,24 +5,30 @@
  * Headless Chromium has no vibration motor and, on the desktop, no
  * `navigator.vibrate` at all — so the probe installs a recorder in place of the
  * real API before the page boots. That matters: it exercises the genuine call
- * path (support detection, the pulse scheduler, the level presets) rather than
- * a test-only branch, and it lets us assert on the thing that actually decides
- * how the feature feels, which is the *timing* of the pulses.
+ * path (support detection, the pattern builder, the watchdog, the presets)
+ * rather than a test-only branch, and it lets the assertions target the thing
+ * that actually decides whether a phone feels anything: the SHAPE of the
+ * pattern handed to the motor, and when it is sent.
+ *
+ * The first version of this module called `vibrate(7)` once per tick, which
+ * tested green and produced nothing on hardware — too many round trips, pulses
+ * too short for an OEM motor. These assertions exist so that cannot regress
+ * silently: they check that each call is a long pattern, not a single blip.
  *
  * Input is driven through the DevTools protocol, because the engine calls
  * `setPointerCapture` and synthetic events cannot survive that.
  *
  * Covers:
- *   1. The module replaced the engine's no-op shim.
- *   2. A pen stroke ticks, and every tick is a sane duration.
- *   3. Ticks are gated by travel — a nib that barely moves stays quiet.
- *   4. The minimum gap holds, so pulses never truncate each other.
+ *   1. The module replaced the shim, and starts OFF.
+ *   2. A stroke sends a pattern array with pulses a motor can resolve.
+ *   3. A long stroke keeps the pattern refreshed.
+ *   4. A motionless pen is cut off, and moving again resumes it.
  *   5. Light < medium < firm, in that order.
  *   6. Off is silent, and so is a mouse.
- *   7. Shapes and selections do not tick.
- *   8. A finger on a touchscreen ticks too.
- *   9. The panel select reflects and drives the setting.
- *  10. Without the API the row is disabled rather than lying.
+ *   7. Shapes and selections do not buzz.
+ *   8. A finger buzzes too.
+ *   9. The panel select, Test button and status line.
+ *  10. Without the API the row is disabled and explains itself.
  *  11. No page errors.
  */
 import { chromium } from 'playwright';
@@ -122,8 +128,8 @@ async function pen(type, x, y, force = 0.5) {
   });
 }
 
-/** A stroke from a→b in `steps` samples, optionally with a mouse pointer. */
-async function drag(a, b, steps = 24, kind = 'pen') {
+/** a→b in `steps` samples, optionally pausing between them. */
+async function drag(a, b, steps = 24, kind = 'pen', delay = 0) {
   if (kind === 'mouse') {
     await page.mouse.move(...a);
     await page.mouse.down();
@@ -136,77 +142,104 @@ async function drag(a, b, steps = 24, kind = 'pen') {
   await pen('mousePressed', a[0], a[1], 0.5);
   for (let i = 1; i <= steps; i++) {
     await pen('mouseMoved', a[0] + ((b[0] - a[0]) * i) / steps, a[1] + ((b[1] - a[1]) * i) / steps, 0.5);
+    if (delay) await page.waitForTimeout(delay);
   }
   await pen('mouseReleased', b[0], b[1], 0);
 }
 
-const ticks = () => E('window.__slateHaptics.recent()');
-const clear = () => E('window.__slateHaptics.reset()');
+/** Everything the page sent to the motor, plus convenient views of it. */
+const vib = () => E('window.__vib');
+const clear = () =>
+  page.evaluate(() => {
+    window.__vib.length = 0;
+    window.__slateHaptics.reset();
+  });
+const patterns = (list) => list.filter((v) => Array.isArray(v.p));
+const stops = (list) => list.filter((v) => v.p === 0);
 const setLevel = (v) => E(`window.__slateHaptics.setLevel('${v}')`);
 
 /* ---------------------------------------------------------------- */
-/* 1. Wiring                                                         */
+/* 1. Wiring, and the default                                        */
 /* ---------------------------------------------------------------- */
 
-console.log('\n== 1. The module is wired in');
-const wired = await E('({ mod: !!window.__slateHaptics, ha: !!window.HA, same: window.HA && window.HA.tick === window.__slateHaptics.tick, level: window.__slateHaptics.level() })');
+console.log('\n== 1. The module is wired in, and starts off');
+const wired = await E('({ mod: !!window.__slateHaptics, same: window.HA && window.HA.tick === window.__slateHaptics.tick, level: window.__slateHaptics.level() })');
 ok('window.__slateHaptics exists', wired.mod === true);
-ok('the engine shim was replaced', wired.same === true, `HA.tick identity ${wired.same}`);
-ok('it defaults to medium', wired.level === 'medium', String(wired.level));
+ok('the engine shim was replaced', wired.same === true);
+ok('it is OFF by default', wired.level === 'off', String(wired.level));
 ok('support is detected through the stubbed API', (await E('window.__slateHaptics.supported()')) === true);
 
-/* ---------------------------------------------------------------- */
-/* 2. A stroke ticks                                                 */
-/* ---------------------------------------------------------------- */
-
-console.log('\n== 2. Drawing produces ticks');
+// Default off must mean silent, not merely labelled off.
 await E('(function(){ tool="pen"; syncTools(); })()');
 await clear();
-await drag(T(120, 300), T(620, 520), 40);
-const t2 = await ticks();
-ok('a stroke produced ticks', t2.length >= 6, `${t2.length} ticks`);
-const durations = t2.map((x) => x.ms);
-ok('every tick is a plausible pulse', durations.every((d) => d >= 3 && d <= 20), `[${Math.min(...durations)}…${Math.max(...durations)}] ms`);
-ok('the first tick is the nib landing', durations[0] >= durations[1], `land ${durations[0]} vs tick ${durations[1]}`);
+await drag(T(120, 300), T(620, 520), 30);
+ok('the default state sends nothing at all', (await vib()).length === 0, `${(await vib()).length} calls`);
 
 /* ---------------------------------------------------------------- */
-/* 3. Travel gating                                                  */
+/* 2. A stroke sends a PATTERN, not a blip                           */
 /* ---------------------------------------------------------------- */
 
-console.log('\n== 3. Ticks follow the nib, not the clock');
+console.log('\n== 2. Drawing sends a pattern');
+await setLevel('medium');
 await clear();
-await pen('mousePressed', ...T(200, 700), 0.5);
-await page.waitForTimeout(60);
-const afterLand = (await ticks()).length;
-ok('touching down gives exactly one landing tick', afterLand === 1, `${afterLand} ticks`);
+await drag(T(120, 300), T(620, 520), 30);
+const first = patterns(await vib());
+ok('a stroke produced a pattern call', first.length >= 1, `${first.length} calls`);
+const arr = first[0]?.p || [];
+ok('the payload is an array', Array.isArray(arr) && arr.length >= 10, `${arr.length} entries`);
+ok('it alternates on/off', arr.length % 2 === 0 && arr[0] > 0 && arr[1] > 0, `[${arr.slice(0, 4).join(', ')}…]`);
 
-// Nudge by a couple of pixels: below the travel threshold, so still nothing.
-const [nx, ny] = T(200, 700);
-for (let i = 1; i <= 3; i++) await pen('mouseMoved', nx + i, ny, 0.5);
-await page.waitForTimeout(120);
-const afterNudge = (await ticks()).length;
-ok('a nib that barely moves stays quiet', afterNudge === 1, `${afterNudge} ticks after a 3px nudge`);
+const on = arr[0];
+const off = arr[1];
+ok('the pulse is long enough for a motor to resolve', on >= 10, `${on} ms`);
+ok('the pulse leaves real silence between ticks', off >= 20, `${off} ms`);
 
-// Holding perfectly still must stay silent no matter how long we wait.
-await page.waitForTimeout(420);
-ok('resting the pen produces no ticks', (await ticks()).length === afterNudge);
-
-// Now move properly, and it wakes up.
-for (let i = 1; i <= 10; i++) await pen('mouseMoved', nx + i * 8, ny, 0.5);
-await page.waitForTimeout(80);
-const afterMove = (await ticks()).length;
-ok('real movement resumes the ticks', afterMove > afterNudge, `${afterNudge} → ${afterMove}`);
-await pen('mouseReleased', nx + 80, ny, 0);
-
-/* ---------------------------------------------------------------- */
-/* 4. The gap is respected                                           */
-/* ---------------------------------------------------------------- */
-
-console.log('\n== 4. Pulses never truncate each other');
-const gaps = t2.slice(1).map((x, i) => x.at - t2[i].at);
-ok('consecutive ticks keep a real gap', Math.min(...gaps) >= 20, `min gap ${Math.min(...gaps).toFixed(1)} ms`);
 const preset = await E('window.__slateHaptics.preset()');
-ok('the gap matches the medium preset', Math.min(...gaps) >= preset.gap - 4, `preset ${preset.gap} ms`);
+ok('the on/off times match the medium preset', Math.abs(off - preset.gap) <= 1 && on >= preset.pulse * 0.9, `${on}/${off} vs ${preset.pulse}/${preset.gap}`);
+
+/* ---------------------------------------------------------------- */
+/* 3. The pattern is refreshed while drawing                         */
+/* ---------------------------------------------------------------- */
+
+console.log('\n== 3. A long stroke keeps the texture going');
+await clear();
+await drag(T(140, 340), T(640, 560), 30, 'pen', 34); // ≈1s of continuous drawing
+const long = patterns(await vib());
+ok('the pattern is re-issued during a long stroke', long.length >= 2, `${long.length} calls`);
+if (long.length >= 2) {
+  const gapMs = long[1].at - long[0].at;
+  const st = await E('window.__slateHaptics.state()');
+  ok('re-issues before the pattern runs out', gapMs < st.patternMs, `${Math.round(gapMs)} ms < ${st.patternMs} ms`);
+  ok('and not wastefully often', gapMs > 200, `${Math.round(gapMs)} ms apart`);
+}
+
+/* ---------------------------------------------------------------- */
+/* 4. It stops when the nib stops                                    */
+/* ---------------------------------------------------------------- */
+
+console.log('\n== 4. Silence follows the nib');
+await clear();
+const [sx, sy] = T(240, 720);
+await pen('mousePressed', sx, sy, 0.5);
+for (let i = 1; i <= 8; i++) await pen('mouseMoved', sx + i * 9, sy, 0.5);
+const beforeIdle = await vib();
+ok('moving issues a pattern', patterns(beforeIdle).length >= 1, `${patterns(beforeIdle).length} calls`);
+
+// Hold still, still pressed. A pattern would otherwise play out on its own.
+await page.waitForTimeout(520);
+const afterIdle = await vib();
+ok('a motionless pen is cut off', stops(afterIdle).length >= 1, `${stops(afterIdle).length} stop calls`);
+const lastStop = stops(afterIdle).slice(-1)[0];
+const lastPat = patterns(afterIdle).slice(-1)[0];
+ok('the stop comes after the pattern, not before', lastStop && lastPat && lastStop.at > lastPat.at);
+
+// Moving again restarts it.
+await pen('mouseMoved', sx + 90, sy, 0.5);
+await pen('mouseMoved', sx + 120, sy, 0.5);
+await page.waitForTimeout(60);
+const resumed = patterns(await vib());
+ok('movement resumes the texture', resumed.length > patterns(afterIdle).length, `${patterns(afterIdle).length} → ${resumed.length}`);
+await pen('mouseReleased', sx + 120, sy, 0);
 
 /* ---------------------------------------------------------------- */
 /* 5. Levels are ordered                                             */
@@ -216,17 +249,17 @@ console.log('\n== 5. Light < medium < firm');
 const measure = async (level) => {
   await setLevel(level);
   await clear();
-  await drag(T(140, 380), T(640, 560), 40);
-  const t = await ticks();
-  const d = t.map((x) => x.ms);
-  return { n: d.length, mean: d.reduce((a, b) => a + b, 0) / (d.length || 1) };
+  await drag(T(140, 380), T(640, 560), 26);
+  const a = patterns(await vib())[0]?.p || [];
+  return { on: a[0] || 0, off: a[1] || 0 };
 };
 const light = await measure('light');
 const medium = await measure('medium');
 const firm = await measure('firm');
-ok('light is gentler than medium', light.mean < medium.mean, `${light.mean.toFixed(1)} vs ${medium.mean.toFixed(1)} ms`);
-ok('medium is gentler than firm', medium.mean < firm.mean, `${medium.mean.toFixed(1)} vs ${firm.mean.toFixed(1)} ms`);
-ok('a firmer level also ticks more densely', firm.n > light.n, `${light.n} vs ${firm.n} ticks`);
+ok('light is gentler than medium', light.on < medium.on, `${light.on} vs ${medium.on} ms`);
+ok('medium is gentler than firm', medium.on < firm.on, `${medium.on} vs ${firm.on} ms`);
+ok('a firmer level is also denser', firm.off < light.off, `${light.off} vs ${firm.off} ms gap`);
+ok('every level stays perceptible', Math.min(light.on, medium.on, firm.on) >= 10, `${light.on}/${medium.on}/${firm.on} ms`);
 
 /* ---------------------------------------------------------------- */
 /* 6. Off, and the mouse                                             */
@@ -236,33 +269,33 @@ console.log('\n== 6. Off is silent, and so is a mouse');
 await setLevel('off');
 await clear();
 await drag(T(160, 420), T(600, 540), 30);
-ok('off produces no ticks', (await ticks()).length === 0, `${(await ticks()).length} ticks`);
+ok('off produces no calls', (await vib()).length === 0, `${(await vib()).length} calls`);
 
 await setLevel('medium');
 await clear();
 await drag(T(160, 420), T(600, 540), 30, 'mouse');
-ok('a mouse produces no ticks', (await ticks()).length === 0, `${(await ticks()).length} ticks`);
+ok('a mouse produces no calls', (await vib()).length === 0, `${(await vib()).length} calls`);
 
 /* ---------------------------------------------------------------- */
 /* 7. Shapes and selections stay quiet                               */
 /* ---------------------------------------------------------------- */
 
-console.log('\n== 7. Only freehand ink ticks');
+console.log('\n== 7. Only freehand ink buzzes');
 await clear();
 await E('(function(){ tool="rect"; syncTools(); })()');
 await drag(T(200, 400), T(560, 620), 24);
-ok('drawing a shape produces no ticks', (await ticks()).length === 0, `${(await ticks()).length} ticks`);
+ok('drawing a shape produces no calls', (await vib()).length === 0, `${(await vib()).length} calls`);
 
 await clear();
 await E('(function(){ tool="sel"; syncTools(); })()');
 await drag(T(120, 300), T(660, 660), 24);
-ok('a selection drag produces no ticks', (await ticks()).length === 0, `${(await ticks()).length} ticks`);
+ok('a selection drag produces no calls', (await vib()).length === 0, `${(await vib()).length} calls`);
 
 /* ---------------------------------------------------------------- */
 /* 8. Touch                                                          */
 /* ---------------------------------------------------------------- */
 
-console.log('\n== 8. A finger ticks too');
+console.log('\n== 8. A finger buzzes too');
 await E('(function(){ tool="pen"; syncTools(); })()');
 // A real pen sends pointerleave when it lifts out of the digitiser's range,
 // which is what clears the hover state that blocks touch. CDP does not, so the
@@ -280,30 +313,40 @@ for (let i = 1; i <= 20; i++) {
   });
 }
 await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-const t8 = await ticks();
-ok('a finger stroke produces ticks', t8.length >= 3, `${t8.length} ticks`);
+const touchCalls = await vib();
+ok('a finger stroke sends a pattern', patterns(touchCalls).length >= 1, `${patterns(touchCalls).length} calls`);
 
 /* ---------------------------------------------------------------- */
-/* 9. The panel select                                               */
+/* 9. The panel control                                              */
 /* ---------------------------------------------------------------- */
 
 console.log('\n== 9. The panel control');
 await E('openPenPanel()');
 await page.waitForTimeout(350);
 const panel = await E(`(function(){
-  var s=document.getElementById('pen-hap');
+  var s=document.getElementById('pen-hap'), t=document.getElementById('pen-hap-test'), st=document.getElementById('pen-hap-status');
   if(!s) return {exists:false};
   var md=document.getElementById('pen-md');
   return {exists:true,value:s.value,disabled:s.disabled,shown:md.classList.contains('on'),
+          test:!!t, testDisabled:t?t.disabled:null, status:st?st.textContent:'',
           opts:[].map.call(s.options,function(o){return o.value})};
 })()`);
 ok('the haptics select exists', panel.exists === true);
 ok('it offers off / light / medium / firm', JSON.stringify(panel.opts) === JSON.stringify(['off', 'light', 'medium', 'firm']), JSON.stringify(panel.opts));
-ok('it shows the current level', panel.value === 'medium', String(panel.value));
 ok('it is enabled when the API exists', panel.disabled === false);
 ok('the stylus sheet is actually visible', panel.shown === true);
+ok('there is a Test button', panel.test === true);
+ok('the status line explains what the API is doing', typeof panel.status === 'string' && panel.status.length > 8, panel.status);
 
-// Choosing a level from the panel must reach the module, and give a sample.
+// Off means the Test button has nothing to test.
+await page.evaluate(() => {
+  const s = document.getElementById('pen-hap');
+  s.value = 'off';
+  s.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(80);
+ok('Test is disabled while off', (await E(`document.getElementById('pen-hap-test').disabled`)) === true);
+
 await page.evaluate(() => {
   const s = document.getElementById('pen-hap');
   s.value = 'firm';
@@ -312,15 +355,17 @@ await page.evaluate(() => {
 await page.waitForTimeout(120);
 const afterPick = await E('({ level: window.__slateHaptics.level(), last: (window.__vib||[]).slice(-1)[0] })');
 ok('the select drives the module', afterPick.level === 'firm', String(afterPick.level));
-ok('picking a level plays a sample pattern', Array.isArray(afterPick.last && afterPick.last.p), JSON.stringify(afterPick.last && afterPick.last.p));
+ok('picking a level plays a sample', Array.isArray(afterPick.last && afterPick.last.p), JSON.stringify(afterPick.last && afterPick.last.p));
+ok('Test becomes usable', (await E(`document.getElementById('pen-hap-test').disabled`)) === false);
 
-// Persisted?
-const stored = await page.evaluate(() => localStorage.getItem('slate-haptics'));
+const stored = await page.evaluate(() => localStorage.getItem('slate-haptics-v2'));
 ok('the level is remembered', stored === 'firm', String(stored));
 
 await page.screenshot({ path: shot('haptics-panel.png'), clip: await page.evaluate(() => {
-  const r = document.getElementById('pen-md').querySelector('.box').getBoundingClientRect();
-  return { x: r.x, y: r.y, width: r.width, height: Math.min(r.height, 520) };
+  const box = document.getElementById('pen-md').querySelector('.box');
+  box.scrollTop = box.scrollHeight;
+  const r = box.getBoundingClientRect();
+  return { x: r.x, y: r.y, width: r.width, height: r.height };
 }) });
 
 /* ---------------------------------------------------------------- */
@@ -356,11 +401,15 @@ await p2.evaluate(() => window.eval('openPenPanel()'));
 await p2.waitForTimeout(350);
 const dead = await p2.evaluate(() => {
   const s = document.getElementById('pen-hap');
-  return { supported: window.__slateHaptics.supported(), disabled: s.disabled, row: s.closest('.row').className, title: s.title };
+  const t = document.getElementById('pen-hap-test');
+  const st = document.getElementById('pen-hap-status');
+  return { supported: window.__slateHaptics.supported(), disabled: s.disabled, test: t.disabled, row: s.closest('.row').className, status: st.textContent };
 });
 ok('support reports false', dead.supported === false);
 ok('the control is disabled, not silently broken', dead.disabled === true);
-ok('the row is dimmed and explains why', /pen-hap-off/.test(dead.row) && /no vibration/i.test(dead.title), dead.title);
+ok('the Test button is disabled too', dead.test === true);
+ok('the row is dimmed', /pen-hap-off/.test(dead.row));
+ok('the status says why', /no vibration/i.test(dead.status), dead.status);
 
 /* ---------------------------------------------------------------- */
 /* 11. Errors                                                        */

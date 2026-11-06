@@ -1,8 +1,13 @@
 /**
  * Collapse the shelf's left navigation rail with a hamburger toggle.
  *
- * Provides a 3-horizontal-lines hamburger icon on both the navigation panel header
- * and the shelf top bar (#gn-top) so users can hide and show the panel from either location.
+ * There used to be two of these — one in the navigation panel header and one in
+ * the shelf top bar — wired to the same `toggle`. With the rail open both were
+ * on screen doing the same thing, which reads as a duplicate rather than a
+ * convenience, so only the top-bar one survives. It is also the one that has to
+ * exist: `html[data-nav="off"]` hides `#nav` outright, so a button living
+ * inside the rail disappears along with the thing it is meant to bring back.
+ *
  * State is remembered across reloads.
  */
 
@@ -11,7 +16,7 @@ const KEY = 'slate_nav_hidden';
 const HAMBURGER_SVG = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="3.5" y1="6" x2="20.5" y2="6"/><line x1="3.5" y1="12" x2="20.5" y2="12"/><line x1="3.5" y1="18" x2="20.5" y2="18"/></svg>`;
 
 const CSS = `
-#nav-hide, #nav-toggle-btn {
+#nav-hide {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; flex: 0 0 auto;
   border-radius: 8px; cursor: pointer; padding: 0;
@@ -20,18 +25,15 @@ const CSS = `
   color: var(--tx);
   transition: color .15s, border-color .15s, background .15s, transform .1s;
 }
-#nav-hide {
-  margin-right: 6px;
-}
-#nav-hide:hover, #nav-toggle-btn:hover {
+#nav-hide:hover {
   color: var(--ac);
   border-color: var(--ac);
   background: color-mix(in srgb, var(--ac) 12%, var(--sf));
 }
-#nav-hide:active, #nav-toggle-btn:active {
+#nav-hide:active {
   transform: scale(0.94);
 }
-#nav-hide svg, #nav-toggle-btn svg {
+#nav-hide svg {
   width: 18px; height: 18px; display: block;
 }
 
@@ -55,7 +57,6 @@ html[data-nav="off"] #nav {
 
 function mount() {
   const top = document.getElementById('gn-top');
-  const nav = document.getElementById('nav');
 
   if (!document.getElementById('nav-hide-style')) {
     const style = document.createElement('style');
@@ -77,21 +78,9 @@ function mount() {
     b.innerHTML = HAMBURGER_SVG;
   }
 
-  // Ensure button in #nav header exists
-  let navBtn = document.getElementById('nav-toggle-btn') as HTMLButtonElement | null;
-  if (!navBtn && nav) {
-    const firstDiv = nav.querySelector('div:first-child');
-    if (firstDiv) {
-      navBtn = document.createElement('button');
-      navBtn.id = 'nav-toggle-btn';
-      navBtn.type = 'button';
-      navBtn.innerHTML = HAMBURGER_SVG;
-      navBtn.setAttribute('data-no-sfx', '');
-      firstDiv.insertBefore(navBtn, firstDiv.firstChild);
-    }
-  } else if (navBtn) {
-    navBtn.innerHTML = HAMBURGER_SVG;
-  }
+  // The old duplicate in the rail header. It is gone from the markup, but a
+  // stale one can survive a hot reload, so remove it on the way through.
+  document.getElementById('nav-toggle-btn')?.remove();
 
   let hidden = false;
   try {
@@ -100,17 +89,10 @@ function mount() {
 
   const apply = (isOff: boolean) => {
     document.documentElement.dataset.nav = isOff ? 'off' : 'on';
-    const label = isOff ? 'Show navigation panel' : 'Hide navigation panel';
-    if (b) {
-      b.setAttribute('aria-pressed', String(isOff));
-      b.setAttribute('aria-label', label);
-      b.title = isOff ? 'Show sidebar' : 'Hide sidebar';
-    }
-    if (navBtn) {
-      navBtn.setAttribute('aria-pressed', String(isOff));
-      navBtn.setAttribute('aria-label', label);
-      navBtn.title = isOff ? 'Show sidebar' : 'Hide sidebar';
-    }
+    if (!b) return;
+    b.setAttribute('aria-pressed', String(isOff));
+    b.setAttribute('aria-label', isOff ? 'Show navigation panel' : 'Hide navigation panel');
+    b.title = isOff ? 'Show sidebar' : 'Hide sidebar';
   };
 
   const toggle = (e?: Event) => {
@@ -124,7 +106,6 @@ function mount() {
   };
 
   if (b) b.onclick = toggle;
-  if (navBtn) navBtn.onclick = toggle;
 
   apply(hidden);
 }
