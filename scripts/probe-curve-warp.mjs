@@ -1,5 +1,20 @@
-/* Regression probe: Conics removal, Curvable Line handle, Warp pixel transform. */
+/* Regression probe: Conics removal, Curvable Line handle, Warp pixel transform.
+ *
+ *   node scripts/probe-curve-warp.mjs [baseURL] [tag]
+ *
+ * Defaults to the local dev server. Pass the deployed URL (+ a tag such as
+ * "live") to exercise the exact same interactions against production; the tag
+ * suffixes screenshots so a live run never overwrites the local baselines.
+ */
 import { chromium } from 'playwright';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const BASE = process.argv[2] || process.env.SLATE_URL || 'http://127.0.0.1:3000/';
+const TAG = process.argv[3] || '';
+const shotsDir = fileURLToPath(new URL('../shots/', import.meta.url));
+const shot = (name) => path.join(shotsDir, name.replace(/\.png$/, (TAG ? `-${TAG}` : '') + '.png'));
+console.log(`target: ${BASE}`);
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -9,7 +24,8 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 page.on('requestfailed', (r) => {
   const u = r.url();
-  if (/fonts\.googleapis|fonts\.gstatic/.test(u)) return; // deliberately blocked below
+  // Deliberately blocked web fonts, plus Vercel's optional analytics beacon.
+  if (/fonts\.googleapis|fonts\.gstatic|_vercel\/insights/.test(u)) return;
   errors.push('request failed: ' + u);
 });
 page.on('console', (m) => {
@@ -19,7 +35,7 @@ page.on('console', (m) => {
   errors.push(t);
 });
 
-await page.goto('http://127.0.0.1:3000/', { waitUntil: 'domcontentloaded' });
+await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#grid', { timeout: 20000 });
 await page.waitForTimeout(1100);
 await page.evaluate(() => {
@@ -34,7 +50,11 @@ await page.evaluate(() => {
 await page.waitForTimeout(300);
 
 const E = (expr) => page.evaluate((x) => { try { return eval(x); } catch (e) { return 'ERR:' + e.message; } }, expr);
-const ok = (name, cond, extra = '') => console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${extra ? '  ' + extra : ''}`);
+let failed = 0;
+const ok = (name, cond, extra = '') => {
+  if (!cond) failed++;
+  console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${extra ? '  ' + extra : ''}`);
+};
 
 /* ---------------- 1. Conics is gone, cleanly ---------------- */
 console.log('\n== 1. Shapes picker');
@@ -58,7 +78,7 @@ ok('curvable line button present', menu.kinds.includes('qcurve'));
 ok('no dead conic listeners', !/parab|hyper|Conics/.test(menu.html));
 const wide = menu.grids.find((g) => g.cls.includes('sh-wide'));
 ok('Curves grid has exactly 1 cell (no gap)', wide && wide.cells === 1, JSON.stringify(menu.grids));
-await page.screenshot({ path: '../shots/curve-warp-picker.png' });
+await page.screenshot({ path: shot('curve-warp-picker.png') });
 await page.click('#sh-pick .sh-pb[data-kind="qcurve"]');
 await page.waitForTimeout(220);
 
@@ -108,7 +128,7 @@ ok('handle is reachable (elementFromPoint)', await page.evaluate(([x, y]) => {
   const r = h.getBoundingClientRect();
   return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === h || h.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
 }, [h0.x, h0.y]));
-await page.screenshot({ path: '../shots/curve-warp-line.png' });
+await page.screenshot({ path: shot('curve-warp-line.png') });
 
 const undoDepth = await E('undo.length');
 await page.dblclick('#q-handle');
@@ -146,7 +166,7 @@ ok('panel opens on screen', panel.display !== 'none' && panel.inView, JSON.strin
 ok('4 warp styles: Arc / Bulge / Flag / Wave', JSON.stringify(panel.styles) === JSON.stringify(['arc', 'bulge', 'flag', 'wave']), JSON.stringify(panel.styles));
 ok('live preview has real pixels', panel.preview[2] > 100, JSON.stringify(panel.preview));
 ok('selection captured', panel.state.picked === 1 && !!panel.state.box, JSON.stringify(panel.state));
-await page.screenshot({ path: '../shots/curve-warp-panel.png' });
+await page.screenshot({ path: shot('curve-warp-panel.png') });
 
 // every inverse map is finite and actually moves points
 const maps = await page.evaluate(() => {
@@ -161,6 +181,36 @@ const maps = await page.evaluate(() => {
 });
 for (const [k, v] of Object.entries(maps)) ok(`inverse map ${k} is finite`, v.finite, JSON.stringify(v.p));
 
+/* Every style must produce a genuinely different pixel field, not four
+ * differently-labelled versions of the same displacement. */
+const sigs = await page.evaluate(() => {
+  const W = window.__slateWarp;
+  const items = window.eval('sel');
+  const b = W.state().box;
+  const out = {};
+  for (const st of W.styles) {
+    const src = W.rasterise(items, b, 32, 0.6);
+    const cnv = src ? W.warpBuffer(src, b, st, 0.8) : null;
+    if (!cnv) {
+      out[st] = null;
+      continue;
+    }
+    const d = cnv.getContext('2d').getImageData(0, 0, cnv.width, cnv.height).data;
+    let opaque = 0;
+    let hash = 2166136261;
+    for (let i = 3; i < d.length; i += 4) {
+      const a = d[i];
+      if (a > 20) opaque++;
+      hash = Math.imul(hash ^ a, 16777619) >>> 0;
+    }
+    out[st] = { opaque, hash };
+  }
+  return out;
+});
+for (const [k, v] of Object.entries(sigs)) ok(`style ${k} renders real pixels`, !!v && v.opaque > 100, JSON.stringify(v));
+const distinct = new Set(Object.values(sigs).map((v) => v && v.hash)).size;
+ok('all 4 styles produce distinct pixel fields', distinct === 4, `${distinct} distinct of 4`);
+
 await page.click('.wp-style[data-style="wave"]');
 await page.evaluate(() => window.__slateWarp.setAmount(85));
 await page.waitForTimeout(300);
@@ -169,12 +219,89 @@ await page.waitForTimeout(600);
 const warped = await E('(()=>{const s=pg().strokes[pg().strokes.length-1];return {t:s.t,src:(s.src||"").slice(0,22),w:Math.round(s.w),h:Math.round(s.h),n:pg().strokes.length}})()');
 ok('apply replaced selection with an image layer', warped.t === 'img' && warped.src.startsWith('data:image/png'), JSON.stringify(warped));
 ok('warp layer has padded bounds', warped.w > 240 && warped.h > 120);
-await page.screenshot({ path: '../shots/curve-warp-applied.png' });
+await page.screenshot({ path: shot('curve-warp-applied.png') });
 await E('document.getElementById("undo").click()');
 await page.waitForTimeout(250);
 const restored = await E('(()=>{const s=pg().strokes[pg().strokes.length-1];return {t:s.t,k:s.k,n:pg().strokes.length}})()');
 ok('undo restores the original shape', restored.t === 'shape' && restored.k === 'rect', JSON.stringify(restored));
 
+/* ---------------- 5. Warp on TEXT (task #27 acceptance) ---------------- */
+/* Text is not a path: the engine draws it with fillText via stroke(), and bb()
+ * measures it with wrap()/measureText. Both must survive rasterisation. */
+console.log('\n== 5. Warp on text');
+await E(`(()=>{
+  const p=pg();p.strokes.length=0;
+  const t={t:'text',c:'#123456',s:46,x:140,y:300,txt:'WARP ME',f:'arial'};
+  p.strokes.push(t);sel=[t];draw();return p.strokes.length;
+})()`);
+await page.waitForTimeout(300);
+await page.click('#warp-btn');
+await page.waitForTimeout(450);
+const textPanel = await page.evaluate(() => {
+  const p = document.getElementById('warp-panel');
+  const c = document.getElementById('warp-prev');
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let opaque = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 20) opaque++;
+  return {
+    display: getComputedStyle(p).display,
+    preview: [c.width, c.height, opaque],
+    state: window.__slateWarp.state(),
+  };
+});
+ok('text selection captured', textPanel.state.picked === 1 && !!textPanel.state.box, JSON.stringify(textPanel.state));
+ok('text bounding box has real width', !!textPanel.state.box && textPanel.state.box.w > 80, JSON.stringify(textPanel.state.box));
+ok('text rasterises into the live preview', textPanel.preview[2] > 100, JSON.stringify(textPanel.preview));
+await page.screenshot({ path: shot('curve-warp-text.png') });
+
+await page.click('.wp-style[data-style="flag"]');
+await page.evaluate(() => window.__slateWarp.setAmount(70));
+await page.waitForTimeout(300);
+await page.click('.wp-apply');
+await page.waitForTimeout(600);
+const textWarped = await E(`(()=>{const a=pg().strokes,s=a[a.length-1];return {n:a.length,t:s.t,src:(s.src||'').slice(0,22),w:Math.round(s.w||0)}})()`);
+ok('text warps into a transparent PNG layer', textWarped.t === 'img' && textWarped.src.startsWith('data:image/png'), JSON.stringify(textWarped));
+await page.screenshot({ path: shot('curve-warp-text-applied.png') });
+await E('document.getElementById("undo").click()');
+await page.waitForTimeout(250);
+const textRestored = await E(`(()=>{const a=pg().strokes,s=a[a.length-1];return {t:s.t,txt:s.txt,n:a.length}})()`);
+ok('undo restores editable text', textRestored.t === 'text' && textRestored.txt === 'WARP ME', JSON.stringify(textRestored));
+
+/* ---------------- 6. Multi-object warp ---------------- */
+console.log('\n== 6. Multi-object warp');
+await E(`(()=>{
+  const p=pg();p.strokes.length=0;
+  const t={t:'text',c:'#123456',s:40,x:130,y:280,txt:'TWO OBJECTS',f:'arial'};
+  const r={t:'shape',k:'rect',c:'#2f6df6',w:4,a:[130,420],b:[430,540]};
+  p.strokes.push(t,r);sel=[t,r];draw();return p.strokes.length;
+})()`);
+await page.waitForTimeout(300);
+await page.click('#warp-btn');
+await page.waitForTimeout(450);
+const multi = await page.evaluate(() => {
+  const c = document.getElementById('warp-prev');
+  const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let opaque = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i] > 20) opaque++;
+  return { opaque, state: window.__slateWarp.state() };
+});
+ok('both objects captured', multi.state.picked === 2 && !!multi.state.box, JSON.stringify(multi.state));
+ok('combined bbox spans both objects', !!multi.state.box && multi.state.box.h > 200, JSON.stringify(multi.state.box));
+ok('combined preview has real pixels', multi.opaque > 100, String(multi.opaque));
+await page.click('.wp-style[data-style="bulge"]');
+await page.waitForTimeout(250);
+await page.click('.wp-apply');
+await page.waitForTimeout(600);
+const merged = await E(`(()=>{const a=pg().strokes,s=a[a.length-1];return {n:a.length,t:s.t}})()`);
+ok('two objects collapse into one layer', merged.n === 1 && merged.t === 'img', JSON.stringify(merged));
+await E('document.getElementById("undo").click()');
+await page.waitForTimeout(250);
+const unmerged = await E('pg().strokes.map(s=>s.t)');
+ok('undo restores both original objects', JSON.stringify(unmerged) === JSON.stringify(['text', 'shape']), JSON.stringify(unmerged));
+
 console.log('\n== page errors');
 console.log(errors.length ? errors.slice(0, 8).join('\n') : '(none)');
+ok('no page errors', errors.length === 0, `${errors.length} error(s)`);
+console.log(`\n${failed ? `${failed} CHECK(S) FAILED` : 'ALL CHECKS PASSED'}  (${BASE})`);
+if (failed) process.exitCode = 1;
 await browser.close();
