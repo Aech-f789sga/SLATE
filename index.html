@@ -923,7 +923,23 @@ async function exportJSON(){try{await saveBlob(new Blob([JSON.stringify(nb)],{ty
 async function exportAll(){try{const n=nb.pages.length,sc=Math.min(DPI,3),F=[],nm=fname();toast('Preparing export package\u2026');F.push({name:nm+'.pdf',data:new Uint8Array(await(await makePDF()).arrayBuffer())});
  for(let i=0;i<n;i++){await tick(i,n);const p=nb.pages[i],tag=nm+'-page'+(i+1);F.push({name:'psd/'+tag+'.psd',data:psdPage(p,sc)},{name:'svg/'+tag+'.svg',data:TXT(svgPage(p))},{name:'png/'+tag+'.png',data:await pngBytes(p,sc)})}
  F.push({name:nm+'.inkpad.json',data:TXT(JSON.stringify(nb))},{name:'README.txt',data:TXT(README)});await saveBlob(zipBlob(F),nm+'-export.zip')}catch(e){toast('Export failed: '+((e&&e.message)||'try fewer pages or a lower dpi'))}}
-function fillShare(d){hd(d,'Export and share');[['PDF, all pages','GoodNotes, Notability, OneNote, Samsung Notes, Apple Notes',exportPDF],['Layered PSD, all pages (ZIP)','Sketchbook, Procreate, Krita, Clip Studio, ibisPaint, Photoshop',exportPSD],['Vector SVG, this page','Concepts, Affinity, Inkscape, Figma, Illustrator',exportSVG],['Image PNG, this page','Any app',exportPNG],['Everything (ZIP)','PDF, PSD, SVG, PNG and an Inkpad backup',exportAll],['Inkpad backup (.json)','Restore it with Import backup in the library',exportJSON],['Print\u2026','May be blocked in some viewers',printAll]].forEach(([t,s,f])=>{const b=el('button','display:block;width:100%;text-align:left;margin:3px 0;padding:6px 10px');b.append(el('div','font-weight:600',t),el('div','font-size:11px;color:var(--mu)',s));b.onclick=()=>{closeDr();f()};d.append(b)});d.append(el('div','color:var(--mu);font-size:11px;margin-top:6px;max-width:290px','Image quality follows the dpi setting. Layered files are capped at 300 dpi.'))}
+function fillShare(d,target){hd(d,'Export and share');
+ /* The same sheet serves the editor and the library. From the library nothing
+    is open, so "this page" would be a lie: it names the page it means. */
+ const one=target?'first page':'this page';
+ [['PDF, all pages','GoodNotes, Notability, OneNote, Samsung Notes, Apple Notes',exportPDF],['Layered PSD, all pages (ZIP)','Sketchbook, Procreate, Krita, Clip Studio, ibisPaint, Photoshop',exportPSD],['Vector SVG, '+one,'Concepts, Affinity, Inkscape, Figma, Illustrator',exportSVG],['Image PNG, '+one,'Any app',exportPNG],['Everything (ZIP)','PDF, PSD, SVG, PNG and an Inkpad backup',exportAll],['Inkpad backup (.json)','Restore it with Import backup in the library',exportJSON],['Print\u2026','May be blocked in some viewers',printAll]].forEach(([t,s,f])=>{const b=el('button','display:block;width:100%;text-align:left;margin:3px 0;padding:6px 10px');b.append(el('div','font-weight:600',t),el('div','font-size:11px;color:var(--mu)',s));b.onclick=()=>{closeDr();target?withNotebook(target,f):f()};d.append(b)});d.append(el('div','color:var(--mu);font-size:11px;margin-top:6px;max-width:290px','Image quality follows the dpi setting. Layered files are capped at 300 dpi.'))}
+/* Every exporter reads the module-level nb/pi. Lending them a notebook the
+   library picked is the whole trick: the work continues after the click
+   handler returns, so the notebook stays lent until the promise settles — and
+   it is only handed back if nothing else has claimed nb meanwhile (opening a
+   card during a long export must not be undone when the export finishes). */
+function withNotebook(n,fn){const b=nb,i=pi;nb=n;pi=0;return Promise.resolve().then(fn).finally(()=>{if(nb===n){nb=b;pi=i}})}
+window.__slateExport=function(n,anchor){if(!n||!anchor)return;openDr(anchor,d=>fillShare(d,n));
+ /* The library keeps a mood pill in the bottom-right corner at z-index 520,
+    exactly where a phone's bottom sheet lands. While the sheet is up it is the
+    active surface, so it outranks that pill; the rule that does it lives in the
+    library's own stylesheet, and closeDr takes the class back. */
+ DRW.classList.add('lib-sheet')};
 let DEV='desktop',cvD=2,fitting=0,rtm=0;
 function wantD(){const w=$('#wrap'),cssW=(w&&w.clientWidth)||W,need=Math.max(.75,cssW*(devicePixelRatio||1)/W*1.2),budget=Math.sqrt(MAXPIX/(W*H));let d=Math.round(Math.min(DPI,CAPD,budget,need)*4)/4;
  /* rounding up to the next quarter can put a wide page back over the budget */
@@ -1002,7 +1018,7 @@ function dupSel(){if(!sel.length)return;snap();const C=JSON.parse(JSON.stringify
 function saveFig(sc){if(!sel.length)return;const b=selBox(),C=JSON.parse(JSON.stringify(sel));mv(C,-b[0],-b[1]);const f={id:Date.now(),w:b[2]-b[0],h:b[3]-b[1],items:C};if(sc==='g'){GL.push(f);try{localStorage.setItem('inkpad-gl',JSON.stringify(GL))}catch(e){toast('Library storage is full')}}else{(nb.lib=nb.lib||[]).push(f);save()}toast(sc==='g'?'Saved to the general library':'Saved to this notebook\u2019s library')}
 function addFig(f){snap();const C=JSON.parse(JSON.stringify(f.items));mv(C,(W-f.w)/2,160);C.forEach(s=>{if(s.fl)s.ts=Date.now()});pg().strokes.push(...C);sel=C;draw();save();thumbs()}
 const DRW=el('div','position:fixed;z-index:9;display:none;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:10px;max-width:min(94vw,440px);max-height:62vh;overflow:auto');DRW.id='gn-drw';document.body.append(DRW);
-function closeDr(){DRW.style.display='none';try{window.__slateUI&&window.__slateUI.resetDrag(DRW)}catch(e){}dOwn=null}
+function closeDr(){DRW.style.display='none';DRW.classList.remove('lib-sheet');try{window.__slateUI&&window.__slateUI.resetDrag(DRW)}catch(e){}dOwn=null}
 function openDr(b,fill){
   if(dOwn===b){closeDr();return}
   DRW.innerHTML='';fill(DRW);DRW.style.display='block';

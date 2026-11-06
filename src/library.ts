@@ -8,7 +8,7 @@
  *   • folders        a chip row above the grid, stored on the notebook as
  *                    `n.folder` so it travels with cloud sync
  *   • card metadata  a relative timestamp, and a "local" chip for guests
- *   • a ⋯ menu       rename, duplicate, favourite, move and delete
+ *   • a ⋯ menu       rename, duplicate, export, favourite, move and delete
  *
  * Nothing here replaces `showLib`. The engine still renders every notebook and
  * this module hides the ones outside the active folder afterwards, which keeps
@@ -243,6 +243,17 @@ function openMenu(n: any, anchor: HTMLElement) {
     'Duplicate',
     '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 5H6a2 2 0 0 0-2 2v9"/>',
     () => duplicate(n)
+  );
+  add(
+    'Export',
+    '<path d="M12 4v10"/><path d="M8.2 10.2L12 14l3.8-3.8"/><path d="M4.5 16.5v2a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-2"/>',
+    () => {
+      // The sheet is anchored to the ⋯ that opened it, so read it before the
+      // menu is torn down.
+      const anchor = menuAnchor(n);
+      closeMenu();
+      (window as any).__slateExport?.(n, anchor);
+    }
   );
   add(
     n.fav ? 'Remove favourite' : 'Add favourite',
@@ -536,6 +547,11 @@ const CSS = `
   font-family:inherit;
 }
 #lib-menu.on{display:block}
+/* The export sheet borrowed from the editor lands where a phone's bottom sheet
+   belongs — under the mood pill (#gxm, z-index 520). While it is the library's
+   sheet it is the active surface, so it outranks the pill; the engine's own
+   #gn-drw rule is !important, so this one has to be as well. */
+#gn-drw.lib-sheet{z-index:530!important}
 .lm-head{
   font:700 10px/1.3 var(--slate-font);letter-spacing:.07em;text-transform:uppercase;
   color:#8b95a3;padding:5px 8px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;

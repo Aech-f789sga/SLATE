@@ -669,8 +669,16 @@ function bindDrawer() {
 
   const fit = () => {
     if (drw.style.display !== 'block') return;
+    /* This clamp exists for one reason: the editor's top bar. Two drawers are
+       not in that situation and must be left alone.
+       — A bottom sheet is positioned by `bottom` with `top:auto`; writing a
+         top would stretch it between the two edges.
+       — On the library the editor is closed, so the bar's rect is all zeros
+         and the "floor" becomes 8px, which pinned the export sheet to the top
+         of the screen with a 62%-of-viewport cap it never asked for. */
+    if (drw.style.top === 'auto') return;
     const tb = document.getElementById('tb');
-    if (!tb) return;
+    if (!tb || !tb.getBoundingClientRect().height) return;
     const floor = tb.getBoundingClientRect().bottom + 8;
     const cur = parseFloat(drw.style.top) || 0;
     const next = Math.max(cur, floor);
