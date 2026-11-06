@@ -1148,6 +1148,11 @@ function watchEditor() {
     if (fab) fab.style.display = open ? 'flex' : 'none';
     if (open) placeFab();
     if (open && !wasOpen) {
+      // The home tour describes the library; its spotlight has no business
+      // following the user into the editor, where its steps point at controls
+      // that no longer exist. Retire it before the editor's own tour is
+      // offered so the two never fight over the screen.
+      if (active && active.id === 'home') stopTour(false);
       // first time in the editor: offer the tool tour
       clearTimeout(autoEditorTimer);
       if (!localStorage.getItem(EDITOR_FLAG) && !active) {
@@ -1172,12 +1177,17 @@ function watchEditor() {
 /* ------------------------------------------------------------------ */
 
 const CSS = `
-#tour-root{position:fixed;inset:0;z-index:300;display:none;pointer-events:auto;font:inherit}
+/* The spotlight is decoration, not a modal trap. It used to blanket the whole
+   viewport with pointer-events:auto at z-index 300, so while any tour was up
+   every button underneath (the colour palette, pen settings, the toolbar)
+   silently stopped responding. Let presses fall through to the app; only the
+   card itself is interactive. */
+#tour-root{position:fixed;inset:0;z-index:300;display:none;pointer-events:none;font:inherit}
 #tour-dim{position:absolute;inset:0;background:rgba(9,12,20,.62);opacity:0;transition:opacity .2s;pointer-events:none}
 #tour-hole{position:absolute;border-radius:12px;box-shadow:0 0 0 9999px rgba(9,12,20,.62);transition:left .26s cubic-bezier(.22,.61,.36,1),top .26s cubic-bezier(.22,.61,.36,1),width .26s cubic-bezier(.22,.61,.36,1),height .26s cubic-bezier(.22,.61,.36,1),opacity .2s;pointer-events:none;opacity:0}
 #tour-ring{position:absolute;border:2px solid var(--ac);border-radius:14px;pointer-events:none;opacity:0;transition:left .26s cubic-bezier(.22,.61,.36,1),top .26s cubic-bezier(.22,.61,.36,1),width .26s cubic-bezier(.22,.61,.36,1),height .26s cubic-bezier(.22,.61,.36,1),opacity .2s;animation:tourPulse 1.8s ease-out infinite}
 @keyframes tourPulse{0%{box-shadow:0 0 0 0 rgba(47,109,246,.45)}70%{box-shadow:0 0 0 10px rgba(47,109,246,0)}100%{box-shadow:0 0 0 0 rgba(47,109,246,0)}}
-#tour-card{position:absolute;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:16px;padding:14px 15px 12px;box-shadow:0 18px 44px rgba(6,12,28,.34);display:flex;flex-direction:column;gap:9px;max-height:min(78vh,560px);overflow:auto;transition:left .26s cubic-bezier(.22,.61,.36,1),top .26s cubic-bezier(.22,.61,.36,1)}
+#tour-card{position:absolute;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:16px;padding:14px 15px 12px;box-shadow:0 18px 44px rgba(6,12,28,.34);display:flex;flex-direction:column;gap:9px;max-height:min(78vh,560px);overflow:auto;pointer-events:auto;transition:left .26s cubic-bezier(.22,.61,.36,1),top .26s cubic-bezier(.22,.61,.36,1)}
 #tour-top{display:flex;justify-content:space-between;align-items:center}
 #tour-count{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--ac);background:rgba(47,109,246,.12);padding:2px 8px;border-radius:999px}
 #tour-x{border:0;background:transparent;color:var(--mu);font-size:15px;cursor:pointer;padding:2px 4px;line-height:1}

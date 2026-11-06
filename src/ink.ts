@@ -1,4 +1,4 @@
-import { anchorBelow } from './ui-system';
+import { anchorBelow, rectOf, type RectLike } from './ui-system';
 
 /**
  * Ink — the GoodNotes-style pen, colour and eraser panels.
@@ -277,17 +277,24 @@ const CSS = `
   box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);flex:none;cursor:pointer;
 }
 .ink-sheet .sw.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12),0 0 0 2px #fff,0 0 0 3.5px #2f6df6}
-.ink-sheet .swplus{
-  width:24px!important;height:24px!important;border-radius:50%!important;padding:0!important;
-  border:0!important;background:conic-gradient(#f66,#fc6,#6c6,#6cf,#c6f,#f66)!important;
-  box-shadow:inset 0 0 0 2px #fff,0 0 0 1px #d7dce5;
-  display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;cursor:pointer;
-}
-#ink-pen .swplus{
+/* The rainbow "Any colour" button. The cross is an SVG on the 24x24 grid, so
+   grid centring puts its ink centre exactly on the button's geometric centre —
+   no font metrics, no line-height descent, no asymmetric side bearings. */
+.ink-sheet .swplus,#ink-pen .swplus{
   width:24px!important;height:24px!important;border-radius:50%!important;
+  padding:0!important;border:0!important;
   background:conic-gradient(#f66,#fc6,#6c6,#6cf,#c6f,#f66)!important;
   box-shadow:inset 0 0 0 2px #fff,0 0 0 1px #d7dce5;
-  display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;
+  display:grid!important;place-items:center!important;
+  align-content:center!important;justify-content:center!important;
+  justify-items:center!important;align-items:center!important;
+  grid-template-columns:1fr;grid-template-rows:1fr;
+  line-height:0!important;text-align:center!important;
+  box-sizing:border-box;color:#fff;cursor:pointer;flex:none;
+}
+.ink-sheet .swplus > svg,#ink-pen .swplus > svg{
+  display:block;width:12px;height:12px;margin:0;flex:none;
+  align-self:center;justify-self:center;pointer-events:none;
 }
 
 /* ---- popovers ---- */
@@ -533,6 +540,17 @@ const ICO_GEAR = ico(
   '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2 2 2 0 11-4 0 1.7 1.7 0 00-2.9-1.2l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.7 1.7 0 003.6 15a2 2 0 110-4 1.7 1.7 0 001.2-2.9l-.1-.1a2 2 0 112.8-2.8l.1.1A1.7 1.7 0 0010.5 4a2 2 0 114 0 1.7 1.7 0 002.9 1.2l.1-.1a2 2 0 112.8 2.8l-.1.1A1.7 1.7 0 0020.4 11a2 2 0 110 4z"/>',
 );
 
+/**
+ * The "Any colour" cross. A text "+" sits on the font's math axis and carries
+ * asymmetric side bearings, so it is never truly centred — and the offset
+ * changes with the theme font. This is drawn on the 24x24 icon grid with the
+ * strokes crossing at exactly (12,12); both arms are symmetric about it.
+ */
+const PLUS_SVG =
+  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
+  'stroke-width="2.4" stroke-linecap="round" aria-hidden="true">' +
+  '<path d="M12 5.5v13M5.5 12h13"/></svg>';
+
 /* ------------------------------------------------------------------ */
 /* Engine bridges                                                      */
 /* ------------------------------------------------------------------ */
@@ -596,7 +614,7 @@ function setSizeFor(t: InkTool, v: number) {
   // only re-place a popover that is already up: `placePop` opens what it touches
   if (!brushPop || !brushPop.classList.contains('on')) return;
   paintBrushPop();
-  placePop(brushPop, brushAnchor || brushPop);
+  placePop(brushPop, brushRect || brushAnchor || brushPop);
 }
 
 /**
@@ -972,9 +990,11 @@ function paintPanel() {
     cols.append(b);
   });
   const plus = el('button') as HTMLButtonElement;
-  plus.className = 'swplus';
+  plus.className = 'swplus slate-icon-center';
+  plus.dataset.slateIcon = 'plus';
   plus.title = 'Pen colour';
-  plus.textContent = '+';
+  plus.setAttribute('aria-label', 'Any colour');
+  plus.innerHTML = PLUS_SVG;
   plus.onclick = () => openColorPopover(plus);
   cols.append(plus);
   penPanel.append(cols, divider());
@@ -1301,12 +1321,15 @@ function openColorPopover(anchor: HTMLElement) {
   }
   buildColorPopover();
   if (!colorPop) return;
+  // Measure before beginPanel(): it rebuilds and hides the pen pill, so the
+  // button will not have a box (or even still be in the DOM) afterwards.
+  const trigger = rectOf(anchor);
   beginPanel('color');
   popAnchor = anchor;
   tab = 'presets';
   wheelTouched = false;
   paintColorPop();
-  placePop(colorPop, anchor);
+  placePop(colorPop, trigger);
   colorPop.classList.add('on');
 }
 
@@ -1500,9 +1523,10 @@ function openPenSettings(anchor: HTMLElement) {
   }
   buildPenSheet();
   if (!penSheet) return;
+  const trigger = rectOf(anchor);
   beginPanel('pen');
   paintPenSheet();
-  placePop(penSheet, anchor);
+  placePop(penSheet, trigger);
   penSheet.classList.add('on');
   penSheet.dataset.kind = 'pen';
 }
@@ -1518,7 +1542,10 @@ function openPenSettings(anchor: HTMLElement) {
  * one-line description each and the thickness row underneath.
  */
 let brushPop: HTMLElement | null = null;
+/** Kept for the "second press closes it" identity check. */
 let brushAnchor: HTMLElement | null = null;
+/** A frozen box: the toolbar can hide while the picker is open (focus mode). */
+let brushRect: RectLike | null = null;
 
 const BRUSH_BLURB: Record<string, string> = {
   ball: 'Even everyday line',
@@ -1611,7 +1638,7 @@ function paintBrushPop() {
     b.onclick = () => {
       brushTab = k;
       paintBrushPop();
-      if (brushPop) placePop(brushPop, brushAnchor || brushPop);
+      if (brushPop) placePop(brushPop, brushRect || brushAnchor || brushPop);
     };
     hd.append(b);
   });
@@ -1652,6 +1679,13 @@ function paintBrushPop() {
   });
   bd.append(grid);
 
+  // Thickness belongs to the pen you just picked, so it sits directly under
+  // the pen list and above the dashed/dotted preset families. It used to be
+  // appended after every preset group, three screens away from the control it
+  // adjusts.
+  bd.append(sec('Thickness'));
+  paintWidthRow(bd, 'pen');
+
   // the engine's own preset library, grouped the way its drawer used to group it
   const all = brushPresets();
   PRESET_FAMILIES.forEach((fam) => {
@@ -1681,9 +1715,6 @@ function paintBrushPop() {
     });
     bd.append(pg);
   });
-
-  bd.append(sec('Thickness'));
-  paintWidthRow(bd, 'pen');
 }
 
 /**
@@ -1800,9 +1831,11 @@ function paintHighlighterTab(bd: HTMLElement) {
   });
   const plus = el('button') as HTMLButtonElement;
   plus.type = 'button';
-  plus.className = 'swplus';
+  plus.className = 'swplus slate-icon-center';
+  plus.dataset.slateIcon = 'plus';
   plus.title = 'Any colour';
-  plus.textContent = '+';
+  plus.setAttribute('aria-label', 'Any colour');
+  plus.innerHTML = PLUS_SVG;
   plus.onclick = () => openColorPopover(plus);
   cols.append(plus);
   bd.append(cols);
@@ -1862,13 +1895,16 @@ function toggleBrush(anchor: HTMLElement, want: 'pen' | 'hl' = 'pen') {
   }
   buildBrushPop();
   if (!brushPop) return;
+  // beginPanel() can hide the toolbar in focus mode, so freeze the trigger now.
+  const trigger = rectOf(anchor);
   brushTab = want;
   beginPanel('brush');
   paintBrushPop();
-  placePop(brushPop, anchor);
+  placePop(brushPop, trigger);
   brushPop.classList.add('on');
   brushPop.dataset.kind = 'brush';
   brushAnchor = anchor;
+  brushRect = trigger;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1961,9 +1997,10 @@ function openEraserSettings(anchor: HTMLElement) {
   }
   buildErSheet();
   if (!erSheet) return;
+  const trigger = rectOf(anchor);
   closePanels();
   paintErSheet();
-  placePop(erSheet, anchor);
+  placePop(erSheet, trigger);
   erSheet.classList.add('on');
   erSheet.dataset.kind = 'er';
   activePanel = 'er';
@@ -1994,15 +2031,35 @@ function toolbarFloor(): number {
   return Math.round(bottom) + 8;
 }
 
-function placePop(node: HTMLElement, anchor: HTMLElement) {
+function placePop(node: HTMLElement, anchor: HTMLElement | RectLike) {
   node.classList.add('on');
   const floor = toolbarFloor();
   // One shared geometry decision: centred under the trigger, never above the
   // toolbar, clamped to the 8px gutter, flipped above when it would be cut off.
   // The helper also measures the transformed-ancestor origin, which a raw
   // left/top calculation here used to get wrong on some skins.
+  //
+  // `anchor` is usually a *rect*, not the live button. Every one of these
+  // popovers takes the pen pill down as it opens (beginPanel -> closePopovers
+  // -> paintPanel rebuilds the row, then hides it), so by the time we get here
+  // the button is either detached or 0x0. Anchoring to that box makes
+  // anchorBelow() bail, leaving a `position:fixed` element with left/top:auto
+  // at its static position — the bottom of the document, off screen. To a user
+  // that reads as "the colour and settings icons are dead". Callers measure
+  // first; this fallback makes it impossible even if one forgets.
   const p = anchorBelow(node, anchor, { align: 'center', minTop: floor });
-  if (!p) return;
+  if (!p) {
+    // A panel the user dragged already has an inline position; respect it.
+    if (node.style.left || node.style.top) return;
+    const r = node.getBoundingClientRect();
+    const w = r.width || node.offsetWidth;
+    const h = r.height || node.offsetHeight;
+    node.style.position = 'fixed';
+    const maxTop = Math.max(8, window.innerHeight - h - 8);
+    node.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, (window.innerWidth - w) / 2)))}px`;
+    node.style.top = `${Math.round(Math.min(Math.max(floor, 8), maxTop))}px`;
+    return;
+  }
   if (p.side === 'above' && p.top < floor) {
     node.style.top = `${Math.round(floor - p.originY)}px`;
   }

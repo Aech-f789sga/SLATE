@@ -69,6 +69,43 @@ button[data-slate-icon="cross"] > svg{width:16px;height:16px}
 @media (pointer:coarse){
   button[data-slate-icon]{min-width:var(--slate-icon-touch);min-height:var(--slate-icon-touch)}
 }
+
+/* A "+" set as text is centred on the font's math axis, not on the box, and
+   its side bearings change with every theme font. The Any Colour button and
+   its kin use a symmetric SVG on the 24dp grid instead, so the ink's centre
+   and the box's centre are the same point. Grid, not a line box, does the
+   centring; every property that could reintroduce a line box is pinned. */
+button[data-slate-icon="plus"] > svg{
+  display:block;width:12px;height:12px;margin:0;flex:none;
+  align-self:center;justify-self:center;
+}
+button[data-slate-icon="plus"]{
+  grid-template-columns:1fr;grid-template-rows:1fr;
+  align-items:center;justify-items:center;align-content:center;justify-content:center;
+  line-height:0!important;padding:0!important;box-sizing:border-box;
+}
+.slate-icon-center{
+  display:grid!important;place-items:center!important;
+  align-content:center!important;justify-content:center!important;
+  line-height:0!important;padding:0!important;box-sizing:border-box;
+}
+.slate-icon-center > svg{
+  display:block;margin:0;flex:none;align-self:center;justify-self:center;
+}
+
+/* ---- Clickability ----------------------------------------------------
+   The tour mounts a full-screen, fully transparent layer at z-index 300.
+   When it is not actually running that layer must never swallow a press meant
+   for a control beneath it — an orphaned overlay reads as "every icon is
+   dead". Likewise, floating ink panels and their controls stay live and above
+   the second toolbar row (z-index 60) and the engine drawer (70), while the
+   tour/modal layers (250/300) still outrank them. */
+html:not(.tour-on) #tour-root{pointer-events:none!important}
+#ink-pen,#ink-pop,.ink-sheet{pointer-events:auto!important}
+#ink-pop,.ink-sheet{z-index:90!important}
+#ink-pen button,#ink-pop button,.ink-sheet button,
+#ink-pen input,#ink-pop input,.ink-sheet input{pointer-events:auto!important}
+
 .slate-grab{cursor:grab;touch-action:none}
 .slate-grab:active{cursor:grabbing}
 body.slate-dragging,body.slate-dragging *{user-select:none!important;cursor:grabbing!important}
