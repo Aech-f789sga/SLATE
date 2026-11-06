@@ -897,3 +897,57 @@ export function shapeFromBox(
   }
   return { a: [x0, y0], b: [x1, y1] };
 }
+/**
+ * Build a radial shape from its CENTRE and one outward handle.
+ *
+ * Circle, ellipse and polygon are placed by their centre in every drawing app:
+ * press where the middle should be, drag outwards, and the figure grows in all
+ * directions at once. shapeFromBox() models a corner-to-corner rectangle drag,
+ * where the press point becomes a corner, so the centre ends up halfway to the
+ * pointer and the shape appears to run away from the pen.
+ *
+ * The box handed to shapeFromBox() is symmetric around center, so the resulting
+ * a/b stay centred there. Rotation is NOT baked into the box: the stroke carries
+ * it in s.r, and the renderer rotates about the box centre, which is exactly
+ * the press point.
+ */
+export function shapeFromCenter(
+  kind: ShapeKind,
+  center: Pt,
+  handle: Pt,
+  opts: { sides?: number; min?: number } = {}
+): { a: Pt; b: Pt; poly?: Pt[]; el?: EllipseFit; pb?: ParabolaFit; hb?: HyperbolaFit } {
+  const m = Math.max(0.5, opts.min ?? 2);
+  const dx = handle[0] - center[0];
+  const dy = handle[1] - center[1];
+  const d = Math.hypot(dx, dy);
+
+  // The pointer is a point on the OUTLINE, not the opposite corner. A circle and
+  // a regular polygon are radial figures, so one distance drives both axes and
+  // the pointer sits exactly on the outline. Taking |dx| / |dy| instead would
+  // collapse the shape on a horizontal drag and shrink it to a line the moment
+  // the hand twists around the centre to rotate the figure.
+  if (kind === 'circle' || kind === 'poly') {
+    const r = Math.max(m, d);
+    return shapeFromBox(
+      kind,
+      [center[0] - r, center[1] - r],
+      [center[0] + r, center[1] + r],
+      opts
+    );
+  }
+
+  // An ellipse still lets the drag set its aspect ratio, but neither axis may
+  // degenerate: each is at least 35 % of the drag length. That keeps a mostly
+  // horizontal drag an ellipse rather than a 1 px sliver, and keeps the box
+  // roughly stable while the figure is being rotated.
+  const floor = Math.max(m, d * 0.35);
+  const rx = Math.max(floor, Math.abs(dx));
+  const ry = Math.max(floor, Math.abs(dy));
+  return shapeFromBox(
+    kind,
+    [center[0] - rx, center[1] - ry],
+    [center[0] + rx, center[1] + ry],
+    opts
+  );
+}

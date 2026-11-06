@@ -961,11 +961,9 @@ function paintSnap() {
 }
 
 function openSnap() {
-  if (!snapSheet) return;
+  if (!snapSheet || !accPop) return;
   paintSnap();
-  const anchor = accPop?.querySelector('[data-acc="snap"]') as HTMLElement | null;
-  snapSheet.classList.add('on');
-  if (anchor) placeUnder(snapSheet, anchor);
+  placeBeside(snapSheet, accPop);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1091,19 +1089,8 @@ function openOnnx() {
     return;
   }
   paintOnnx();
-  onnxSheet.classList.add('on');
-
-  // Sit beside the Smart ink sheet rather than under it: the row that opens
-  // this is the last one in that sheet, so "under" is off the bottom of the
-  // screen and the generic placer would flip it up on top of its own parent.
-  const s = smartSheet.getBoundingClientRect();
-  const w = onnxSheet.offsetWidth;
-  const h = onnxSheet.offsetHeight;
-  let left = s.left - w - 8;
-  if (left < 8) left = Math.min(window.innerWidth - w - 8, s.left);
-  const top = Math.max(8, Math.min(s.top, window.innerHeight - h - 8));
-  onnxSheet.style.left = Math.round(left) + 'px';
-  onnxSheet.style.top = Math.round(top) + 'px';
+  // Same contract as every other child sheet: beside its parent, never over it.
+  placeBeside(onnxSheet, smartSheet);
 }
 
 interface MenuItem {
@@ -1252,33 +1239,22 @@ function buildMenu() {
         paintMenu();
         return;
       }
+      // These open a *child* sheet of the menu. Only one is ever open, and it
+      // sits beside the menu rather than under it — see placeBeside().
       if (item.id === 'tools') {
-        closeSheets();
-        toolSheet?.classList.toggle('on');
-        paintTools();
-        // hang the sheet under the menu it came from, not under its own row,
-        // or it covers the item you just pressed
-        if (toolSheet?.classList.contains('on')) placeUnder(toolSheet, accPop || row);
+        toggleSheet(toolSheet, paintTools);
         return;
       }
       if (item.id === 'smart') {
-        closeSheets();
-        paintSmart();
-        smartSheet?.classList.toggle('on');
-        if (smartSheet?.classList.contains('on')) placeUnder(smartSheet, accPop || row);
+        toggleSheet(smartSheet, paintSmart);
         return;
       }
       if (item.id === 'snap') {
-        closeSheets();
-        snapSheet?.classList.toggle('on');
-        if (snapSheet?.classList.contains('on')) placeUnder(snapSheet, accPop || row);
-        paintSnap();
+        toggleSheet(snapSheet, paintSnap);
         return;
       }
       if (item.id === 'media') {
-        closeSheets();
-        mediaSheet?.classList.toggle('on');
-        if (mediaSheet?.classList.contains('on')) placeUnder(mediaSheet, accPop || row);
+        toggleSheet(mediaSheet);
         return;
       }
       toggle(item.id);
@@ -1366,6 +1342,7 @@ function paintMenu() {
   accBtn?.classList.toggle('on', any);
 }
 
+/** The menu itself hangs below its trigger. Sheets no longer use this. */
 function placeUnder(node: HTMLElement, anchor: HTMLElement) {
   node.classList.add('on');
   const r = anchor.getBoundingClientRect();
@@ -1378,6 +1355,95 @@ function placeUnder(node: HTMLElement, anchor: HTMLElement) {
   if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
   node.style.left = Math.round(left) + 'px';
   node.style.top = Math.round(top) + 'px';
+}
+
+/**
+ * Put a child sheet BESIDE the Accessories menu, never in front of it.
+ *
+ * The old shared `placeUnder()` flipped a sheet that could not fit below up to
+ * `top: 8`. Toolbar Customization is 461 px tall, so on a laptop it landed at
+ * the very top of the screen with the 350 px menu still showing underneath —
+ * 75 000 px² of overlap, and the menu rows became unclickable.
+ *
+ * A sheet is a submenu, so its natural home is to the right (or left) of the
+ * menu, top-aligned. That is a hard guarantee: either edge clears the menu by
+ * `GAP`, or (on a viewport too narrow for both) the sheet replaces the menu
+ * instead of covering it.
+ */
+const GAP = 8;
+
+function placeBeside(node: HTMLElement, menu: HTMLElement) {
+  node.classList.add('on');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const m = menu.getBoundingClientRect();
+  const w = node.offsetWidth;
+
+  // Keep the sheet's own design cap, but never taller than the viewport. The
+  // inline value also has to be *reset* on every open, since the narrow-screen
+  // fallback below shrinks it.
+  const cssMax = parseFloat(getComputedStyle(node).maxHeight);
+  const cap = Math.max(120, Math.min(Number.isFinite(cssMax) ? cssMax : vh - GAP * 2, vh - GAP * 2));
+  node.style.maxHeight = Math.round(cap) + 'px';
+  const h = Math.min(node.offsetHeight, cap);
+
+  const right = m.right + GAP;
+  const left = m.left - GAP - w;
+  const top = Math.round(Math.max(GAP, Math.min(vh - h - GAP, m.top)));
+
+  if (right + w <= vw - GAP || left >= GAP) {
+    const x = right + w <= vw - GAP ? right : left;
+    node.style.left = Math.round(x) + 'px';
+    node.style.top = top + 'px';
+    return;
+  }
+
+  // No room on either side (a narrow phone). Park it BELOW the menu and cap its
+  // height; if even that is impossible, a drill-down is the only honest option:
+  // hide the menu so the two can never stack on top of each other.
+  const below = m.bottom + GAP;
+  const above = Math.max(GAP, m.top - GAP);
+  if (vh - below >= 96) {
+    node.style.maxHeight = Math.round(vh - below - GAP) + 'px';
+    node.style.left = Math.round(Math.max(GAP, Math.min(vw - w - GAP, m.left))) + 'px';
+    node.style.top = Math.round(below) + 'px';
+    return;
+  }
+  if (above >= 96) {
+    node.style.maxHeight = Math.round(above - GAP) + 'px';
+    node.style.left = Math.round(Math.max(GAP, Math.min(vw - w - GAP, m.left))) + 'px';
+    node.style.top = Math.round(GAP) + 'px';
+    return;
+  }
+  accPop?.classList.remove('on');
+  const tb = document.getElementById('tb');
+  const floor = tb ? tb.getBoundingClientRect().bottom : 0;
+  const freeTop = Math.round(Math.max(GAP, floor + GAP));
+  node.style.maxHeight = Math.max(96, vh - freeTop - GAP) + 'px';
+  node.style.left = Math.round(Math.max(GAP, Math.min(vw - w - GAP, m.left))) + 'px';
+  node.style.top = freeTop + 'px';
+}
+
+/** Exactly one child sheet at a time; clicking its own row toggles it shut. */
+function toggleSheet(node: HTMLElement | null, before?: () => void) {
+  if (!node) return;
+  const wasOn = node.classList.contains('on');
+  closeSheets();
+  if (wasOn) return;
+  before?.();
+  const anchor = accPop?.classList.contains('on') ? accPop : accBtn;
+  if (anchor) placeBeside(node, anchor);
+  else node.classList.add('on');
+}
+
+/** Re-place whatever is open after a resize / device rotation. */
+function reflowSheets() {
+  const menu = accPop?.classList.contains('on') ? accPop : accBtn;
+  if (menu && accPop?.classList.contains('on') && accBtn) placeUnder(accPop, accBtn);
+  for (const s of [toolSheet, smartSheet, snapSheet, mediaSheet]) {
+    if (s?.classList.contains('on') && menu) placeBeside(s, menu);
+  }
+  if (onnxSheet?.classList.contains('on') && smartSheet) placeBeside(onnxSheet, smartSheet);
 }
 
 function hookTrigger() {
@@ -1406,6 +1472,7 @@ function hookTrigger() {
     smartSheet?.classList.remove('on');
     onnxSheet?.classList.remove('on');
     snapSheet?.classList.remove('on');
+    mediaSheet?.classList.remove('on');
     paintMenu();
     placeUnder(accPop, accBtn!);
   };
@@ -1713,9 +1780,12 @@ function boot() {
 
   window.addEventListener('resize', () => {
     paintTimer();
+    reflowSheets();
   });
+  window.addEventListener('orientationchange', reflowSheets);
 
   (window as any).__inkpad_acc = {
+    place: reflowSheets,
     state,
     timer,
     toggle,

@@ -1117,8 +1117,9 @@ function placeFab() {
     if (r.height > 0) bottom = Math.max(bottom, Math.round(window.innerHeight - r.top) + 10);
   }
   fab.style.bottom = bottom + 'px';
-  // the focus-mode padlock sits on top of this button, so it has to move too
+  // the focus-mode padlock sits above this button, the page-bar fold below it — both follow the lift
   (window as any).__inkpad_focus?.place?.();
+  (window as any).__inkpad_pgfold?.place?.();
 }
 
 function edVisible(): boolean {

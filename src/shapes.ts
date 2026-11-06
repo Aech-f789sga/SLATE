@@ -18,6 +18,7 @@ import { anchorBelow } from './ui-system';
 import {
   recogniseShape,
   shapeFromBox,
+  shapeFromCenter,
   shapeOutline,
   SHAPE_NAMES,
   type Pt as GeoPt,
@@ -336,12 +337,24 @@ function installShapeEngine() {
     }
     S.isCustom = isCustom;
 
+    // Hit-testing, the eraser and the lasso all walk shapePts(). The renderer
+    // rotates the canvas around bb0(s), so those points have to be rotated too —
+    // otherwise a shape rotated while it was being inserted (or later by the
+    // selection handle) is drawn in one place and selected / erased in another.
+    function rotated(P, s){
+      if (!s.r || !P || !P.length) return P;
+      var b = bb0(s), cx = (b[0]+b[2])/2, cy = (b[1]+b[3])/2;
+      var co = Math.cos(s.r), si = Math.sin(s.r);
+      return P.map(function(q){
+        var dx = q[0]-cx, dy = q[1]-cy;
+        return [cx + dx*co - dy*si, cy + dx*si + dy*co];
+      });
+    }
+
     shapePts = function(s){
-      if (isCustom(s)) {
-        var P = window.__shapeOutline(s);
-        if (P && P.length > 1) return P;
-      }
-      return origPts.apply(this, arguments);
+      var P = isCustom(s) ? window.__shapeOutline(s) : null;
+      if (!P || P.length < 2) P = origPts.apply(this, arguments);
+      return rotated(P, s);
     };
 
     function trace(c, P, smooth){
@@ -609,6 +622,121 @@ let pendingSnap: Snap | null = null;
 let rawA: Pt | null = null;
 let rawB: Pt | null = null;
 
+/* ------------------------------------------------------------------ */
+/* Centre-out insertion and live rotation                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Circle, ellipse and polygon are radial figures: they are placed by their
+ * centre and grown outwards. A corner-to-corner drag makes the press point one
+ * corner, so the shape appears to run away from the pen. These three keep the
+ * press point as the centre instead (see shapeFromCenter()).
+ */
+const CENTER_KINDS = new Set(['circle', 'ell', 'poly']);
+
+/** Signed angle wrapped to (-π, π]. */
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** Rotation from twisting the drag around its own centre. */
+let twistRot = 0;
+/** Rotation from the device being turned while the pen is still down. */
+let deviceRot = 0;
+/** Direction of the first outward move; later angular change is the twist. */
+let twistBase: number | null = null;
+/** Baseline for discrete orientation and continuous tilt readings. */
+let deviceBase: { gamma: number | null; angle: number } | null = null;
+/** Last device tilt, so a press never inherits a stale delta. */
+let lastGamma: number | null = null;
+/** Rotation at release, used to restore `s.r` if the engine drops it. */
+let pendingRot = 0;
+/** The radial kind that was released, including the engine's own oval tool. */
+let pendingKind: string | null = null;
+/** The press point, so the committed radial shape keeps its centre. */
+let pendingCenter: Pt | null = null;
+/** The pointer at release — the radial handle, not a box corner. */
+let pendingHandle: Pt | null = null;
+/** Stroke count at press, so a click that made no shape cannot restamp an old one. */
+let shapeBase = 0;
+
+function liveRot(): number {
+  return wrap(twistRot + deviceRot);
+}
+
+/**
+ * The kind being inserted. `forced` covers everything the picker draws through
+ * the rectangle tool, but the engine also has its own Oval button, which sets
+ * `tool='ell'` directly. That oval is the same radial figure and must grow from
+ * its centre too, so it is folded in here rather than special-cased at every
+ * call site.
+ */
+function activeKind(): string | null {
+  if (forced) return forced;
+  const t = ev<string>('tool');
+  return t === 'ell' ? 'ell' : null;
+}
+
+function centreInserting(): boolean {
+  const k = activeKind();
+  return !!(rawA && rawB && k && CENTER_KINDS.has(k));
+}
+
+function orientationAngle(): number {
+  const a = (window.screen as any)?.orientation?.angle;
+  if (Number.isFinite(a)) return a as number;
+  const o = (window as any).orientation;
+  return Number.isFinite(o) ? (o as number) : 0;
+}
+
+function repaintLive() {
+  ev('try{ draw(); }catch(e){}');
+}
+
+/**
+ * Two real rotation sources while the pointer is held:
+ *
+ *   • `deviceorientation` gamma — turning or tilting a phone/tablet in the
+ *     hand. No permission is requested: browsers that already deliver the event
+ *     get live rotation; browsers that do not simply keep a straight shape.
+ *   • `orientationchange` / Screen Orientation — a discrete portrait↔landscape
+ *     turn, which is the case the request actually describes.
+ *
+ * Both accumulate into `deviceRot`. The drag's own angular change adds
+ * `twistRot`, so an in-plane twist of the finger works on a desktop too. The
+ * shape is rotated with the engine's own `s.r` support, which rotates about the
+ * stroke's bounding-box centre — the press point for a centre-out shape.
+ */
+function hookInsertRotation() {
+  const onDiscrete = () => {
+    if (!centreInserting() || !deviceBase) return;
+    const now = orientationAngle();
+    deviceRot = wrap(deviceRot + wrap(((now - deviceBase.angle) * Math.PI) / 180));
+    deviceBase.angle = now;
+    repaintLive();
+  };
+  window.addEventListener('orientationchange', onDiscrete);
+  try {
+    (window.screen as any)?.orientation?.addEventListener?.('change', onDiscrete);
+  } catch {
+    /* Screen Orientation API is optional */
+  }
+  window.addEventListener('deviceorientation', (e) => {
+    const g = (e as DeviceOrientationEvent).gamma;
+    if (typeof g !== 'number' || !Number.isFinite(g)) return;
+    lastGamma = g;
+    if (!centreInserting() || !deviceBase) return;
+    if (deviceBase.gamma == null) {
+      deviceBase.gamma = g;
+      return;
+    }
+    // gamma wraps at ±90 / ±180; take the short way round before scaling
+    const dd = (((g - deviceBase.gamma + 540) % 360) - 180) * (Math.PI / 180);
+    if (Math.abs(dd) < 0.0105) return; // 0.6° dead zone — a hand is never still
+    deviceRot = wrap(deviceRot + dd * 0.9);
+    deviceBase.gamma = g;
+    repaintLive();
+  });
+}
+
 /**
  * Where the hand was when the hold clock last restarted.
  *
@@ -763,18 +891,38 @@ let lastMove = 0;
  * time the paint happens, with no one-frame lag.
  */
 function hookShapePreview() {
-  const cv = canvasEl();
-  if (!cv) return;
+  if (!canvasEl()) return;
+
+  // The canvas can be recreated when a notebook opens, so resolve it at event
+  // time rather than holding on to a stale element for the whole session.
+  const pagePoint = (e: Event): Pt | null => {
+    const cv = canvasEl();
+    return cv ? toPage(e as PointerEvent, cv) : null;
+  };
 
   document.addEventListener(
     'pointerdown',
     (e) => {
       rawA = null;
       rawB = null;
-      if (!forced || !toolIsShape()) return;
-      const p = toPage(e as PointerEvent, cv);
+      twistRot = 0;
+      deviceRot = 0;
+      twistBase = null;
+      pendingRot = 0;
+      pendingKind = null;
+      pendingCenter = null;
+      pendingHandle = null;
+      deviceBase = null;
+      shapeBase = (ev<any[]>('pg().strokes') || []).length;
+      const kind = activeKind();
+      if (!kind || !toolIsShape()) return;
+      const p = pagePoint(e);
+      if (!p) return;
       rawA = p;
       rawB = p;
+      if (CENTER_KINDS.has(kind)) {
+        deviceBase = { gamma: lastGamma, angle: orientationAngle() };
+      }
     },
     true
   );
@@ -783,12 +931,41 @@ function hookShapePreview() {
     'pointermove',
     (e) => {
       if (!rawA) return;
-      rawB = toPage(e as PointerEvent, cv);
+      const p = pagePoint(e);
+      if (!p) return;
+      rawB = p;
+      const kind = activeKind();
+      if (!kind || !CENTER_KINDS.has(kind)) return;
+      const dx = p[0] - rawA[0];
+      const dy = p[1] - rawA[1];
+      if (Math.hypot(dx, dy) < 9) return;
+      const ang = Math.atan2(dy, dx);
+      // The first outward move fixes the base direction. Twisting the finger
+      // around the centre afterwards is a rotation, not a resize.
+      if (twistBase === null) twistBase = ang;
+      else twistRot = wrap(ang - twistBase);
     },
     true
   );
 
-  const clear = () => window.setTimeout(() => ((rawA = null), (rawB = null)), 40);
+  const clear = () => {
+    // `end()` rebuilds the committed stroke from a fixed field list. Capture
+    // the release angle and the press point here so stampStyle() can put them
+    // back if they were dropped.
+    const kind = activeKind();
+    if (kind && CENTER_KINDS.has(kind) && rawA && rawB && dist(rawA, rawB) > 3) {
+      pendingKind = kind;
+      pendingRot = liveRot();
+      pendingCenter = [...rawA];
+      pendingHandle = [...rawB];
+    } else {
+      pendingRot = 0;
+      pendingKind = null;
+      pendingCenter = null;
+      pendingHandle = null;
+    }
+    window.setTimeout(() => ((rawA = null), (rawB = null)), 40);
+  };
   document.addEventListener('pointerup', clear, true);
   document.addEventListener('pointercancel', clear, true);
 
@@ -815,26 +992,48 @@ function hookShapePreview() {
       return;
     }
 
-    if (cur.t !== 'shape' || !forced || !rawA || !rawB) return;
+    if (cur.t !== 'shape' || !rawA || !rawB) return;
+    const kind = activeKind();
+    if (!kind) return;
+
+    // Radial shapes grow outward from the press point. `rawA` is the CENTRE,
+    // `rawB` is the outward handle, and live rotation rides on `cur.r` so the
+    // engine's own stroke() rotates the whole outline about that centre.
+    if (CENTER_KINDS.has(kind)) {
+      const geo = shapeFromCenter(kind as GeoKind, rawA, rawB, {
+        sides: polySides,
+        min: 0.5,
+      });
+      cur.k = kind;
+      cur.a = geo.a;
+      cur.b = geo.b;
+      setDerived(cur, geo);
+      const r = liveRot();
+      if (Math.abs(r) > 1e-3) cur.r = r;
+      else delete cur.r;
+      return;
+    }
 
     // The curvable line is an open curve, so the drag endpoints must keep their
     // direction — shapeFromBox() normalises them to min/max corners, which would
     // flip every line drawn right-to-left. Its bend lives in `q` (normalised to
     // the line's own frame) and is rendered by src/curve-line.ts.
-    if (forced === 'qcurve') {
+    if (kind === 'qcurve') {
       cur.k = 'qcurve';
       cur.a = [...rawA];
       cur.b = [...rawB];
       if (!cur.q) cur.q = [0, 0];
       setDerived(cur, {});
+      delete cur.r;
       return;
     }
 
-    const geo = shapeFromBox(forced as GeoKind, rawA, rawB, { sides: polySides });
-    cur.k = forced;
+    const geo = shapeFromBox(kind as GeoKind, rawA, rawB, { sides: polySides });
+    cur.k = kind;
     cur.a = geo.a;
     cur.b = geo.b;
     setDerived(cur, geo);
+    delete cur.r;
   };
 }
 
@@ -963,17 +1162,25 @@ function setDerived(target: any, norm: { poly?: Pt[]; el?: any; pb?: any; hb?: a
  * applied here once the stroke exists — and a derived kind (circle, triangle,
  * polygon…) gets its real outline back, which the engine drops on release.
  */
-function stampStyle() {
+function stampStyle(tries = 0) {
   if (!editorOpen()) return;
   const strokes = ev<any[]>('pg().strokes');
-  if (!strokes || !strokes.length) return;
-  const s = strokes[strokes.length - 1];
-  if (!s || s.t !== 'shape') return;
+  const s = strokes && strokes.length ? strokes[strokes.length - 1] : null;
+  // A click that never dragged commits nothing. Retry a few frames for the
+  // engine's own pointerup handler, but never restamp a stroke left over from
+  // an older gesture — that would rotate the wrong shape.
+  if (!s || s.t !== 'shape' || (strokes?.length ?? 0) <= shapeBase) {
+    if (tries < 8) requestAnimationFrame(() => stampStyle(tries + 1));
+    return;
+  }
   applyStyle(s, !!forced);
 }
 
 function applyStyle(s: any, geometry: boolean) {
   let changed = false;
+  // `pendingKind` is captured at release, so the engine's own Oval button is
+  // covered too — it has no `forced` value but is still a radial insertion.
+  const radial = !!pendingKind && CENTER_KINDS.has(pendingKind) && s.t === 'shape';
 
   // The picker keeps its selection, so every stroke with that kind selected is
   // rebuilt from its box: the box is the authority, the outline is normalised
@@ -985,6 +1192,24 @@ function applyStyle(s: any, geometry: boolean) {
     if (!s.q) s.q = [0, 0];
     setDerived(s, {});
     changed = true;
+  } else if (radial) {
+    // end() now preserves a/b/poly/el/r verbatim, so leave the committed box
+    // alone — rebuilding it from s.b would treat a radial handle as a corner
+    // and inflate the shape by √2. Rebuild only on an engine path that still
+    // drops the derived fields.
+    s.k = pendingKind!;
+    if (!s.poly && !s.el) {
+      const centre: Pt = pendingCenter ?? [(s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2];
+      const handle: Pt = pendingHandle ?? s.b;
+      const geo = shapeFromCenter(pendingKind as GeoKind, centre, handle, {
+        sides: polySides,
+        min: 0.5,
+      });
+      s.a = geo.a;
+      s.b = geo.b;
+      setDerived(s, geo);
+    }
+    changed = true;
   } else if (geometry && forced) {
     const geo = shapeFromBox(forced as GeoKind, s.a, s.b, { sides: polySides });
     s.k = forced;
@@ -992,6 +1217,24 @@ function applyStyle(s: any, geometry: boolean) {
     s.b = geo.b;
     setDerived(s, geo);
     changed = true;
+  }
+
+  // index.html now carries s.r through end(), but keep the fallback: any other
+  // release path that rebuilds the stroke must not silently straighten it.
+  if (radial) {
+    if (Math.abs(pendingRot) > 1e-3) {
+      if (!s.r || Math.abs(s.r) < 1e-6) {
+        s.r = pendingRot;
+        changed = true;
+      }
+    } else if (s.r) {
+      delete s.r;
+      changed = true;
+    }
+    pendingRot = 0;
+    pendingKind = null;
+    pendingCenter = null;
+    pendingHandle = null;
   }
 
   if (style.fill && (s.k === 'rect' || s.k === 'ell' || s.k === 'tri' || s.poly || s.el)) {
@@ -1772,6 +2015,7 @@ function boot() {
   installShapeEngine();
   hookRecognition();
   hookShapePreview();
+  hookInsertRotation();
   buildPanel();
   buildPicker();
   hookToolbar();
@@ -1811,6 +2055,18 @@ function boot() {
     kinds: KINDS,
     metrics: metricsOf,
     last: () => lastRun,
+    centreKinds: [...CENTER_KINDS],
+    insert: () => ({
+      forced,
+      kind: activeKind(),
+      center: pendingCenter ? [...pendingCenter] : null,
+      rawA: rawA ? [...rawA] : null,
+      rawB: rawB ? [...rawB] : null,
+      rot: liveRot(),
+      pendingRot,
+      twistRot,
+      deviceRot,
+    }),
     live: () => ({ drawing, snap, path: path.length, pts: path.map((q) => q.map(Math.round)), hold: !!holdTimer, tool: ev<string>('tool'), rec: style.recognise }),
     trySnap,
     hold: snapHoldMs,
