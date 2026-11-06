@@ -139,6 +139,7 @@ html[data-bar=compact] #bar{padding-right:0}
 <script type="module" src="/src/lasso-tools.ts"></script>
 <script type="module" src="/src/analytics.ts"></script>
 <script type="module" src="/src/update-check.ts"></script>
+<script type="module" src="/src/bug-report.ts"></script>
 <style id="intro-style">
 /* ------------------------------------------------------------------ */
 /* Opening card                                                        */
@@ -942,8 +943,18 @@ function setupBars(){if($('#tb'))return;const st=document.createElement('style')
  const mb=el('button');mb.id='more';mb.className='ic';mb.title='More controls';mb.innerHTML=ico("<circle cx='5' cy='12' r='1.6' fill='currentColor'/><circle cx='12' cy='12' r='1.6' fill='currentColor'/><circle cx='19' cy='12' r='1.6' fill='currentColor'/>");mb.onclick=()=>tb.classList.toggle('more');bar.append(mb);addEventListener('pointerdown',e=>{if(tb.classList.contains('more')&&!e.target.closest('#tb')&&!(typeof DRW!=='undefined'&&DRW.contains(e.target)))tb.classList.remove('more')},true);addEventListener('keydown',e=>{if(e.key==='Escape')tb.classList.remove('more')});tb.classList.toggle('more',false);
  adapt();addEventListener('resize',adapt);addEventListener('orientationchange',()=>setTimeout(adapt,250));try{let _roRaf=0;new ResizeObserver(()=>{cancelAnimationFrame(_roRaf);_roRaf=requestAnimationFrame(()=>{if(nb&&$('#ed').style.display==='flex')layout()})}).observe($('#main'))}catch(e){}}
 const PT=new Map();let pinch=null;
-addEventListener('pointerdown',e=>{if(e.pointerType!=='touch'||!e.target.closest||!e.target.closest('#cv,#wrap'))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(PT.size===2){e.stopPropagation();if(cur){if(cur.it)pg().strokes=pg().strokes.filter(s=>s!==cur.it);if(cur.t!=='laser'&&undo.length)undo.pop();if(cur.s&&cur.t==='laser')cur.s.rt=performance.now();cur=null;sStop();draw()}const[a,b]=[...PT.values()];pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1])||1,z:z,mx:(a[0]+b[0])/2,my:(a[1]+b[1])/2}}else if(pinch)e.stopPropagation()},true);
-addEventListener('pointermove',e=>{if(!PT.has(e.pointerId))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(pinch&&PT.size>=2){e.stopPropagation();const[a,b]=[...PT.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,s=$('#stage');z=Math.min(8,Math.max(.5,pinch.z*d/pinch.d));layout();s.scrollLeft-=mx-pinch.mx;s.scrollTop-=my-pinch.my;pinch.mx=mx;pinch.my=my}},true);
+addEventListener('pointerdown',e=>{if(e.pointerType!=='touch'||!e.target.closest||!e.target.closest('#cv,#wrap'))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(PT.size===2){e.stopPropagation();if(cur){if(cur.it)pg().strokes=pg().strokes.filter(s=>s!==cur.it);if(cur.t!=='laser'&&undo.length)undo.pop();if(cur.s&&cur.t==='laser')cur.s.rt=performance.now();cur=null;sStop();draw()}const[a,b]=[...PT.values()],r=cv.getBoundingClientRect();pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1])||1,z:z,fx:r.width?((a[0]+b[0])/2-r.left)/r.width:.5,fy:r.height?((a[1]+b[1])/2-r.top)/r.height:.5}}else if(pinch)e.stopPropagation()},true);
+addEventListener('pointermove',e=>{if(!PT.has(e.pointerId))return;PT.set(e.pointerId,[e.clientX,e.clientY]);if(!pinch||PT.size<2)return;e.stopPropagation();
+ const[a,b]=[...PT.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,s=$('#stage');
+ z=Math.min(8,Math.max(.5,pinch.z*d/pinch.d));layout();
+ /* The wrap is resized from its top-left corner, so without this the page grows
+    away from the fingers and the spot you aimed at slides off screen — zooming
+    at the right edge of the paper looked like zooming into the middle. Anchor
+    the page fraction grabbed at the start of the gesture back under the current
+    midpoint; that also makes two-finger pan follow the fingers, since a moving
+    midpoint with a constant distance is just the same correction. */
+ const r=cv.getBoundingClientRect();
+ if(r.width>0&&r.height>0){s.scrollLeft+=(r.left+pinch.fx*r.width)-mx;s.scrollTop+=(r.top+pinch.fy*r.height)-my}},true);
 const pEnd=e=>{PT.delete(e.pointerId);if(PT.size<2)pinch=null};addEventListener('pointerup',pEnd,true);addEventListener('pointercancel',pEnd,true);
 function zEnd(s){const L=Math.max(Math.abs(s.b[0]-s.a[0]),Math.abs(s.b[1]-s.a[1]))*.6;return[s.a[0]-L*.7,s.a[1]+L*.7]}
 /* Quadratic Bézier frame for the Curvable Line (kind 'qcurve').
@@ -1053,10 +1064,69 @@ document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{commitText();con
 let te=null,z=1,tt;const tx=$("#tx");
 function setCol(c){color=c;$("#col").value=c;if(sel.length){snap();sel.forEach(s=>{if(s.c)s.c=c});draw();save()}}
 $("#col").oninput=e=>{setCol(e.target.value);document.querySelectorAll(".sw").forEach(x=>x.classList.remove("on"))};
-function layout(){{const s=$("#stage"),pw=DEV==='phone'?14:40,aw=s.clientWidth-pw,ah=s.clientHeight-pw;let b=Math.min(aw,Math.max(260,ah*W/H));b=Math.min(b,(DEV==='desktop'?1100:1000)*W/800);$("#wrap").style.width=Math.max(200,b*z)+"px"}if(!fitting){const dd=wantD();if(Math.abs(dd-cvD)/cvD>.2){clearTimeout(rtm);rtm=setTimeout(fit,150)}}}
-function zoom(f){commitText();z=Math.min(8,Math.max(.5,z*f));layout()}
+function layout(){{const s=$("#stage"),pw=DEV==='phone'?14:40,aw=s.clientWidth-pw,ah=s.clientHeight-pw;let b=Math.min(aw,Math.max(260,ah*W/H));b=Math.min(b,(DEV==='desktop'?1100:1000)*W/800);$("#wrap").style.width=Math.max(200,b*z)+"px";slackPad();placePage()}if(!fitting){const dd=wantD();if(Math.abs(dd-cvD)/cvD>.2){clearTimeout(rtm);rtm=setTimeout(fit,150)}}}
+/* Zoomed in, the scrollable area stops at the page edge, so the furthest you can
+   drag is "page edge against window edge" — the corner of the page can never
+   reach the middle of the screen. Half a window of padding on each side fixes
+   that and stops exactly there: at one end of the scroll range the page's left
+   corner sits at the centre, at the other end its right corner does. */
+let slackOn=0;
+function slackPad(){const s=$("#stage");if(!s)return;const want=z>1&&!inStrip()?1:0;if(want===slackOn)return;
+ const base=DEV==='phone'?7:20,px=want?Math.max(base,Math.round(s.clientWidth/2)):base,py=want?Math.max(base,Math.round(s.clientHeight/2)):base;
+ const r=cv.getBoundingClientRect(),sr=s.getBoundingClientRect(),cx=(sr.left+s.clientWidth/2-r.left)/(r.width||1),cy=(sr.top+s.clientHeight/2-r.top)/(r.height||1);
+ s.style.padding=py+"px "+px+"px";
+ const q=cv.getBoundingClientRect(),sr2=s.getBoundingClientRect();
+ s.scrollLeft+=(q.left+cx*q.width)-(sr2.left+s.clientWidth/2);
+ s.scrollTop+=(q.top+cy*q.height)-(sr2.top+s.clientHeight/2);
+ slackOn=want}
+/* When the page is smaller than the window there is nothing to scroll — the
+   stage has no overflow at all — so the only way to keep a zoomed point under
+   the cursor is to move the page itself. `panX`/`panY` are that offset from the
+   resting position, and they are clamped so the page always stays whole on
+   screen. Once the page is bigger than the window the margins go back to the
+   stylesheet and scrolling takes over, which is continuous because the offset
+   is forced to zero as the free space reaches zero. */
+let panX=0,panY=0;
+/* In long-strip mode page-strip.ts moves #wrap into its own column, so the
+   offsets here would shift the live sheet inside the strip. The strip places
+   every page itself, so stand down entirely. */
+function inStrip(){return document.documentElement.dataset.flow==='strip'}
+function placePage(){const s=$("#stage"),wrap=$("#wrap");if(!s||!wrap)return;
+ if(inStrip()){wrap.style.marginLeft="";wrap.style.marginRight="";wrap.style.marginTop="";panX=panY=0;return}
+ /* Centre against the real content box. The stage carries a wide left padding
+    while the pen rail is out, so measuring from clientWidth alone would push
+    the page off-centre by half of it. */
+ const cs=getComputedStyle(s),pl=parseFloat(cs.paddingLeft)||0,pr=parseFloat(cs.paddingRight)||0,pt=parseFloat(cs.paddingTop)||0,pb=parseFloat(cs.paddingBottom)||0;
+ const aw=Math.max(1,s.clientWidth-pl-pr),ah=Math.max(1,s.clientHeight-pt-pb);
+ const w=wrap.offsetWidth||1,h=w*H/W,freeX=aw-w,freeY=ah-h;
+ if(freeX>0){panX=Math.max(-freeX/2,Math.min(freeX/2,panX));wrap.style.marginLeft=Math.round(freeX/2+panX)+"px";wrap.style.marginRight="0"}
+ else{panX=0;wrap.style.marginLeft="";wrap.style.marginRight=""}
+ if(freeY>0){panY=Math.max(0,Math.min(freeY,panY));wrap.style.marginTop=Math.round(panY)+"px"}
+ else{panY=0;wrap.style.marginTop=""}}
+/* Zoom about a screen point. The wrap is resized from its top-left, so a plain
+   z change grows the page away from the point you are looking at; anchoring
+   keeps the page fraction under the cursor exactly where it is. */
+let MX=-1,MY=-1;
+addEventListener('pointermove',e=>{MX=e.clientX;MY=e.clientY},{passive:true});
+function zoomAt(f,mx,my){commitText();
+ const s=$('#stage'),r=cv.getBoundingClientRect();
+ const fx=r.width>0?(mx-r.left)/r.width:.5,fy=r.height>0?(my-r.top)/r.height:.5;
+ z=Math.min(8,Math.max(.5,z*f));layout();
+ const q=cv.getBoundingClientRect();
+ const dx=(q.left+fx*q.width)-mx,dy=(q.top+fy*q.height)-my;
+ /* Scrolling can only absorb the correction once the page overflows. While it
+    still fits there is no scrollbar at all, so the page itself is moved instead
+    — otherwise zooming always grew the page about the middle of the window. */
+ const canX=s.scrollWidth>s.clientWidth+1,canY=s.scrollHeight>s.clientHeight+1;
+ if(canX)s.scrollLeft+=dx;else panX-=dx;
+ if(canY)s.scrollTop+=dy;else panY-=dy;
+ if(!canX||!canY)placePage()}
+function zoom(f){const s=$('#stage'),sr=s.getBoundingClientRect();
+ const mx=MX<0?sr.left+sr.width/2:Math.min(Math.max(MX,sr.left),sr.right);
+ const my=MY<0?sr.top+sr.height/2:Math.min(Math.max(MY,sr.top),sr.bottom);
+ zoomAt(f,mx,my)}
 $("#zi").onclick=()=>zoom(1.2);$("#zo").onclick=()=>zoom(1/1.2);
-$("#stage").addEventListener("wheel",e=>{if(e.ctrlKey){e.preventDefault();zoom(e.deltaY<0?1.1:.9)}},{passive:false});
+$("#stage").addEventListener("wheel",e=>{if(e.ctrlKey){e.preventDefault();zoomAt(e.deltaY<0?1.1:.9,e.clientX,e.clientY)}},{passive:false});
 function sc(){return cv.getBoundingClientRect().width/W}
 function openText(x,y,hit){
  if(hit){snap();pg().strokes=pg().strokes.filter(s=>s!==hit);te={x:hit.x,y:hit.y,s:hit.s,c:hit.c,w:hit.w,f:hit.f,rt:hit.rt?Object.assign({},hit.rt):(window.__rtDefault?Object.assign({},window.__rtDefault):undefined)};tx.value=hit.txt;sel=[];draw()}else{te={x,y,s:10+size*3,c:color,w:undefined,f:$("#fnt").value,rt:window.__rtDefault?Object.assign({},window.__rtDefault):undefined};tx.value=""}

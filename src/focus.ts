@@ -113,7 +113,6 @@ const CSS = `
 html[data-focus="1"] #tb,
 html[data-focus="1"] #gn-tabs,
 html[data-focus="1"] #gn-foot,
-html[data-focus="1"] #pg,
 html[data-focus="1"] #side,
 html[data-focus="1"] #frb,
 html[data-focus="1"] #tour-fab,
@@ -144,6 +143,31 @@ html[data-focus="1"] #calc-pop{display:none!important}
 /* A locked page should feel like a page: no margin theatre, no scrollbar seam. */
 html[data-focus="1"] #stage{padding:10px}
 html[data-focus="1"] #ed{background:var(--bg,#eef1f5)}
+
+/* The page bar survives the lock, but only the part that is writing: turn the
+   page, see which one you are on, add another. Duplicating and deleting a page
+   are editing decisions and stay with the toolbars. It floats as a pill so it
+   does not become a second toolbar across the bottom of the screen. */
+html[data-focus="1"] #pg{
+  position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:60;
+  flex:none;padding:4px 8px;gap:4px;border:1px solid var(--bd);
+  border-radius:999px;background:color-mix(in srgb,var(--sf) 92%,transparent);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  box-shadow:0 8px 24px rgba(6,12,28,.18);
+}
+html[data-focus="1"] #pg #dup,
+html[data-focus="1"] #pg #del{display:none!important}
+/* Lift it clear of a pen rail parked along the bottom edge. */
+html[data-focus="1"] body.pd-open[data-pd=bottom] #pg{bottom:78px}
+/* One long strip has no "next page" to turn to — scrolling is the page turn,
+   so the arrows would be a second, disagreeing way to do the same thing. */
+html[data-focus="1"][data-flow="strip"] #pg #prev,
+html[data-focus="1"][data-flow="strip"] #pg #next,
+html[data-focus="1"][data-flow="strip"] #pg #pn{display:none!important}
+@media(max-width:640px){
+  html[data-focus="1"] #pg{bottom:10px;padding:3px 6px}
+  html[data-focus="1"] body.pd-open[data-pd=bottom] #pg{bottom:70px}
+}
 
 /* The pen pill is part of the toolbar, so it goes with it — except when the
    rail asks for it. Picking a pen in focus mode puts the peek class on the

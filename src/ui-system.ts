@@ -209,8 +209,35 @@ export type Placement = {
   originY: number;
 };
 
-/** Where a `position:fixed` box actually lands when its offsets are zero. */
-const origins = new WeakMap<HTMLElement, { x: number; y: number }>();
+/**
+ * The viewport point a panel's `left:0;top:0` actually resolves to.
+ *
+ * This is not the same as its offsetParent. `left` is measured from the
+ * containing block, and a transformed ancestor — or an absolutely positioned
+ * box wider than the screen — becomes that containing block while offsetParent
+ * still reports the nearest *positioned* ancestor. On a phone the two were
+ * 197px apart, which is why a dragged panel snapped sideways on the first move
+ * and then tracked at the wrong rate: the pointer had to travel far past the
+ * target before the panel arrived. Measuring costs one forced layout per drag
+ * and is right in every case, including margins, which cancel out.
+ */
+function zeroOrigin(panel: HTMLElement): { x: number; y: number } {
+  const s = panel.style;
+  const keep = { left: s.left, top: s.top, right: s.right, bottom: s.bottom, transition: s.transition };
+  s.transition = 'none';
+  s.left = '0px';
+  s.top = '0px';
+  s.right = 'auto';
+  s.bottom = 'auto';
+  const r = panel.getBoundingClientRect();
+  s.left = keep.left;
+  s.top = keep.top;
+  s.right = keep.right;
+  s.bottom = keep.bottom;
+  s.transition = keep.transition;
+  return { x: r.left, y: r.top };
+}
+
 /** Guards the deferred transition restore against a newer anchor call. */
 const anchorToken = new WeakMap<HTMLElement, object>();
 
@@ -315,7 +342,6 @@ export function anchorBelow(panel: HTMLElement, anchor: Anchor, opts: AnchorOpti
 
   const originX = at0.left;
   const originY = at0.top;
-  origins.set(panel, { x: originX, y: originY });
 
   let wantLeft =
     align === 'start' ? r.left : align === 'end' ? r.right - w : r.left + r.width / 2 - w / 2;
@@ -435,7 +461,13 @@ export function makeDraggable(panel: HTMLElement, handleSelector?: string) {
       }
 
       const start = panel.getBoundingClientRect();
-      const origin = origins.get(panel) || { x: 0, y: 0 };
+      /* Where this panel's own `left`/`top` are measured from — which is not
+         always the viewport, and not always its offsetParent either. Writing a
+         viewport coordinate straight into style.left is what made the panel
+         jump on the first move and then track at the wrong rate. */
+      const o0 = zeroOrigin(panel);
+      const curLeft = start.left - o0.x;
+      const curTop = start.top - o0.y;
       const px = down.clientX;
       const py = down.clientY;
       let moved = false;
@@ -458,14 +490,18 @@ export function makeDraggable(panel: HTMLElement, handleSelector?: string) {
         ev.preventDefault();
         if (mode === 'offset') {
           const w = panel.offsetWidth;
+          /* Clamp the *visual* position, then convert the applied delta back
+             into the panel's own coordinate space. Adding dx to the stored
+             `left` instead would have been wrong by exactly the containing
+             block's offset. */
           const left = clamp(
             UI.edge - w + UI.iconBox,
             window.innerWidth - UI.iconBox,
             start.left + dx,
           );
           const top = clamp(UI.edge, window.innerHeight - UI.iconBox, start.top + dy);
-          panel.style.left = `${Math.round(left - origin.x)}px`;
-          panel.style.top = `${Math.round(top - origin.y)}px`;
+          panel.style.left = `${Math.round(curLeft + (left - start.left))}px`;
+          panel.style.top = `${Math.round(curTop + (top - start.top))}px`;
           panel.style.right = 'auto';
           panel.style.bottom = 'auto';
         } else {
@@ -513,7 +549,6 @@ export function resetDrag(panel: HTMLElement) {
   anchorToken.delete(panel);
   transitionBase.delete(panel);
   settledCheck.delete(panel);
-  origins.delete(panel);
   dragState.delete(panel);
   delete panel.dataset.slateDragged;
   delete panel.dataset.slateDragOpen;
