@@ -164,6 +164,17 @@ export function openBugReport() {
         close();
         return;
       }
+      if (r.status === 502 && data && (data as any).detail) {
+        const detailStr = String((data as any).detail);
+        if (detailStr.includes('testing emails')) {
+          status.textContent = 'Resend requires sending to your registered Resend email. Opening draft…';
+          setTimeout(() => {
+            mailto(message, email, ctx);
+            close();
+          }, 2000);
+          return;
+        }
+      }
       throw new Error(`status ${r.status}`);
     } catch {
       mailto(message, email, ctx);

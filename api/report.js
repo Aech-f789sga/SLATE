@@ -69,6 +69,23 @@ export default async function handler(req, res) {
   const text = `${message}\n\n---\n${context}${email ? `\nreply-to: ${email}` : ''}`;
   const subject = `[Slate] Bug report — ${message.replace(/\s+/g, ' ').slice(0, 60)}`;
 
+  const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#1c2430">
+      <div style="border-bottom:2px solid #2f6df6;padding-bottom:12px;margin-bottom:16px">
+        <h2 style="margin:0;color:#1f3a63;font-size:20px">🐞 Slate Bug Report</h2>
+      </div>
+      <div style="background:#f4f6fa;border:1px solid #d9e1ec;border-radius:10px;padding:16px;margin-bottom:16px;white-space:pre-wrap;font-size:15px;line-height:1.5">
+        ${escapeHtml(message)}
+      </div>
+      ${email ? `<p style="margin:8px 0;font-size:14px"><strong>Reply-to:</strong> <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></p>` : '<p style="margin:8px 0;font-size:13px;color:#6b7684"><em>User did not leave a reply email</em></p>'}
+      <div style="margin-top:20px;border-top:1px solid #e3e7ee;padding-top:14px">
+        <h4 style="margin:0 0 8px;font-size:12px;text-transform:uppercase;color:#6b7684;letter-spacing:.05em">Diagnostics</h4>
+        <pre style="background:#1a202c;color:#edf2f7;padding:12px;border-radius:8px;font-size:12px;line-height:1.45;overflow-x:auto">${escapeHtml(context)}</pre>
+      </div>
+    </div>
+  `;
+
   let upstream;
   try {
     upstream = await fetch('https://api.resend.com/emails', {
@@ -79,6 +96,7 @@ export default async function handler(req, res) {
         to: [TO],
         subject,
         text,
+        html,
         ...(email ? { reply_to: email } : {}),
       }),
     });
