@@ -92,6 +92,26 @@ function overlayOpen(): boolean {
   return false;
 }
 
+/**
+ * Whether the app is off-screen.
+ *
+ * Asks the native shell first when there is one. A WebView can report
+ * `document.visibilityState === 'hidden'` while it is plainly on screen, and
+ * treating that as "backgrounded" had two bad effects: it suppressed the card,
+ * and it asked for notification permission at launch.
+ */
+function isBackgrounded(): boolean {
+  const native = (window as any).SlateNative;
+  if (native?.isForeground) {
+    try {
+      return !native.isForeground();
+    } catch {
+      /* fall through to the browser signal */
+    }
+  }
+  return document.visibilityState === 'hidden';
+}
+
 /* --------------------------------------------------------------- the request */
 
 async function fetchLatest(): Promise<BuildInfo | null> {
@@ -277,9 +297,10 @@ async function check(): Promise<void> {
 
   pending = latest;
 
-  // Backgrounded or in a note: a notification is the only way to reach the
-  // user, and only the native shell can raise one.
-  if (document.visibilityState === 'hidden') {
+  // Backgrounded: a notification is the only way to reach the user, and only
+  // the native shell can raise one. The shell also refuses to do it while it is
+  // on screen, so a bad visibility read cannot turn into a permission prompt.
+  if (isBackgrounded()) {
     const native = (window as any).SlateNative;
     if (native?.notifyUpdate) {
       try {

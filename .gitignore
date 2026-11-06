@@ -17,3 +17,6 @@ shots/
 
 # demo recordings (capture output, not source)
 .demo/
+
+# artefact from scripts/check-update-flow.mjs
+update-prompt-home.png

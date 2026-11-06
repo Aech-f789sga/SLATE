@@ -119,6 +119,44 @@ try {
   await page.evaluate(() => localStorage.setItem('slate.upd.snooze', '0'));
   await sleep(2200);
   check('prompt returns after snooze expires', await isOn(), await cardClass());
+
+  /* 8. Native shell reports backgrounded → notification, which is the only path
+   *    that ever asks for POST_NOTIFICATIONS. */
+  console.log('\n[8] shell says it is backgrounded');
+  await page.evaluate(() => {
+    window.__notified = null;
+    window.SlateNative = {
+      isForeground: () => false,
+      notifyUpdate: (v) => { window.__notified = v; },
+    };
+    localStorage.setItem('slate.upd.last', '0');
+    Object.defineProperty(document, 'visibilityState', {
+      get: () => 'visible',
+      configurable: true,
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await sleep(2500);
+  const notified = await page.evaluate(() => window.__notified);
+  check('backgrounded shell asks for a notification', !!notified, notified || '(none)');
+
+  /* 9. Native shell reports foreground → no notification, so no permission
+   *    prompt can ever appear while the app is on screen. This is the bug that
+   *    was reported: the prompt showing up on launch. */
+  console.log('\n[9] shell says it is on screen');
+  await page.evaluate(() => {
+    window.__notified = null;
+    window.SlateNative = {
+      isForeground: () => true,
+      notifyUpdate: (v) => { window.__notified = v; },
+    };
+    localStorage.setItem('slate.upd.last', '0');
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await sleep(2500);
+  const notified2 = await page.evaluate(() => window.__notified);
+  check('foreground shell never asks for a notification', notified2 === null, String(notified2));
+  check('prompt still shows while foreground', await isOn(), await cardClass());
 } finally {
   fs.writeFileSync(VERSION_FILE, original);
   await browser.close();

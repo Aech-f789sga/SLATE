@@ -39,8 +39,16 @@ class NativeBridge(private val host: MainActivity) {
     /**
      * Raises a system notification when the page finds a newer build while the
      * app is backgrounded. The in-app card handles the foreground case; this
-     * exists only for when the user is not looking at the app.
+     * exists only for when the user is not looking at the app, and it refuses to
+     * do anything while the app is on screen.
      */
     @JavascriptInterface
     fun notifyUpdate(version: String) = host.notifyUpdate(version)
+
+    /**
+     * Lets the page ask the shell whether it is actually on screen, instead of
+     * trusting `document.visibilityState`, which a WebView can report wrongly.
+     */
+    @JavascriptInterface
+    fun isForeground(): Boolean = host.isForeground()
 }

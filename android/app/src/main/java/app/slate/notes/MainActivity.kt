@@ -81,6 +81,14 @@ class MainActivity : AppCompatActivity() {
     private var pendingPermissions: Array<String> = emptyArray()
     private var lastBackPress = 0L
 
+    /**
+     * Whether the activity is resumed. Tracked here rather than trusting
+     * `document.visibilityState` inside the page: a WebView can report `hidden`
+     * while it is plainly on screen, and the update check must not treat that as
+     * "the user is elsewhere".
+     */
+    private var foreground = false
+
     private val fileChooser =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val callback = pendingFileCallback
@@ -491,6 +499,12 @@ class MainActivity : AppCompatActivity() {
     fun notifyUpdate(version: String) {
         if (version.isBlank()) return
         runOnUiThread {
+            // The app is on screen, so the in-app card is the right channel and
+            // this call is either redundant or a bad read of visibility. Either
+            // way it must not raise a permission dialog at someone who has just
+            // opened the app.
+            if (foreground) return@runOnUiThread
+
             val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 ContextCompat.checkSelfPermission(
                     this,
@@ -507,6 +521,9 @@ class MainActivity : AppCompatActivity() {
             postUpdateNotification(version)
         }
     }
+
+    /** Authoritative answer to "is the app on screen right now". */
+    fun isForeground(): Boolean = foreground
 
     private fun postUpdateNotification(version: String) {
         val manager = getSystemService(NotificationManager::class.java) ?: return
@@ -654,11 +671,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        foreground = true
         webView.onResume()
         webView.resumeTimers()
     }
 
     override fun onPause() {
+        foreground = false
         webView.onPause()
         webView.pauseTimers()
         super.onPause()
@@ -705,6 +724,7 @@ class MainActivity : AppCompatActivity() {
               window.SlateNative = window.SlateNative || {};
               window.SlateNative.appVersion = function(){ try { return host.appVersion(); } catch(e){ return ''; } };
               window.SlateNative.notifyUpdate = function(v){ try { host.notifyUpdate(String(v || '')); } catch(e){} };
+              window.SlateNative.isForeground = function(){ try { return host.isForeground() === true; } catch(e){ return true; } };
               window.SlateNative.hasGoogleSignIn = function(){ try { return host.hasGoogleSignIn(); } catch(e){ return false; } };
               window.SlateNative.signInWithGoogle = function(){
                 return new Promise(function(resolve, reject){
