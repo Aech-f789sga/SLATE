@@ -35,4 +35,12 @@ class NativeBridge(private val host: MainActivity) {
 
     @JavascriptInterface
     fun toast(message: String) = host.showToast(message)
+
+    /**
+     * Raises a system notification when the page finds a newer build while the
+     * app is backgrounded. The in-app card handles the foreground case; this
+     * exists only for when the user is not looking at the app.
+     */
+    @JavascriptInterface
+    fun notifyUpdate(version: String) = host.notifyUpdate(version)
 }

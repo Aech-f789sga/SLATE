@@ -1,7 +1,8 @@
 # Slate for Android
 
-A WebView shell around the Slate web app, with an **admin-gated release
-channel**: pushing code does not reach users until you approve it.
+A WebView shell around the Slate web app. Content updates are offered to the
+user, not pushed at them: the app checks for a new build every three hours and
+asks before switching to it.
 
 ---
 
@@ -9,40 +10,54 @@ channel**: pushing code does not reach users until you approve it.
 
 There are two different kinds of "update", and they behave differently.
 
-| Layer | What it is | How it updates | Admin gate? |
+| Layer | What it is | How it updates | Who decides |
 |---|---|---|---|
-| **Web build** | The React app on Vercel | New immutable deployment URL | **Yes, fully** |
-| **APK** | This Android shell | New `.apk` file, user taps Install | Notification only |
+| **Web build** | The app on Vercel | In-app prompt, checked every 3h | **The user** |
+| **APK** | This Android shell | New `.apk` file, user taps Install | The user |
 
-Almost everything you change lives in the web layer. So in practice: push code,
-approve once in a browser, and every phone is on the new build the next time it
-opens. **No APK rebuild, no Play Store review, no reinstall.**
+Almost everything you change lives in the web layer. Push code, Vercel deploys,
+and every running client is offered the new build within three hours — on the
+library screen, never over a note. **No APK rebuild, no Play Store review, no
+reinstall.**
 
 The APK only needs rebuilding when you change native behaviour (permissions,
 stylus handling, the shell UI itself).
 
-### Why the gate works
+### How the update prompt works
 
-The shell never loads `slate-omega-henna.vercel.app`. It loads a *specific,
-immutable* deployment URL, read from Firestore:
+Each build publishes `version.json` and bakes its own id in as
+`__SLATE_VERSION__`. Every three hours, while online, the client fetches
+`version.json` with `no-store` and compares the two.
 
-```
-app_config/release
-├── approved : { version, url, at }   ← every phone loads this
-├── pending  : { version, url, at }   ← CI writes this, nobody sees it
-└── history  : [ …previous approved… ] ← one-tap rollback
-```
+- Different → an "Update available" card appears, **only on the library screen**.
+- It hides itself the moment a note or a modal opens, and comes back when the
+  user returns to the library.
+- **Later** snoozes it for three hours. **Update now** clears caches, drops the
+  service worker registration, and reloads onto the new build.
 
-- Push to `main` → CI deploys to Vercel, writes the new URL to `pending`.
-- The admin opens `/release-admin.html`, previews it, presses **Approve**.
-- That copies `pending` → `approved`. Phones pick it up on next launch.
+The service worker precaching `index.html` is what makes this meaningful: a
+running client keeps executing the build it booted with even after a newer one
+has been deployed, so the prompt decides *when* that cached copy is discarded.
 
-If the production alias moves, nothing changes for the app — it is pinned to
-`approved`. That is the entire trick.
+If the app is backgrounded when a check fires, the shell raises a system
+notification instead — the one case the in-app card cannot cover. That needs
+`POST_NOTIFICATIONS` on Android 13+, which is requested at the moment there is
+first something to say rather than at launch.
+
+### The Firestore gate is now an override
+
+`app_config/release` still works exactly as described below, and the shell still
+prefers `approved.url` over the bundled default whenever that document exists.
+But it is dormant unless you create it, so it is now an emergency lever — pin
+every phone to one specific build immediately — rather than the normal release
+path.
 
 ---
 
 ## Setup, once
+
+> Only needed for the Firestore override and for CI-built APKs. The in-app
+> update prompt needs none of it — it works from `version.json` alone.
 
 ### 1. Deploy the Firestore rules
 

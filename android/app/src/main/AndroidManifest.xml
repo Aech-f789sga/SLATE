@@ -17,6 +17,13 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!--
+        Notifying the user that a newer build is ready. Runtime-requested on
+        Android 13+, which is why the app asks at the moment it first has
+        something to say rather than on launch.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 

@@ -1,14 +1,50 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, type Plugin} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
+
+/**
+ * Identity of this build, used by the in-app update check.
+ *
+ * The commit sha is preferred because it is stable across rebuilds of the same
+ * commit — a rebuild then does not look like a new version to every client.
+ * Local builds fall back to a timestamp so they still differ from each other.
+ */
+const BUILD_VERSION =
+  (process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || '')
+    .slice(0, 7) || new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 12);
+
+const BUILD_TIME = new Date().toISOString();
+
+/**
+ * Publishes `version.json` next to the app so a running client can ask what is
+ * currently deployed. It is deliberately not a hashed asset: the point is to
+ * have one stable path that always reports the live version.
+ */
+function emitVersion(): Plugin {
+  return {
+    name: 'slate-emit-version',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({version: BUILD_VERSION, builtAt: BUILD_TIME}, null, 2),
+      });
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
+    define: {
+      __SLATE_VERSION__: JSON.stringify(BUILD_VERSION),
+    },
     plugins: [
       react(),
       tailwindcss(),
+      emitVersion(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'icon-maskable.svg'],
@@ -63,7 +99,7 @@ export default defineConfig(() => {
           // they are the mods' own files rather than re-encodes: a single
           // 4K wallpaper is bigger than this whole app. Precaching them would
           // mean downloading every theme on first visit.
-          globIgnores: ['**/stickers/**', '**/themes/**', '**/mods/**'],
+          globIgnores: ['**/stickers/**', '**/themes/**', '**/mods/**', '**/version.json'],
           // release-admin.html is a plain page, not a route of the SPA. Without
           // this the service worker would answer the navigation with the cached
           // index.html shell and the admin console would never appear.

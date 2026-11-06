@@ -3,6 +3,9 @@ package app.slate.notes
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -35,6 +38,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebSettingsCompat
@@ -97,6 +101,19 @@ class MainActivity : AppCompatActivity() {
             } else {
                 runCatching { request.grant(granted.toTypedArray()) }
             }
+        }
+
+    /**
+     * Set while the POST_NOTIFICATIONS prompt is up, so the notification we were
+     * asked to raise can be raised the moment the user allows it.
+     */
+    private var notifyAfterGrant: String? = null
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val version = notifyAfterGrant
+            notifyAfterGrant = null
+            if (granted && version != null) postUpdateNotification(version)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -460,6 +477,79 @@ class MainActivity : AppCompatActivity() {
     }
 
     /* ------------------------------------------------------------------ */
+    /* Update notifications                                               */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Raised by the page when it finds a newer build while the app is not in
+     * the foreground — the only case the in-app card cannot cover.
+     *
+     * Called from the JS bridge thread, so everything hops to the UI thread.
+     * On Android 13+ the permission is requested at this moment rather than at
+     * launch: asking before there is anything to say would be noise.
+     */
+    fun notifyUpdate(version: String) {
+        if (version.isBlank()) return
+        runOnUiThread {
+            val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+
+            if (needsPermission) {
+                notifyAfterGrant = version
+                runCatching {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }.onFailure { notifyAfterGrant = null }
+                return@runOnUiThread
+            }
+            postUpdateNotification(version)
+        }
+    }
+
+    private fun postUpdateNotification(version: String) {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+
+        // minSdk is 26, so a channel is always required.
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_UPDATES,
+                "App updates",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Tells you when a newer version of Slate is ready."
+            }
+        )
+
+        val open = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_UPDATES)
+            .setSmallIcon(R.drawable.ic_stat_update)
+            .setContentTitle("Slate update ready")
+            .setContentText("Version $version is available. Tap to install it.")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("Version $version is available. Open Slate to install it.")
+            )
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+
+        // A blocked channel or a revoked permission throws; an update prompt is
+        // never worth crashing the app over.
+        runCatching { manager.notify(NOTIFY_UPDATE, notification) }
+    }
+
+    /* ------------------------------------------------------------------ */
     /* Chrome                                                             */
     /* ------------------------------------------------------------------ */
 
@@ -588,6 +678,9 @@ class MainActivity : AppCompatActivity() {
         const val SPLASH_FAILSAFE_MS = 12_000L
         const val DOUBLE_BACK_MS = 2000L
 
+        const val CHANNEL_UPDATES = "slate_updates"
+        const val NOTIFY_UPDATE = 4201
+
         val BG = Color.parseColor("#E9EEF7")
         val INK = Color.parseColor("#12161F")
         val MUTED = Color.parseColor("#5A6478")
@@ -611,6 +704,7 @@ class MainActivity : AppCompatActivity() {
 
               window.SlateNative = window.SlateNative || {};
               window.SlateNative.appVersion = function(){ try { return host.appVersion(); } catch(e){ return ''; } };
+              window.SlateNative.notifyUpdate = function(v){ try { host.notifyUpdate(String(v || '')); } catch(e){} };
               window.SlateNative.hasGoogleSignIn = function(){ try { return host.hasGoogleSignIn(); } catch(e){ return false; } };
               window.SlateNative.signInWithGoogle = function(){
                 return new Promise(function(resolve, reject){
