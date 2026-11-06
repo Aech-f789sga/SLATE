@@ -75,6 +75,11 @@ interface Trail {
   turns: number;
   len: number;
   box: Box;
+  /** Which pointer is being scratched with, and what it is. */
+  id: number;
+  pt: string;
+  /** The zoom when the scratch began, so a pinch can be told apart from it. */
+  z0: number;
 }
 
 let trail: Trail | null = null;
@@ -85,6 +90,11 @@ function toolNow(): string {
   return ev<string>('typeof tool === "string" ? tool : ""') || '';
 }
 
+function zoomNow(): number {
+  const z = ev<number>('typeof z === "number" ? z : 1');
+  return typeof z === 'number' ? z : 1;
+}
+
 function growBox(b: Box, x: number, y: number) {
   b.x0 = Math.min(b.x0, x);
   b.y0 = Math.min(b.y0, y);
@@ -93,7 +103,25 @@ function growBox(b: Box, x: number, y: number) {
 }
 
 function onDown(e: PointerEvent) {
+  /* A second contact during a scratch is a gesture, not more scratching.
+   *
+   * This is the bug that made pinch-zoom delete drawings on a phone: two
+   * fingers moving apart produce exactly the signature isScribble() looks for —
+   * many reversals, a long path over a small box, under 300 px — because
+   * onMove() appended every pointer's movement to one trail without asking
+   * whose it was. Each pinch then landed as a scratch-out and deleted whatever
+   * the box covered.
+   *
+   * So a touch trail is abandoned the moment a second contact arrives, and the
+   * contact that arrived second never starts a trail of its own. A pen trail is
+   * left alone: a resting palm produces the same second contact, and palm
+   * rejection already keeps it out of the drawing itself. */
+  if (trail && e.pointerId !== trail.id) {
+    if (trail.pt === 'touch') trail = null;
+    return;
+  }
   trail = null;
+  if (!e.isPrimary) return;
   if (!enabled()) return;
   if (!DRAW_TOOLS.has(toolNow())) return;
   const cv = document.getElementById('cv');
@@ -104,12 +132,16 @@ function onDown(e: PointerEvent) {
     turns: 0,
     len: 0,
     box: { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY },
+    id: e.pointerId,
+    pt: e.pointerType || 'touch',
+    z0: zoomNow(),
   };
 }
 
 function onMove(e: PointerEvent) {
   const t = trail;
   if (!t) return;
+  if (e.pointerId !== t.id) return;
   const last = t.pts[t.pts.length - 1];
   const dx = e.clientX - last[0];
   const dy = e.clientY - last[1];
@@ -143,10 +175,15 @@ function isScribble(t: Trail): boolean {
   return t.len >= span * 4.5;
 }
 
-function onUp() {
+function onUp(e: PointerEvent) {
   const t = trail;
-  trail = null;
   if (!t) return;
+  /* The other finger lifting is not the end of this scratch. */
+  if (e.pointerId !== t.id) return;
+  trail = null;
+  /* A pinch between down and up moves the page under the trail, so its client
+     coordinates no longer describe a box on the page. */
+  if (zoomNow() !== t.z0) return;
   const ok = isScribble(t);
   const info = {
     pts: t.pts.length,

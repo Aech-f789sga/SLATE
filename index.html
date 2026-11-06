@@ -53,7 +53,7 @@ button:hover{border-color:var(--ac)}button.on{background:var(--ac);color:#fff;bo
 select,input[type=range]{font:inherit;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:5px}
 input[type=range]{width:80px;padding:0}
 #main{flex:1;display:flex;min-height:0}#side{width:110px;overflow:auto;background:var(--sf);border-right:1px solid var(--bd);padding:8px;display:none;flex:none}#side canvas{width:100%;display:block;margin-bottom:8px;border:2px solid var(--bd);border-radius:4px;cursor:pointer;background:#fff}#side canvas.on{border-color:var(--ac)}#bar label{display:flex;gap:4px;align-items:center;font-size:13px}#stage{flex:1;min-width:0;overflow:auto;padding:20px;display:flex;align-items:flex-start}
-#wrap{position:relative;margin:0 auto;flex:none}#cv{width:100%;display:block;aspect-ratio:800/1100;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.25);touch-action:none;cursor:crosshair}#tx{position:absolute;display:none;background:rgba(255,255,190,.5);border:1px dashed var(--ac);outline:0;resize:none;font-family:var(--slate-font);line-height:1.3;padding:0;margin:0;overflow:hidden}
+#wrap{position:relative;margin:0 auto;flex:none}#cv{width:100%;display:block;aspect-ratio:800/1100;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.25);touch-action:none;cursor:crosshair}#cvd{position:fixed;left:0;top:0;display:none;pointer-events:none;z-index:1;border-radius:2px}#tx{position:absolute;display:none;background:rgba(255,255,190,.5);border:1px dashed var(--ac);outline:0;resize:none;font-family:var(--slate-font);line-height:1.3;padding:0;margin:0;overflow:hidden;z-index:3}
 #pg{display:flex;gap:8px;align-items:center;justify-content:center;padding:8px;background:var(--sf);border-top:1px solid var(--bd);flex:none}
 
 #auth-md{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:99}
@@ -337,13 +337,13 @@ html[data-bar=compact] #bar{padding-right:0}
   <button id="clr">Clear page</button><span class="sep"></span><button id="zo">🔍−</button><button id="zi">🔍+</button><button id="side-t" title="Page thumbnails">▦</button><label><input type="checkbox" id="po"> Pen only</label><label><input type="checkbox" id="snd" checked> Sound</label>
   <select id="tpl" aria-label="Page template"><option value="blank">Blank</option><option value="lined">Lined</option><option value="margin">Lined + margin</option><option value="grid">Grid</option><option value="dot">Dotted</option><option value="cornell">Cornell</option></select><select id="pc" aria-label="Paper color"><option value="">White paper</option><option value="#fbf3dc">Cream</option><option value="#fff7a8">Yellow</option><option value="#1f2430">Dark</option></select>
  </div>
- <div id="main"><div id="side"></div><div id="stage"><div id="wrap"><canvas id="cv"></canvas><textarea id="tx" aria-label="Text box"></textarea></div></div></div>
+ <div id="main"><div id="side"></div><div id="stage"><div id="wrap"><canvas id="cv"></canvas><canvas id="cvd" aria-hidden="true"></canvas><textarea id="tx" aria-label="Text box"></textarea></div></div></div>
  <div id="pg"><button id="prev">‹</button><span id="pn"></span><button id="next">›</button><button id="add">+ Page</button><button id="dup">Duplicate</button><button id="del">Delete page</button></div>
 </div>
 <script>
 let W=800,H=1100;const COLORS=["#111111","#2f6df6","#e5383b","#2a9d4f","#f4a300","#8e44ad","#ffffff"],COVERS=["#2f6df6","#e5383b","#2a9d4f","#f4a300","#8e44ad","#16a2b8"];
 let lib=[],nb=null,pi=0,tool="pen",color=COLORS[0],size=3,cur=null,undo=[],redo=[],tmr;
-const $=s=>document.querySelector(s),cv=$("#cv"),ctx=cv.getContext("2d");
+const $=s=>document.querySelector(s),cv=$("#cv"),dCv=$("#cvd");let ctx=cv.getContext("2d");const dCtx=dCv?dCv.getContext("2d"):null;
 try{lib=JSON.parse(localStorage.getItem("inkpad")||"[]")}catch(e){lib=[]};window.lib=lib;window.showLib=showLib;
 function save(){if(nb)nb.upd=Date.now();clearTimeout(tmr);tmr=setTimeout(()=>{try{localStorage.setItem("inkpad",JSON.stringify(lib))}catch(e){if(window.__inkpad_storageFull)window.__inkpad_storageFull()}if(window.__inkpad_cloud)window.__inkpad_cloud.onSave(nb)},300)}
 const pg=()=>nb.pages[pi];
@@ -428,11 +428,78 @@ let drawQ=0;
    dropped, which is what looked like the stroke skipping. Samples are still
    appended the moment they arrive; only the paint is coalesced. */
 function drawSoon(){if(drawQ)return;drawQ=requestAnimationFrame(function(){drawQ=0;draw()})}
-function draw(){if(drawQ){cancelAnimationFrame(drawQ);drawQ=0}anTag();lyTag();const live=cur&&["pen","hl","shape"].includes(cur.t)?cur:null;render(ctx,pg(),live);ctx.save();ctx.strokeStyle="#2f6df6";ctx.lineWidth=1.5;ctx.setLineDash([6,4]);
+function draw(){if(drawQ){cancelAnimationFrame(drawQ);drawQ=0}anTag();lyTag();const live=cur&&["pen","hl","shape"].includes(cur.t)?cur:null;
+ /* Two ways to put the page on screen, chosen by zoom. Below the budget the
+    whole page is one canvas at the density `wantD()` allows. Above it the page
+    canvas is capped and a viewport-sized layer is painted on top at the
+    density the *screen* actually needs — see detailOn(). */
+ if(detailOn())paintDetail(live);else{hideDetail();ctx.setTransform(cvD,0,0,cvD,0,0);paintPage(live)}
+ updBar()}
+function paintPage(live){render(ctx,pg(),live);ctx.save();ctx.strokeStyle="#2f6df6";ctx.lineWidth=1.5;ctx.setLineDash([6,4]);
  if(sel.length){const b=selBox();ctx.strokeRect(b[0]-6,b[1]-6,b[2]-b[0]+12,b[3]-b[1]+12)}
  if(cur&&cur.lp){ctx.beginPath();cur.lp.forEach((q,i)=>i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]));ctx.fillStyle="rgba(47,109,246,.1)";ctx.fill();ctx.stroke()}
  if(sel.length&&!(cur&&cur.lp)){ctx.setLineDash([]);ctx.fillStyle="#fff";[...cor(selBox()),...(sel.length===1&&sel[0].t==="text"?[[selBox()[2]+6,(selBox()[1]+selBox()[3])/2]]:[])].forEach(c=>{ctx.beginPath();ctx.arc(c[0],c[1],7,0,7);ctx.fill();ctx.stroke()})}
- ctx.restore();drawGuides();drawTrail();drawAnim();rotH();updBar()}
+ ctx.restore();drawGuides();drawTrail();drawAnim();rotH()}
+/* ------------------------------------------------------------------ */
+/* Detail layer — how the page stays sharp when it is zoomed in        */
+/* ------------------------------------------------------------------ */
+/* A canvas has to hold the whole page, so its density is `screen density per
+   unit / zoom`: at 800% on a 3x phone that is 13 device pixels per page unit,
+   or a 10 400 x 14 300 canvas — 149 megapixels, far past the point where the
+   browser stops using the GPU. The old answer was to cap the density, and that
+   is exactly why the same 600 dpi page looked like 200 dpi on a phone while a
+   desktop looked fine: the desktop could afford a larger cap, not a better one.
+   A phone in "desktop site" mode reports a desktop user agent, got a desktop
+   cap, and the bigger canvas is what made the pen stutter there while the
+   mobile layout stayed smooth.
+   So when the page outgrows the budget, the page canvas keeps its capped
+   density and a second canvas — exactly the size of the visible window — is
+   painted on top at the density the screen actually needs. A window-sized
+   canvas costs the same at 200% as at 800%, so this is both the sharpest and
+   the cheapest option at high zoom, and the per-frame paint stops depending on
+   how big the page is.
+   No coordinate changes: the layer is pointer-events:none and the page canvas
+   underneath still receives every event and still spans the page, so pos(),
+   hit radii, pinch and export are untouched. */
+function detailK(){const s=$('#stage');if(!s)return 1;const vw=Math.max(1,s.clientWidth),vh=Math.max(1,s.clientHeight);return Math.min(devicePixelRatio||1,Math.sqrt(MAXPIX/(vw*vh)))}
+/* Use the window layer only when it is both sharper AND cheaper than the page
+   canvas. The two conditions matter separately: sharper alone would switch it
+   on at 100% zoom where the page already fits and the window is the larger
+   canvas, and cheaper alone would switch it on to show a softer image. */
+function detailOn(){if(!dCv||!dCtx||!nb||flipping)return 0;
+ const s=$('#stage'),w=$('#wrap');if(!s||!w)return 0;
+ const cssW=w.clientWidth,vw=s.clientWidth,vh=s.clientHeight;
+ if(!cssW||!vw||!vh)return 0;
+ const k=detailK(),dd=(cssW/W)*k;
+ if(dd<=cvD+.06)return 0;
+ return vw*vh*k*k<W*H*cvD*cvD?1:0}
+function detailInfo(){const s=$('#stage'),w=$('#wrap');if(!s||!w)return null;const cssW=w.clientWidth,k=detailK();
+ return{on:detailOn()?1:0,page:cvD,window:+(cssW/W*k).toFixed(2),k:+k.toFixed(2),px:dCv?dCv.width*dCv.height:0,base:Math.round(W*cvD)*Math.round(H*cvD)}}
+try{window.__slateDetail=detailInfo}catch(e){}
+function hideDetail(){if(dCv&&dCv.style.display!=="none")dCv.style.display="none"}
+function paintDetail(live){const s=$('#stage'),w=$('#wrap');if(!s||!w)return;
+ const vw=Math.max(1,s.clientWidth),vh=Math.max(1,s.clientHeight),k=detailK();
+ const cw=Math.max(1,Math.round(vw*k)),ch=Math.max(1,Math.round(vh*k));
+ if(dCv.width!==cw||dCv.height!==ch){dCv.width=cw;dCv.height=ch}
+ const sr=s.getBoundingClientRect();
+ dCv.style.width=vw+"px";dCv.style.height=vh+"px";
+ dCv.style.left=Math.round(sr.left)+"px";dCv.style.top=Math.round(sr.top)+"px";
+ if(dCv.style.display!=="block")dCv.style.display="block";
+ const r=cv.getBoundingClientRect(),rd=dCv.getBoundingClientRect();
+ const dd=(w.clientWidth/W)*k,ox=(r.left-rd.left)*k,oy=(r.top-rd.top)*k;
+
+ const prev=ctx;ctx=dCtx;
+ try{
+  dCtx.setTransform(1,0,0,1,0,0);dCtx.clearRect(0,0,cw,ch);
+  dCtx.setTransform(dd,0,0,dd,ox,oy);
+  dCtx.save();dCtx.beginPath();dCtx.rect(0,0,W,H);dCtx.clip();
+  paintPage(live);
+  dCtx.restore();
+ }finally{ctx=prev}}
+/* The detail layer is pinned to the window, so it has to be repainted when the
+   page scrolls under it. Scroll fires before the frame paints, and drawSoon()
+   lands in the same frame, so the two never disagree. */
+$('#stage').addEventListener('scroll',function(){if(detailOn())drawSoon()},{passive:true});
 function fit(){fitting=1;cv.style.aspectRatio=W+'/'+H;layout();const d=cvD=wantD();cv.width=W*d;cv.height=H*d;ctx.setTransform(d,0,0,d,0,0);draw();fitting=0}
 function pos(e){const r=cv.getBoundingClientRect(),p=[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];return SNAPON?gSnap(p):p}
 function snap(){undo.push(JSON.stringify(pg().strokes));if(undo.length>60)undo.shift();redo=[]}
@@ -471,7 +538,7 @@ $("#add").onclick=()=>{nb.pages.splice(pi+1,0,{tpl:pg().tpl,col:pg().col,pw:pg()
 let delArm=0;$("#del").onclick=function(){if(nb.pages.length<2){snap();pg().strokes=[];draw();save();return}
  if(!delArm){delArm=1;this.textContent="Sure?";setTimeout(()=>{delArm=0;this.textContent="Delete page"},2500);return}
  delArm=0;this.textContent="Delete page";nb.pages.splice(pi,1);pi=Math.max(0,pi-1);load();save()};
-$("#back").onclick=()=>{$("#ed").style.display="none";$("#lib").style.display="flex";showLib()};
+$("#back").onclick=()=>{$("#ed").style.display="none";hideDetail();$("#lib").style.display="flex";showLib()};
 function openNotebook(n){nb=n;pi=0;$("#lib").style.display="none";$("#ed").style.display="flex";fit();load()}
 function showLib(){const g=$("#grid");g.innerHTML="";const nw=document.createElement("div");nw.className="new";nw.textContent="+";nw.title="New notebook";
  nw.onclick=()=>{$("#md").classList.add("on");$("#nn").focus()};if(flt!=="trash")g.append(nw);
@@ -633,9 +700,13 @@ const CF=new Set(),CAPD=/Mobi|Android|iPad/.test(navigator.userAgent)?4:6;
    rather than a slope: on a 200-stroke page, 8.2 MP paints in 1.5 ms and 8.5 MP
    paints in 15 ms. Once the page is on the slow path the pen handler cannot
    keep up with a 240 Hz digitiser and the stroke stutters — that is the delay
-   that showed up at 1200 dpi. The dpi setting still governs export; this only
-   caps the live preview, which is why 1200 dpi can stay the export choice
-   without making the nib feel heavy. */
+   that showed up at 1200 dpi.
+   This is only the *page* canvas now. The frame budget is protected by the
+   detail layer, which paints a window-sized canvas instead whenever that is
+   cheaper (see detailOn), so a phone in "desktop site" mode — which reports a
+   desktop user agent and used to be handed a desktop-sized canvas, and then
+   stuttered on the same page the mobile layout had drawn smoothly — no longer
+   pays for the larger budget. The dpi setting still governs export. */
 const MOB=/Mobi|Android|iPad/.test(navigator.userAgent),MAXPIX=MOB?4.2e6:8e6;
 function rasterFrac(s,P){const L=pg().strokes,si=L.indexOf(s),b=bb(s),bw=b[2]-b[0],bh=b[3]-b[1];if(bw<=0||bh<=0)return 0;const k=Math.min(1,160/Math.max(bw,bh)),w=Math.max(1,Math.ceil(bw*k)),h=Math.max(1,Math.ceil(bh*k)),c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.scale(k,k);g.translate(-b[0],-b[1]);stroke(g,s);
  L.forEach((e,i)=>{if(e.t==='ers'&&(s.fl?(e.ts||0)>=(s.ts||0):i>si))stroke(g,e)});
@@ -676,11 +747,15 @@ function attach(s,it){if(s.t==='vid')return;const R=it.w/2;if(!it._b){let x0=1e9
  if(runs.length)s.er=(s.er||[]).concat(runs.map(r=>({w:it.w,p:r})))}
 function bakeIt(it){const L=pg().strokes;L.forEach(s=>{if(s!==it&&s.t!=='ers'&&!s.nb)attach(s,it)});L.forEach(s=>{delete s.nb});pg().strokes=L.filter(s=>s!==it)}
 function bakeAll(p0){const L=p0.strokes;if(!L.some(s=>s.t==='ers'))return;L.filter(s=>s.t==='ers').forEach(it=>{const idx=L.indexOf(it);L.forEach((s,i)=>{if(s.t==='ers')return;if(s.fl?(it.ts||0)>=(s.ts||0):i<idx)attach(s,it)})});p0.strokes=L.filter(s=>s.t!=='ers')}
+/* Every flip path paints its pages while flipping is still set, so the detail
+   layer is off for that paint. Clearing the flag alone would leave a zoomed
+   page soft until the next stroke — repaint once the flag is down. */
+function flipDone(){flipping=0;drawSoon()}
 function goPageOld(n){if(!nb||n<0||n>=nb.pages.length||n===pi||flipping)return;if(!FLIP){pi=n;load();return}
  flipping=1;const down=n>pi,w=$('#wrap'),mk=p=>{const c=document.createElement('canvas');c.width=cv.width;c.height=cv.height;c.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;transform-origin:left center;backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:0 0 28px rgba(0,0,0,.4);transition:transform .65s ease-in-out,filter .65s;pointer-events:none;z-index:3';const g=c.getContext('2d');g.setTransform(cv.width/W,0,0,cv.height/H,0,0);render(g,p);return c};
  w.style.perspective='1800px';
- if(down){const ov=mk(pg());w.append(ov);pi=n;load();requestAnimationFrame(()=>requestAnimationFrame(()=>{ov.style.transform='rotateY(-170deg)';ov.style.filter='brightness(.7)'}));setTimeout(()=>{ov.remove();w.style.perspective='';flipping=0},720)}
- else{const ov=mk(nb.pages[n]);ov.style.transform='rotateY(-170deg)';ov.style.filter='brightness(.7)';w.append(ov);requestAnimationFrame(()=>requestAnimationFrame(()=>{ov.style.transform='rotateY(0deg)';ov.style.filter='brightness(1)'}));setTimeout(()=>{pi=n;load();ov.remove();w.style.perspective='';flipping=0},720)}}
+ if(down){const ov=mk(pg());w.append(ov);pi=n;load();requestAnimationFrame(()=>requestAnimationFrame(()=>{ov.style.transform='rotateY(-170deg)';ov.style.filter='brightness(.7)'}));setTimeout(()=>{ov.remove();w.style.perspective='';flipDone()},720)}
+ else{const ov=mk(nb.pages[n]);ov.style.transform='rotateY(-170deg)';ov.style.filter='brightness(.7)';w.append(ov);requestAnimationFrame(()=>requestAnimationFrame(()=>{ov.style.transform='rotateY(0deg)';ov.style.filter='brightness(1)'}));setTimeout(()=>{pi=n;load();ov.remove();w.style.perspective='';flipDone()},720)}}
 function fillSet(d){hd(d,'Page turning');[[false,'Classic (instant)'],[true,'Flip animation']].forEach(([v,t])=>{const l=el('label','display:flex;gap:8px;align-items:center;padding:4px 0'),r=el('input');r.type='radio';r.name='flip';r.checked=FLIP===v;r.onchange=()=>{FLIP=v;saveSet()};l.append(r,t);d.append(l)});
  const l=el('label','display:flex;gap:8px;align-items:center;padding:4px 0;max-width:300px'),c=el('input');c.type='checkbox';c.checked=SCRL;c.onchange=()=>{SCRL=c.checked;saveSet()};l.append(c,'Scroll to turn pages (keep scrolling past the end of a page)');d.append(l);
  const l2=el('label','display:flex;gap:8px;align-items:center;padding:4px 0'),c2=el('input');c2.type='checkbox';c2.checked=SFLIP;c2.onchange=()=>{SFLIP=c2.checked;saveSet();if(SFLIP)flipSound(.5)};l2.append(c2,'Page-flip sound');d.append(l2);
@@ -707,7 +782,7 @@ function curl(S,rev,done){const q=S.width/W,o=document.createElement('canvas');o
  (function f(now){const t=Math.min(1,(now-t0)/1000);curlFrame(g,S,q,ease(rev?1-t:t));if(t<1)requestAnimationFrame(f);else{o.remove();done()}})(t0)}
 function goPage(n){if(!nb||n<0||n>=nb.pages.length||n===pi||flipping)return;const tp=nb.pages[n];if(!FLIP||(tp.pw||800)!==W||(tp.ph||1100)!==H){pi=n;load();flipSound(.3);return}
  flipping=1;flipSound(.95);const snapOf=p=>{const c=document.createElement('canvas');c.width=cv.width;c.height=cv.height;const g=c.getContext('2d');g.setTransform(cv.width/W,0,0,cv.height/H,0,0);render(g,p);return c};
- if(n>pi){curlCol=pcOf(pg());const S=snapOf(pg());pi=n;load();curl(S,false,()=>{flipping=0})}else{curlCol=pcOf(tp);const S=snapOf(tp);curl(S,true,()=>{pi=n;load();flipping=0})}}
+ if(n>pi){curlCol=pcOf(pg());const S=snapOf(pg());pi=n;load();curl(S,false,flipDone)}else{curlCol=pcOf(tp);const S=snapOf(tp);curl(S,true,()=>{pi=n;load();flipDone()})}}
 function drawAnim(){if(!AN)return;const a=AN;ctx.save();if(a.flow){const fl=a.flow;updFlow(fl,(fl.max+fl.edge)*(1-Math.pow(1-Math.max(0,(a.t-.06)/.94),2.2)));ctx.drawImage(fl.fa,a.x,a.y,a.w,a.h);const u=Math.min(1,a.t*4);ctx.fillStyle=a.col;ctx.globalAlpha=.55*(1-u);ctx.beginPath();ctx.arc(a.cx,a.cy,6*(1-u)+2,0,7);ctx.fill()}else{ctx.globalAlpha=Math.min(1,a.t);if(a.img)ctx.drawImage(a.img,a.x,a.y,a.w,a.h);else stroke(ctx,{...a.it,c:a.nc})}ctx.restore();ctx.save();ctx.strokeStyle=a.col;ctx.globalAlpha=.3*(1-a.t);ctx.lineWidth=2;ctx.beginPath();ctx.arc(a.cx,a.cy,6+26*a.t,0,7);ctx.stroke();ctx.restore()}
 function grow(m,A,b){const x0=Math.max(1,b[0]-8),y0=Math.max(1,b[1]-8),x1=Math.min(W-2,b[2]+8),y1=Math.min(H-2,b[3]+8),step=ok=>{const add=[];for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const i=y*W+x;if(m[i])continue;if((m[i-1]||m[i+1]||m[i-W]||m[i+W])&&ok(A[i*4+3]))add.push(i)}add.forEach(i=>m[i]=1)};for(let k=0;k<4;k++)step(a=>a<=30);step(a=>a>2);step(a=>a>=150)}
 const px1=document.createElement('canvas');px1.width=px1.height=1;const pg1=px1.getContext('2d',{willReadFrequently:true});
