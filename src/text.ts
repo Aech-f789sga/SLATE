@@ -661,7 +661,7 @@ const CSS = `
 }
 #txt-pill.on{display:flex}
 #txt-pill .tx-tag{
-  font:700 13px/1 ui-rounded,'SF Pro Rounded',system-ui,sans-serif;
+  font:700 13px/1 var(--slate-font);
   color:#3c4654;padding:0 7px 0 4px;letter-spacing:.2px;
 }
 #txt-pill .tx-div{width:1px;height:22px;background:#eceff4;margin:0 5px;flex:none}
@@ -689,7 +689,7 @@ const CSS = `
 .tx-tabs{display:flex;gap:2px;background:#f2f4f7;border-radius:10px;padding:2px;margin-bottom:10px}
 .tx-tab{
   flex:1;border:0!important;background:transparent!important;border-radius:8px;
-  padding:6px 0!important;font:600 12px/1 inherit;color:#5b6675;cursor:pointer;
+  padding:6px 0!important;font:600 12px/1 var(--slate-font);color:#5b6675;cursor:pointer;
 }
 .tx-tab.on{background:#fff!important;color:#1f3a63;box-shadow:0 1px 3px rgba(16,32,64,.14)}
 .tx-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
@@ -701,12 +701,12 @@ const CSS = `
 .tx-card.on{border-color:var(--gn-acc,#2f6df6)!important;box-shadow:0 0 0 2px rgba(47,109,246,.16)}
 .tx-demo{
   width:100%;height:34px;display:grid;place-items:center;
-  font:600 13px/1 inherit;color:#1f2a3a;
+  font:600 13px/1 var(--slate-font);color:#1f2a3a;
 }
-.tx-cap{font:600 9.5px/1 inherit;color:#77828f;letter-spacing:.02em}
+.tx-cap{font:600 9.5px/1 var(--slate-font);color:#77828f;letter-spacing:.02em}
 .tx-row{margin-bottom:11px}
 .tx-label{
-  font:700 9.5px/1 inherit;letter-spacing:.08em;text-transform:uppercase;
+  font:700 9.5px/1 var(--slate-font);letter-spacing:.08em;text-transform:uppercase;
   color:#8b95a3;margin-bottom:6px;
 }
 .tx-swrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
@@ -730,7 +730,7 @@ const CSS = `
 .tx-line{display:flex;align-items:center;gap:8px}
 .tx-range{flex:1;accent-color:var(--gn-acc,#2f6df6);height:18px}
 .tx-num{
-  font:600 10.5px/1 inherit;color:#5b6675;min-width:34px;text-align:right;
+  font:600 10.5px/1 var(--slate-font);color:#5b6675;min-width:34px;text-align:right;
   font-variant-numeric:tabular-nums;
 }
 .tx-tg{

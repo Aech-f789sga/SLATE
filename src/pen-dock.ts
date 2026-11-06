@@ -1,3 +1,5 @@
+import { anchorBelow } from './ui-system';
+
 /**
  * Pen dock — four pens lying in a pocket down the left edge of the page.
  *
@@ -508,7 +510,7 @@ function buildDock() {
     slots.push(s);
     save();
     paint();
-    openSheet(slots.length - 1);
+    openSheet(slots.length - 1, add);
   };
 
   const gear = el('button', '') as HTMLButtonElement;
@@ -522,7 +524,7 @@ function buildDock() {
     e.stopPropagation();
     // the gear is a toggle, like every other panel button in the editor
     if (sheet?.classList.contains('on')) closeSheet();
-    else openSheet(0);
+    else openSheet(0, gear);
   };
 
   foot.append(grip, add, gear);
@@ -562,7 +564,7 @@ function paint() {
       e.stopPropagation();
       if (Date.now() < noClick) return;
       if (s.id === activeId && Date.now() - (lastTap.at ?? 0) < 420 && lastTap.i === i) {
-        openSheet(i);
+        openSheet(i, slot);
         return;
       }
       lastTap = { at: Date.now(), i };
@@ -575,7 +577,7 @@ function paint() {
     };
     slot.oncontextmenu = (e) => {
       e.preventDefault();
-      openSheet(i);
+      openSheet(i, slot);
     };
     slot.onwheel = (e) => {
       if (s.id !== activeId) return;
@@ -983,12 +985,18 @@ function closeSheet() {
   sheet?.classList.remove('on');
 }
 
-function openSheet(index: number) {
+function openSheet(index: number, trigger?: HTMLElement) {
   buildSheet();
   if (!sheet) return;
   editing = Math.max(0, Math.min(slots.length - 1, index));
   renderSheet();
   sheet.classList.add('on');
+  // The sheet used to be pinned at a hardcoded `left:64px; top:50%`. Hang it
+  // under the control that opened it instead; the shared anchor clamps to the
+  // viewport and flips above when the bottom would be clipped.
+  const anchor = trigger || (document.querySelector<HTMLElement>('.pd-gear')) ||
+    document.getElementById('pen-dock');
+  if (anchor) anchorBelow(sheet, anchor, { align: 'start' });
 }
 
 function renderSheet() {
@@ -1362,7 +1370,7 @@ const CSS = `
 #pen-dock[data-side=bottom] .pd-slot.on::after{bottom:0}
 
 #pen-dock .pd-tag{
-  position:absolute;right:3px;bottom:2px;font:600 8px/1 ui-monospace,Menlo,monospace;
+  position:absolute;right:3px;bottom:2px;font:600 8px/1 var(--slate-font-mono);
   color:var(--mu,#6e6e73);opacity:0;transition:opacity .16s ease;pointer-events:none;
 }
 #pen-dock:hover .pd-tag{opacity:.5}
@@ -1416,7 +1424,7 @@ body.pd-open[data-pd=bottom] #stage{padding-bottom:72px}
   background:var(--sf,#fff);color:var(--tx,#1c1c1e);border:1px solid var(--bd,#d9d9de);
   border-radius:16px;box-shadow:0 20px 50px rgba(8,20,38,.24);
   z-index:60;display:none;opacity:0;transition:opacity .16s ease,transform .16s ease;
-  padding:12px;font:13px/1.4 inherit;
+  padding:12px;font:13px/1.4 var(--slate-font);
 }
 #pen-sheet.on{display:block;opacity:1;transform:translateY(-50%) scale(1)}
 /* the sheet opens beside the rail, whichever edge that is */
@@ -1431,7 +1439,7 @@ body[data-pd=right] #pen-sheet{left:auto;right:64px}
 #pen-sheet .ps-row.on{border-color:var(--ac,#2f6df6);box-shadow:0 0 0 2px color-mix(in srgb,var(--ac,#2f6df6) 16%,transparent)}
 #pen-sheet .ps-rowhead{display:flex;align-items:center;gap:7px}
 #pen-sheet .ps-chip{
-  width:18px;height:18px;border-radius:6px;color:#fff;font:700 10px/18px ui-monospace,monospace;
+  width:18px;height:18px;border-radius:6px;color:#fff;font:700 10px/18px var(--slate-font-mono);
   text-align:center;box-shadow:inset 0 0 0 1px rgba(0,0,0,.14);flex:none;
 }
 #pen-sheet .ps-name{font-size:12.5px;font-weight:650;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1464,7 +1472,7 @@ body[data-pd=right] #pen-sheet{left:auto;right:64px}
 #pen-sheet .ps-presets{display:flex;gap:3px;flex-wrap:wrap}
 #pen-sheet .ps-presets button{
   border:0;background:color-mix(in srgb,var(--tx,#1c1c1e) 6%,transparent);border-radius:6px;
-  font:10.5px/1 ui-monospace,monospace;padding:4px 6px;cursor:pointer;color:var(--mu,#6e6e73);
+  font:10.5px/1 var(--slate-font-mono);padding:4px 6px;cursor:pointer;color:var(--mu,#6e6e73);
 }
 #pen-sheet .ps-presets button:hover{background:color-mix(in srgb,var(--ac,#2f6df6) 14%,transparent);color:var(--ac,#2f6df6)}
 #pen-sheet .ps-colors{display:flex;gap:5px;flex-wrap:wrap;align-items:center}

@@ -496,7 +496,7 @@ const CSS = `
 .lib-chip{
   display:inline-flex;align-items:center;gap:6px;border:1px solid var(--gn-line,#e6e2dc)!important;
   background:#fff!important;border-radius:999px;padding:5px 12px!important;cursor:pointer;
-  font:600 12px/1 inherit;color:#4a5563;white-space:nowrap;
+  font:600 12px/1 var(--slate-font);color:#4a5563;white-space:nowrap;
   transition:background .13s ease,border-color .13s ease,color .13s ease;
 }
 .lib-chip:hover{background:#f6f8fb!important;border-color:#d6dce6!important}
@@ -508,7 +508,7 @@ const CSS = `
 }
 .lib-chip-in{
   border:1px solid #b9d0ff!important;background:#fff;border-radius:999px;
-  padding:5px 12px!important;font:600 12px/1 inherit;color:#1f4fbf;
+  padding:5px 12px!important;font:600 12px/1 var(--slate-font);color:#1f4fbf;
   outline:none;min-width:96px;
 }
 
@@ -516,7 +516,7 @@ const CSS = `
 .lib-more{
   position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:8px;
   border:0!important;background:rgba(255,255,255,.92)!important;color:#4a5563!important;
-  font:700 14px/1 inherit!important;cursor:pointer;display:grid;place-items:center;
+  font:700 14px/1 var(--slate-font)!important;cursor:pointer;display:grid;place-items:center;
   padding:0!important;opacity:.72;transition:opacity .14s ease,background .14s ease;
   box-shadow:0 1px 3px rgba(16,32,64,.16);
 }
@@ -537,13 +537,13 @@ const CSS = `
 }
 #lib-menu.on{display:block}
 .lm-head{
-  font:700 10px/1.3 inherit;letter-spacing:.07em;text-transform:uppercase;
+  font:700 10px/1.3 var(--slate-font);letter-spacing:.07em;text-transform:uppercase;
   color:#8b95a3;padding:5px 8px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .lm-item{
   width:100%;display:flex;align-items:center;gap:9px;border:0!important;
   background:transparent!important;border-radius:8px;padding:7px 8px!important;
-  cursor:pointer;color:#3c4654;font:600 12.5px/1 inherit;text-align:left;
+  cursor:pointer;color:#3c4654;font:600 12.5px/1 var(--slate-font);text-align:left;
 }
 .lm-item:hover{background:#f4f7fb}
 .lm-item.on{background:#eef4ff!important;color:#1f4fbf}
@@ -556,20 +556,20 @@ const CSS = `
 .lm-dot.lm-none{background:transparent;box-shadow:inset 0 0 0 1.5px #c8d0da}
 .lm-back{
   display:flex;align-items:center;gap:3px;border:0!important;background:transparent!important;
-  color:#77828f;font:600 11.5px/1 inherit;cursor:pointer;padding:5px 6px!important;
+  color:#77828f;font:600 11.5px/1 var(--slate-font);cursor:pointer;padding:5px 6px!important;
   border-radius:7px;margin-bottom:2px;
 }
 .lm-back:hover{background:#f4f7fb;color:#3c4654}
 .lm-back svg{width:14px;height:14px}
 .lm-input{
   width:100%;box-sizing:border-box;border:1px solid #d6dce6!important;border-radius:9px;
-  padding:8px 10px!important;font:600 13px/1.2 inherit;color:#1c2430;outline:none;
+  padding:8px 10px!important;font:600 13px/1.2 var(--slate-font);color:#1c2430;outline:none;
   margin:2px 0 8px;
 }
 .lm-input:focus{border-color:#2f6df6!important;box-shadow:0 0 0 3px rgba(47,109,246,.14)}
 .lm-apply{
   width:100%;border:0!important;background:#2f6df6!important;color:#fff!important;
-  border-radius:9px;padding:9px 0!important;font:700 12.5px/1 inherit;cursor:pointer;
+  border-radius:9px;padding:9px 0!important;font:700 12.5px/1 var(--slate-font);cursor:pointer;
 }
 .lm-apply:hover{background:#1f4fbf!important}
 @media(max-width:620px){

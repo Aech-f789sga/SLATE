@@ -463,16 +463,16 @@ const CSS = `
 #lasso-pill{
   position:fixed;z-index:44;display:none;align-items:center;gap:2px;
   background:var(--sf,#fff);border:1px solid var(--bd,#d9d9de);border-radius:11px;
-  box-shadow:0 10px 26px rgba(8,20,38,.18);padding:3px;font:12px/1 inherit;
+  box-shadow:0 10px 26px rgba(8,20,38,.18);padding:3px;font:12px/1 var(--slate-font);
 }
 #lasso-pill.on{display:flex}
 #lasso-pill .lp-b{
   display:flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--tx,#1c1c1e);
-  border-radius:8px;padding:4px 8px;cursor:pointer;font:600 11.5px/1 inherit;
+  border-radius:8px;padding:4px 8px;cursor:pointer;font:600 11.5px/1 var(--slate-font);
 }
 #lasso-pill .lp-b:hover{background:color-mix(in srgb,var(--ac,#2f6df6) 12%,transparent);color:var(--ac,#2f6df6)}
 #lasso-pill .lp-ic{
-  font:700 11px/1 ui-monospace,monospace;color:var(--ac,#2f6df6);
+  font:700 11px/1 var(--slate-font-mono);color:var(--ac,#2f6df6);
   background:color-mix(in srgb,var(--ac,#2f6df6) 13%,transparent);border-radius:5px;padding:3px 4px;
 }
 #lasso-pill .lp-copy{color:var(--mu,#6e6e73);font-size:12px}
@@ -482,14 +482,14 @@ const CSS = `
   background:var(--sf,#fff);color:var(--tx,#1c1c1e);
   border:1px solid var(--bd,#d9d9de);border-radius:14px;
   box-shadow:0 18px 44px rgba(8,20,38,.24);padding:11px;
-  font:13px/1.35 inherit;opacity:0;transform:translateY(6px) scale(.98);
+  font:13px/1.35 var(--slate-font);opacity:0;transform:translateY(6px) scale(.98);
   transition:opacity .15s ease,transform .15s ease;
 }
 #lasso-card.on{display:block;opacity:1;transform:none}
 #lasso-card .lc-head{display:flex;align-items:center;gap:8px;margin-bottom:7px}
 #lasso-card .lc-title{font-size:12.5px;flex:1}
 #lasso-card .lc-conf{
-  font:600 9.5px/1 ui-monospace,monospace;letter-spacing:.04em;text-transform:uppercase;
+  font:600 9.5px/1 var(--slate-font-mono);letter-spacing:.04em;text-transform:uppercase;
   color:#2a9d4f;background:rgba(42,157,79,.12);border-radius:999px;padding:4px 7px;
 }
 #lasso-card .lc-conf[data-v="1"]{color:#b06a00;background:rgba(244,163,0,.14)}
@@ -498,17 +498,17 @@ const CSS = `
 #lasso-card .lc-tabs{display:flex;align-items:center;gap:4px;margin-bottom:7px}
 #lasso-card .lc-tab{
   border:1px solid var(--bd,#d9d9de);background:transparent;border-radius:8px;
-  font:600 11px/1 inherit;padding:4px 9px;cursor:pointer;color:var(--mu,#6e6e73);
+  font:600 11px/1 var(--slate-font);padding:4px 9px;cursor:pointer;color:var(--mu,#6e6e73);
 }
 #lasso-card .lc-tab.on{background:color-mix(in srgb,var(--ac,#2f6df6) 13%,transparent);border-color:var(--ac,#2f6df6);color:var(--ac,#2f6df6)}
 #lasso-card .lc-hint{margin-left:auto;font-size:10.5px;color:var(--mu,#6e6e73)}
 #lasso-card .lc-area{
   width:100%;min-height:64px;max-height:180px;resize:vertical;
-  font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+  font:13px/1.45 var(--slate-font-mono);
   padding:8px;border-radius:9px;border:1px solid var(--bd,#d9d9de);
   background:var(--bg,#e6e9ef);color:var(--tx,#1c1c1e);outline:none;
 }
-#lasso-card[data-mode=latex] .lc-area{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#lasso-card[data-mode=latex] .lc-area{font-family:var(--slate-font-mono)}
 
 /* the rendered formula — without it the LaTeX tab is just punctuation */
 #lasso-card .lc-prev{
@@ -522,7 +522,7 @@ const CSS = `
 #lasso-card .lc-prev:empty{display:none}
 #lasso-card .lc-prev .katex{font-size:1.12em}
 #lasso-card .lc-prev .lc-raw{
-  font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mu,#6e6e73);
+  font:12px/1.4 var(--slate-font-mono);color:var(--mu,#6e6e73);
 }
 #lasso-card .lc-foot{display:flex;align-items:center;gap:8px;margin-top:8px}
 #lasso-card .lc-note{font-size:10.5px;color:var(--mu,#6e6e73);flex:1;line-height:1.35}

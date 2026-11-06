@@ -1199,8 +1199,8 @@ const CSS = `
 }
 #gn-note.on{display:block}
 .gn-note-head{display:flex;flex-direction:column;gap:2px;margin:0 2px 10px}
-.gn-note-head b{font:800 13px/1 inherit;color:#1c2430;letter-spacing:-.01em}
-.gn-note-head i{font:500 10.5px/1.2 inherit;color:#9aa5b4;font-style:normal}
+.gn-note-head b{font:800 13px/1 var(--slate-font);color:#1c2430;letter-spacing:-.01em}
+.gn-note-head i{font:500 10.5px/1.2 var(--slate-font);color:#9aa5b4;font-style:normal}
 .gn-note-designs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-bottom:11px}
 .gn-note-d{
   aspect-ratio:66/50;border:1.5px solid #e3e8ef;border-radius:9px;cursor:pointer;padding:0;
@@ -1218,14 +1218,14 @@ const CSS = `
 }
 .gn-note-sw:hover{transform:translateY(-2px)}
 .gn-note-sw.on{box-shadow:0 0 0 2px #fff,0 0 0 3.5px #2f6df6}
-.gn-note-foot{margin:10px 2px 0;font:500 10.5px/1.45 inherit;color:#9aa5b4}
+.gn-note-foot{margin:10px 2px 0;font:500 10.5px/1.45 var(--slate-font);color:#9aa5b4}
 #bar #gn-note-btn{font-size:12px!important;font-weight:600;white-space:nowrap}
 
 /* drag handle, alive only while the text cursor is inside a fresh note */
 #gn-note-grab{
   position:fixed;z-index:47;display:none;align-items:center;gap:4px;
   padding:3px 8px 3px 5px;border-radius:999px;cursor:grab;
-  background:#1f2c3f;color:#fff;font:700 10px/1 inherit;
+  background:#1f2c3f;color:#fff;font:700 10px/1 var(--slate-font);
   box-shadow:0 6px 16px rgba(8,20,38,.32);touch-action:none;user-select:none;
 }
 #gn-note-grab.on{display:flex}
@@ -1251,16 +1251,16 @@ const CSS = `
   font-family:inherit;box-sizing:border-box;overflow:hidden;
 }
 #gn-note-edit.on{display:block}
-#gn-note-edit .hd{padding:12px 16px 9px;font:700 13px/1 inherit;text-align:center;border-bottom:1px solid #f1f3f7;color:#1c2430}
+#gn-note-edit .hd{padding:12px 16px 9px;font:700 13px/1 var(--slate-font);text-align:center;border-bottom:1px solid #f1f3f7;color:#1c2430}
 #gn-note-edit .bd{padding:8px 14px 12px;max-height:min(64vh,420px);overflow:auto}
-.gn-ne-sec{padding:6px 0 6px;font:700 10px/1 inherit;letter-spacing:.07em;text-transform:uppercase;color:#9aa3b0}
+.gn-ne-sec{padding:6px 0 6px;font:700 10px/1 var(--slate-font);letter-spacing:.07em;text-transform:uppercase;color:#9aa3b0}
 .gn-ne-designs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
 .gn-ne-d{
   display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 2px 5px;
   border:1.5px solid #e6eaf1;background:#fafbfd;border-radius:10px;cursor:pointer;
 }
 .gn-ne-d img{width:100%;height:auto;display:block;border-radius:6px}
-.gn-ne-d span{font:600 9px/1 inherit;color:#6b7684}
+.gn-ne-d span{font:600 9px/1 var(--slate-font);color:#6b7684}
 .gn-ne-d.on{border-color:#2f6df6;background:#eef4ff}
 .gn-ne-d.on span{color:#1f4fbf}
 .gn-ne-colours{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
@@ -1269,7 +1269,7 @@ const CSS = `
 .gn-ne-foot{padding-top:12px}
 .gn-ne-del{
   width:100%;border:0;background:#fdecec;color:#c62b2b;border-radius:10px;
-  padding:9px 12px;font:700 12px/1 inherit;cursor:pointer;
+  padding:9px 12px;font:700 12px/1 var(--slate-font);cursor:pointer;
 }
 .gn-ne-del:hover{background:#fbdede}
 

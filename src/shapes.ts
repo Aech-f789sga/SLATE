@@ -1,3 +1,5 @@
+import { anchorBelow } from './ui-system';
+
 /**
  * Shapes — GoodNotes' "draw it and hold" plus fill, opacity and a third kind.
  *
@@ -1555,13 +1557,12 @@ function hookToolbar() {
     }
     paintPicker();
     picker.classList.add('on');
-    const r = pickBtn!.getBoundingClientRect();
+    // The picker belongs directly under the Shapes button that opened it.
+    // minTop keeps it clear of the toolbar; the shared helper clamps to the
+    // viewport and flips above when the bottom would be clipped.
     const tb = document.getElementById('tb');
-    const floor = tb ? Math.round(tb.getBoundingClientRect().bottom) : r.bottom;
-    const w = picker.offsetWidth;
-    const left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left - w / 2 + r.width / 2));
-    picker.style.left = Math.round(left) + 'px';
-    picker.style.top = Math.round(Math.max(r.bottom, floor) + 8) + 'px';
+    const minTop = tb ? Math.round(tb.getBoundingClientRect().bottom) : undefined;
+    anchorBelow(picker, pickBtn!, { align: 'center', minTop });
   };
 
   // sit next to the engine's own shape buttons
@@ -1632,7 +1633,7 @@ const CSS = `
 }
 #ink-shape .sh-ax i{
   position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;
-  font:700 10px/1 ui-monospace,Menlo,monospace;color:#fff;
+  font:700 10px/1 var(--slate-font-mono);color:#fff;
   text-shadow:0 1px 2px rgba(0,0,0,.45);
 }
 #ink-shape-hint{
@@ -1666,7 +1667,7 @@ const CSS = `
 }
 #sh-pick.on{display:block}
 #sh-pick .sh-ph{
-  font:700 9.5px/1 inherit;letter-spacing:.09em;text-transform:uppercase;
+  font:700 9.5px/1 var(--slate-font);letter-spacing:.09em;text-transform:uppercase;
   color:#8b95a3;margin:0 0 8px 3px;
 }
 #sh-pick .sh-pg{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
@@ -1679,16 +1680,16 @@ const CSS = `
 #sh-pick .sh-pb.on{border-color:var(--gn-acc,#2f6df6)!important;background:#eaf1ff!important;color:#1f4fbf}
 #sh-pick .sh-pb svg{width:20px;height:20px;display:block}
 #sh-pick .sh-pb span{
-  font:600 9px/1.12 inherit;color:#77828f;letter-spacing:.01em;white-space:normal;
+  font:600 9px/1.12 var(--slate-font);color:#77828f;letter-spacing:.01em;white-space:normal;
   text-align:center;max-width:92px;min-height:20px;display:flex;align-items:center;justify-content:center;
 }
 #sh-pick .sh-sides{display:flex;flex-wrap:wrap;gap:3px;align-items:center;margin:0 0 8px 3px}
 #sh-pick .sh-sides span{
-  font:700 9px/1 inherit;letter-spacing:.08em;text-transform:uppercase;color:#8b95a3;margin-right:3px;
+  font:700 9px/1 var(--slate-font);letter-spacing:.08em;text-transform:uppercase;color:#8b95a3;margin-right:3px;
 }
 #sh-pick .sh-sides button{
   width:24px;height:22px;padding:0;border:1px solid #e3e7ee;background:#f7f9fc;border-radius:6px;
-  font:600 10.5px/1 ui-monospace,monospace;color:#5b6673;cursor:pointer;
+  font:600 10.5px/1 var(--slate-font-mono);color:#5b6673;cursor:pointer;
 }
 #sh-pick .sh-sides button.on{background:#eaf1ff;border-color:var(--gn-acc,#2f6df6);color:#1f4fbf}
 #sh-pick .sh-pb.on span{color:#1f4fbf}

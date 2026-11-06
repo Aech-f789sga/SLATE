@@ -439,7 +439,7 @@ const CSS = `
   background:var(--sf,#fff);color:var(--tx,#1c1c1e);
   border:1px solid var(--bd,#d9d9de);border-radius:14px;
   box-shadow:0 16px 40px rgba(8,20,38,.22),0 2px 6px rgba(8,20,38,.08);
-  padding:10px 12px 9px;font:13px/1.35 inherit;
+  padding:10px 12px 9px;font:13px/1.35 var(--slate-font);
   opacity:0;transform:translateY(4px) scale(.98);
   transition:opacity .14s ease,transform .14s ease;
 }
@@ -447,14 +447,14 @@ const CSS = `
 #calc-pop .cp-top{display:flex;align-items:baseline;gap:7px;min-width:0}
 #calc-pop .cp-tag{
   width:16px;height:16px;border-radius:5px;background:color-mix(in srgb,var(--ac,#2f6df6) 14%,transparent);
-  color:var(--ac,#2f6df6);font:700 11px/16px ui-monospace,monospace;text-align:center;flex:none;
+  color:var(--ac,#2f6df6);font:700 11px/16px var(--slate-font-mono);text-align:center;flex:none;
 }
 #calc-pop .cp-expr{
-  font:12px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mu,#6e6e73);
+  font:12px/1.3 var(--slate-font-mono);color:var(--mu,#6e6e73);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px;
 }
 #calc-pop .cp-res{
-  font:600 21px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace;
+  font:600 21px/1.25 var(--slate-font-mono);
   margin:5px 0 1px;letter-spacing:-.01em;word-break:break-word;
 }
 #calc-pop .cp-res.bad{font-size:14px;font-weight:500;color:#c94b4b}

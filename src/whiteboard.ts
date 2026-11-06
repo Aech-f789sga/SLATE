@@ -345,7 +345,7 @@ const CSS = `
 #gn-board{
   border:1px solid var(--gn-line,#e6e2dc)!important;background:#fff!important;
   border-radius:10px;padding:8px 13px!important;cursor:pointer;
-  font:600 12.5px/1 inherit;color:#3c4654;white-space:nowrap;
+  font:600 12.5px/1 var(--slate-font);color:#3c4654;white-space:nowrap;
 }
 #gn-board:hover{background:#f6f8fb!important;border-color:#d6dce6!important;color:#1f4fbf}
 
@@ -358,13 +358,13 @@ const CSS = `
 #wb-hud .wb-btn{
   width:30px;height:30px;border-radius:9px;border:0!important;background:transparent!important;
   color:#3c4654;cursor:pointer;display:grid;place-items:center;padding:0!important;
-  font:700 15px/1 inherit;
+  font:700 15px/1 var(--slate-font);
 }
 #wb-hud .wb-btn:hover{background:#f2f5fa}
 #wb-hud .wb-btn svg{width:16px;height:16px;display:block}
 #wb-hud .wb-face{
   min-width:52px;height:30px;border-radius:9px;border:0!important;background:transparent!important;
-  color:#2b3542;cursor:pointer;font:700 12px/1 inherit;padding:0 6px!important;
+  color:#2b3542;cursor:pointer;font:700 12px/1 var(--slate-font);padding:0 6px!important;
   font-variant-numeric:tabular-nums;
 }
 #wb-hud .wb-face:hover{background:#f2f5fa}
@@ -378,7 +378,7 @@ body.wb-mode #gn-foot{display:none!important}
 .card .cv.is-board{box-shadow:0 5px 16px rgba(16,32,64,.16),inset 0 0 0 1px rgba(255,255,255,.25)}
 .card .cv.is-board::after{
   content:'BOARD';position:absolute;left:7px;bottom:7px;
-  font:800 7.5px/1 inherit;letter-spacing:.1em;color:rgba(255,255,255,.92);
+  font:800 7.5px/1 var(--slate-font);letter-spacing:.1em;color:rgba(255,255,255,.92);
   background:rgba(16,32,64,.42);border-radius:4px;padding:3px 5px;
 }
 .card .cv{position:relative}

@@ -12,6 +12,7 @@
  * with no soundtrack gets no player.
  */
 
+import { anchorBelow, rectOf } from './ui-system';
 import { modAudio, type ModAudioSettings } from './mod-audio';
 import { currentMod, type ModMedia } from './mod-media';
 import { modWall } from './mod-wall';
@@ -23,7 +24,7 @@ const CSS = `
   /* column-reverse: the board opens *upwards* out of the corner, so it can
      never run off the bottom edge behind the page bar */
   display:none;flex-direction:column-reverse;align-items:flex-end;gap:8px;
-  font:500 12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font:500 12px/1.35 var(--slate-font);
   --gxm-panel:#14141c;--gxm-fg:#f2f3f7;--gxm-mu:#8a8f99;
   --gxm-ac:#eaea22;--gxm-acink:#101018;--gxm-bd:rgba(255,255,255,.14);
   --gxm-r:12px;--gxm-r2:8px;--gxm-clip:none;--gxm-clip2:none;--gxm-shadow:0 18px 44px -20px rgba(0,0,0,.8);
@@ -68,7 +69,7 @@ const CSS = `
   color:var(--gxm-ac);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .gxm-badge{
-  margin-left:auto;font:700 8px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+  margin-left:auto;font:700 8px/1 var(--slate-font-mono);
   letter-spacing:.16em;padding:3px 4px;border:1px solid currentColor;flex:none;
   color:var(--gxm-mu);
 }
@@ -124,7 +125,7 @@ const CSS = `
   background:var(--gxm-ac);border:0;cursor:pointer;
 }
 .gxm-vol::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--gxm-ac);border:0;cursor:pointer}
-.gxm-pct{font:700 9px/1 ui-monospace,monospace;color:var(--gxm-mu);width:22px;text-align:right;flex:none}
+.gxm-pct{font:700 9px/1 var(--slate-font-mono);color:var(--gxm-mu);width:22px;text-align:right;flex:none}
 /* the opacity row borrows the volume slider's paint, not its bars */
 .gxm-oplab{flex:none;font-size:9px;letter-spacing:.14em;color:var(--gxm-mu)}
 
@@ -132,7 +133,7 @@ const CSS = `
 .gxm-seg{display:flex;flex:none}
 .gxm-seg button{
   display:flex;align-items:center;gap:3px;padding:4px 6px;cursor:pointer;
-  font:700 8.5px/1 inherit;letter-spacing:.1em;text-transform:uppercase;
+  font:700 8.5px/1 var(--slate-font);letter-spacing:.1em;text-transform:uppercase;
   background:transparent;color:var(--gxm-mu);
   border:1px solid var(--gxm-bd);clip-path:var(--gxm-clip2);
 }
@@ -146,10 +147,10 @@ const CSS = `
 .gxm-tracks[hidden]{display:none}
 .gxm-tstep button{
   min-width:22px;justify-content:center;padding:4px 5px;
-  font:700 11px/1 inherit;letter-spacing:0;text-transform:none;
+  font:700 11px/1 var(--slate-font);letter-spacing:0;text-transform:none;
 }
 .gxm-tnum{
-  flex:none;font:700 9.5px/1 inherit;letter-spacing:.06em;color:var(--gxm-fg);
+  flex:none;font:700 9.5px/1 var(--slate-font);letter-spacing:.06em;color:var(--gxm-fg);
   min-width:34px;text-align:center;
 }
 
@@ -402,12 +403,19 @@ class ModPanel {
   }
 
   private setOpen(open: boolean) {
+    // `#gxm.open .gxm-fab` hides the trigger, so its box has to be measured
+    // before the class lands. The board then anchors to that box: below it by
+    // preference, flipped above when the bottom edge would be clipped — which
+    // is the bottom-right FAB's normal case, and Material's stated behaviour
+    // for a menu that would otherwise be cut off.
+    const fab = this.root?.querySelector<HTMLElement>('.gxm-fab') || null;
+    const fabRect = open && fab && fab.offsetWidth ? rectOf(fab) : null;
     this.open = open;
     this.root?.classList.toggle('open', open);
     const board = this.root?.querySelector('.gxm-board') as HTMLElement | null;
-    const fab = this.root?.querySelector('.gxm-fab');
     if (board) board.hidden = !open;
     fab?.setAttribute('aria-expanded', String(open));
+    if (open && board && fabRect) anchorBelow(board, fabRect, { align: 'end' });
     if (open) this.sync();
   }
 

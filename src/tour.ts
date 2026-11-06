@@ -1190,7 +1190,7 @@ const CSS = `
 #tour-nav{display:flex;gap:8px}
 #tour-nav button{font-size:13px;padding:8px 15px;border-radius:10px;cursor:pointer}
 #tour-nav #tour-next{font-weight:600}
-#tour-fab{position:fixed;right:14px;bottom:74px;z-index:60;width:40px;height:40px;border-radius:50%;border:1px solid var(--bd);background:var(--sf);color:var(--ac);font:600 17px/1 system-ui,sans-serif;cursor:pointer;box-shadow:0 6px 18px rgba(6,12,28,.18);display:none;align-items:center;justify-content:center}
+#tour-fab{position:fixed;right:14px;bottom:74px;z-index:60;width:40px;height:40px;border-radius:50%;border:1px solid var(--bd);background:var(--sf);color:var(--ac);font:600 17px/1 var(--slate-font);cursor:pointer;box-shadow:0 6px 18px rgba(6,12,28,.18);display:none;align-items:center;justify-content:center}
 #tour-fab:hover{background:color-mix(in srgb,var(--ac) 12%,var(--sf))}
 /* the engine's own install button is replaced by the guide entry point */
 #nav #pwa-btn{display:none!important}

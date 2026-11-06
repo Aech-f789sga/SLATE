@@ -1,3 +1,5 @@
+import { anchorBelow } from './ui-system';
+
 /**
  * Ink — the GoodNotes-style pen, colour and eraser panels.
  *
@@ -330,7 +332,7 @@ const CSS = `
 #ink-hex{
   display:flex;align-items:center;gap:8px;justify-content:center;font-size:12px;color:#66707d;
 }
-#ink-hex code{font:600 12px ui-monospace,Menlo,monospace;color:#1c2430}
+#ink-hex code{font:600 12px var(--slate-font-mono);color:#1c2430}
 #ink-hex button{
   border:1px solid #e2e7ef;background:#fff;border-radius:8px;padding:5px 10px;
   font-size:12px;font-weight:600;color:#2f6df6;cursor:pointer;
@@ -346,14 +348,14 @@ const CSS = `
 .ink-sheet .hd-tabs{display:flex;gap:4px;padding:8px;justify-content:center}
 .ink-sheet .hd-tab{
   flex:1;max-width:130px;padding:7px 10px;border:0;border-radius:9px;background:transparent;
-  font:600 12.5px/1 inherit;color:#69747f;cursor:pointer;transition:background .14s,color .14s;
+  font:600 12.5px/1 var(--slate-font);color:#69747f;cursor:pointer;transition:background .14s,color .14s;
 }
 .ink-sheet .hd-tab:hover{background:#f2f5fa;color:#3a4450}
 .ink-sheet .hd-tab.on{background:#e8f0ff;color:#1f4fbf}
 .ink-sheet .bw.hw i{border-radius:999px;background:currentColor;display:block}
 .ink-sheet .chipbtn{
   padding:6px 11px;border-radius:9px;border:1px solid #e3e8f0;background:#fff;
-  font:600 11.5px/1 inherit;color:#5b6673;cursor:pointer;
+  font:600 11.5px/1 var(--slate-font);color:#5b6673;cursor:pointer;
 }
 .ink-sheet .chipbtn.on{border-color:#2f6df6;background:#eaf1ff;color:#1f4fbf}
 .ink-sheet .hlnote{padding:10px 16px 14px;font-size:11.5px;line-height:1.4;color:#8b95a3}
@@ -372,7 +374,7 @@ const CSS = `
 /* the three thickness levels, editable */
 .ink-sheet .sec .lvl-reset{
   float:right;border:0;background:transparent;padding:0;margin-top:-2px;cursor:pointer;
-  font:600 10.5px/1 inherit;letter-spacing:.02em;text-transform:none;color:#2f6df6;
+  font:600 10.5px/1 var(--slate-font);letter-spacing:.02em;text-transform:none;color:#2f6df6;
 }
 .ink-sheet .lvls{padding:2px 16px 8px}
 .ink-sheet .lvl{
@@ -389,7 +391,7 @@ const CSS = `
 .ink-sheet .lvl-mm{font-size:11px;color:#8b95a3;margin-left:-4px}
 .ink-sheet .lvl-use{
   margin-left:auto;border:1px solid #e2e7ef;background:#fff;border-radius:7px;
-  padding:3px 9px;font:600 11px/1 inherit;color:#54606f;cursor:pointer;
+  padding:3px 9px;font:600 11px/1 var(--slate-font);color:#54606f;cursor:pointer;
 }
 .ink-sheet .lvl-use:hover{border-color:#2f6df6;color:#2f6df6}
 .ink-sheet input[type=range]{width:104px;accent-color:#2f6df6}
@@ -426,7 +428,7 @@ const CSS = `
 .brush-preset.on{border-color:#2f6df6;background:#eef4ff}
 .brush-preset canvas{display:block;width:100%;height:34px;border-radius:5px;background:#fbfcfe}
 .brush-preset .pn{
-  font:600 10.5px/1.2 inherit;color:#3c4654;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font:600 10.5px/1.2 var(--slate-font);color:#3c4654;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .brush-preset.on .pn{color:#1f4fbf}
 .brush-tile{
@@ -439,8 +441,8 @@ const CSS = `
 .brush-tile .bi{display:grid;place-items:center;width:26px;height:26px;color:#3c4654}
 .brush-tile.on .bi{color:#1f4fbf}
 .brush-tile .bi svg{width:22px;height:22px;display:block}
-.brush-tile .bn{font:700 11px/1.15 inherit;color:#2b3542;text-align:center}
-.brush-tile .bt{font:500 9px/1.2 inherit;color:#96a0ad;text-align:center}
+.brush-tile .bn{font:700 11px/1.15 var(--slate-font);color:#2b3542;text-align:center}
+.brush-tile .bt{font:500 9px/1.2 var(--slate-font);color:#96a0ad;text-align:center}
 .brush-w{display:flex;gap:7px;padding:2px 14px 12px}
 .brush-w .bw{
   flex:1;height:34px;display:grid;place-items:center;border:1px solid #e6eaf1;
@@ -466,7 +468,7 @@ const CSS = `
   width:12px;height:12px;border-radius:50%;background:#2f6df6;border:2px solid #fff;cursor:pointer;
 }
 .brush-wm .wm-out{
-  font:600 11px/1 ui-monospace,Menlo,monospace;color:#54606f;min-width:52px;text-align:right;
+  font:600 11px/1 var(--slate-font-mono);color:#54606f;min-width:52px;text-align:right;
 }
 
 /* toggle */
@@ -1420,7 +1422,7 @@ bd.append(sec('Stroke Stabilization'));
   range.min = '0';
   range.max = '100';
   range.value = String(ev<number>('SMO') ?? 15);
-  const out = el('code', 'font:600 12px ui-monospace,Menlo,monospace;color:#1c2430', range.value + '%');
+  const out = el('code', 'font:600 12px var(--slate-font-mono);color:#1c2430', range.value + '%');
   range.oninput = () => {
     out.textContent = range.value + '%';
     setPredictive(+range.value);
@@ -1994,24 +1996,22 @@ function toolbarFloor(): number {
 
 function placePop(node: HTMLElement, anchor: HTMLElement) {
   node.classList.add('on');
-  const r = anchor.getBoundingClientRect();
-  const w = node.offsetWidth;
   const floor = toolbarFloor();
-  const h = node.offsetHeight;
-  const left = Math.min(window.innerWidth - w - 8, Math.max(8, r.left - w / 2 + r.width / 2));
-  let top = Math.max(floor, r.bottom + 8);
-  if (top + h > window.innerHeight - 8) {
-    const above = r.top - h - 8;
-    top = above >= floor ? above : floor;
+  // One shared geometry decision: centred under the trigger, never above the
+  // toolbar, clamped to the 8px gutter, flipped above when it would be cut off.
+  // The helper also measures the transformed-ancestor origin, which a raw
+  // left/top calculation here used to get wrong on some skins.
+  const p = anchorBelow(node, anchor, { align: 'center', minTop: floor });
+  if (!p) return;
+  if (p.side === 'above' && p.top < floor) {
+    node.style.top = `${Math.round(floor - p.originY)}px`;
   }
-  node.style.left = Math.round(left) + 'px';
-  node.style.top = Math.round(top) + 'px';
 
   // if it still does not fit, take the height out of the scrolling body rather
   // than letting the sheet run off the bottom of the window
   const bd = node.querySelector('.bd') as HTMLElement | null;
   if (bd) {
-    const over = top + node.offsetHeight - (window.innerHeight - 8);
+    const over = node.getBoundingClientRect().bottom - (window.innerHeight - 8);
     if (over > 0) {
       const cur = bd.getBoundingClientRect().height;
       bd.style.maxHeight = Math.max(140, Math.round(cur - over)) + 'px';

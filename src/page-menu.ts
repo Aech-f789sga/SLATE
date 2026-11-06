@@ -25,11 +25,18 @@ html[data-bar=full] #bar2:not(.open) .pgm-x{display:none!important}
 html[data-bar=compact] #pgm-head{display:none!important}
 
 #pgm-head{display:flex;align-items:center;gap:4px;order:-1}
+#pgm-head .pgm-grip{display:none}
+#bar2.open #pgm-head .pgm-grip{
+  display:flex;flex:1 1 auto;align-items:center;justify-content:center;
+  height:24px;min-width:48px;color:#a9b2c0;font-size:12px;line-height:1;
+  letter-spacing:2px;cursor:grab;touch-action:none;user-select:none;
+}
+#bar2.open #pgm-head .pgm-grip:hover{color:#5d6776}
 #bar2 #pgm{
   display:inline-flex;align-items:center;gap:6px;
   padding:6px 11px!important;border-radius:11px!important;
   background:#fff!important;color:#2b3542!important;
-  font:600 12.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;
+  font:600 12.5px/1 var(--slate-font)!important;
   box-shadow:0 8px 22px rgba(8,20,38,.22)!important;cursor:pointer;
   border:1px solid #eaeef5!important;
 }
@@ -64,7 +71,7 @@ html[data-bar=full] #bar2.open #pgm-head{
 }
 html[data-bar=full] #bar2.open #pgm{
   box-shadow:none!important;border:0!important;background:transparent!important;
-  padding:0!important;font:600 10px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif!important;
+  padding:0!important;font:600 10px/1 var(--slate-font)!important;
   letter-spacing:.09em;text-transform:uppercase;color:#8a94a6!important;
 }
 html[data-bar=full] #bar2.open #pgm .pgm-sub,
@@ -89,7 +96,7 @@ html[data-bar=full] #bar2.open #pgm .pgm-car{display:none}
 }
 #bar2 .pgm-flow > div{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
 #bar2 .pgm-lab{
-  flex:0 0 auto;font:600 9.5px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  flex:0 0 auto;font:600 9.5px/1 var(--slate-font);
   letter-spacing:.09em;text-transform:uppercase;color:#a3adbd;
   padding:3px 2px 3px 0;pointer-events:none;align-self:center;
 }
@@ -158,10 +165,18 @@ const GROUPS: [string, string][] = [
   // the page — paper, ruling, colour, resolution, export.
 ];
 
+import { anchorBelow, rectOf, resetDrag, type RectLike } from './ui-system';
+
 let bar2: HTMLElement | null = null;
 let btn: HTMLButtonElement | null = null;
 let sub: HTMLElement | null = null;
 let built = false;
+/**
+ * The trigger's box at the moment of the press. Once the row opens, `#pgm`
+ * becomes a small heading *inside* the card and its rect is no longer where
+ * the hand clicked, so the honest anchor has to be captured before that.
+ */
+let triggerRect: RectLike | null = null;
 /** Watches the row so the group headings survive the engine's rewrites. */
 let mo: MutationObserver | null = null;
 
@@ -255,7 +270,14 @@ function build() {
 
   const head = document.createElement('div');
   head.id = 'pgm-head';
-  head.append(btn, x);
+  // A real drag surface: the rest of the header is buttons, and a button must
+  // keep its click. This span is the quiet area the shared drag system uses.
+  const grip = document.createElement('span');
+  grip.className = 'pgm-grip';
+  grip.setAttribute('aria-hidden', 'true');
+  grip.title = 'Drag to move';
+  grip.textContent = '⋮⋮';
+  head.append(btn, grip, x);
   bar2.insertBefore(head, bar2.firstChild);
 
   // the engine rewrites this row whenever the tools sync; put the headings
@@ -299,27 +321,18 @@ function build() {
 }
 
 /**
- * Hang the card under the toolbar.
+ * Hang the card directly beneath the Page pill that opened it.
  *
  * `#bar2` lives inside `#bar`, which is itself positioned, so `top:100%` lands
- * the card *over* the row instead of under it. Measure the bar and pin the card
- * to the viewport instead.
+ * the card *over* the row instead of under it. The shared anchor measures the
+ * fixed box at left:0/top:0 (a transformed ancestor shifts that origin),
+ * clamps to the 8px gutter and flips above when the bottom would be clipped.
  */
 function place() {
-  if (!bar2) return;
+  if (!bar2 || !triggerRect) return;
   const tb = document.getElementById('tb');
-  if (!tb) return;
-  const r = tb.getBoundingClientRect();
-  // A fixed box is positioned against its nearest transformed ancestor, not the
-  // viewport, so ask the browser where the card actually landed and shift it by
-  // the difference instead of trusting the coordinates.
-  bar2.style.left = '0px';
-  bar2.style.top = '0px';
-  const b = bar2.getBoundingClientRect();
-  const wantLeft = Math.max(8, Math.min(window.innerWidth - 8 - b.width, r.left + r.width / 2 - b.width / 2));
-  const wantTop = r.bottom + 6;
-  bar2.style.left = `${Math.round(wantLeft - b.left)}px`;
-  bar2.style.top = `${Math.round(wantTop - b.top)}px`;
+  const minTop = tb ? Math.round(tb.getBoundingClientRect().bottom) : undefined;
+  anchorBelow(bar2, triggerRect, { align: 'start', gap: 6, minTop });
 }
 
 /** The page's own record — the selects can lag behind it after a page turn. */
@@ -403,6 +416,10 @@ function mountFlow() {
 
 function open() {
   if (!bar2) return;
+  // Capture the pill before it turns into the card's heading (see triggerRect).
+  // In the compact layout the pill is hidden, so the toolbar is the anchor.
+  const tb = document.getElementById('tb');
+  triggerRect = btn && btn.offsetWidth ? rectOf(btn) : tb ? rectOf(tb) : null;
   paint();
   bar2.classList.add('open');
   document.documentElement.dataset.pgm = '1';
@@ -421,7 +438,13 @@ function open() {
 function close() {
   if (!bar2 || !bar2.classList.contains('open')) return;
   bar2.classList.remove('open');
+  // The card is `position:fixed` only while open (anchorBelow sets that
+  // inline). Give the row its natural box back so the collapsed pill returns
+  // to the toolbar, and so the next opening re-anchors instead of reusing a
+  // position the user dragged to.
+  resetDrag(bar2);
   delete document.documentElement.dataset.pgm;
+  triggerRect = null;
   btn?.setAttribute('aria-expanded', 'false');
 }
 

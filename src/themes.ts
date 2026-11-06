@@ -797,8 +797,12 @@ html[data-gx] input[type=radio]{accent-color:var(--ac)}
    labels shout, and whether an icon is a hairline or a marker stroke. All of
    that is driven from the preset the theme declares. */
 
+/* One primary family for every piece of UI chrome. A theme's own font is a
+   preview of that theme, not a second global typeface — it stays on the name
+   labels inside the picker so switching mods still feels different. */
 html[data-gx] #lib,
-html[data-gx] #gx-theme-panel{font-family:var(--gx-font)!important}
+html[data-gx] #gx-theme-panel{font-family:var(--slate-font)!important}
+html[data-gx] #gx-theme-panel .gxp-name{font-family:var(--gx-font)}
 
 html[data-gx] #gn-search,
 html[data-gx] #gn-board,
@@ -872,7 +876,7 @@ html[data-gx] #gx-theme-panel .gxp-x svg{
 
 #gx-theme-btn{
   display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;max-width:224px;
-  font:600 12.5px/1 inherit;padding:8px 13px;border-radius:10px;cursor:pointer;
+  font:600 12.5px/1 var(--slate-font);padding:8px 13px;border-radius:10px;cursor:pointer;
   border:1px solid var(--bd);background:color-mix(in srgb, var(--sf) 86%, transparent);
   color:var(--tx);white-space:nowrap;overflow:hidden;
 }
@@ -926,9 +930,17 @@ html[data-gx] #gx-theme-panel .gxp-x svg{
   background:transparent;color:var(--mu);
 }
 #gx-theme-panel .gxp-modes button.on{background:var(--sf);color:var(--ac);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+/* The palette's close cross used to be a text glyph in a 4px/8px line box:
+   mathematically centred on the font's metrics, visibly off-centre on the
+   eye, and different again for every theme font. A square grid box plus a
+   symmetric SVG puts the ink exactly on the box's centre, always. */
 #gx-theme-panel .gxp-x{
-  border:0;background:transparent;cursor:pointer;color:var(--mu);font-size:15px;padding:4px 8px;border-radius:8px;
+  width:32px;height:32px;flex:none;padding:0;
+  display:grid;place-items:center;align-content:center;
+  border:0;background:transparent;cursor:pointer;color:var(--mu);
+  font-size:15px;line-height:1;border-radius:8px;
 }
+#gx-theme-panel .gxp-x svg{display:block;width:16px;height:16px}
 #gx-theme-panel .gxp-x:hover{background:var(--bg);color:var(--tx)}
 
 #gx-theme-panel .gxp-grid{
@@ -966,7 +978,7 @@ html[data-gx] #gx-theme-panel .gxp-x svg{
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 #gx-theme-panel .gxp-go{
-  flex:none;font:600 12.5px/1 inherit;padding:9px 18px;border-radius:10px;
+  flex:none;font:600 12.5px/1 var(--slate-font);padding:9px 18px;border-radius:10px;
   border:1px solid var(--ac);background:var(--ac);color:#fff;cursor:pointer;
   transition:opacity .15s, transform .15s;
 }
@@ -999,7 +1011,7 @@ html[data-gx] #gx-theme-panel .gxp-x svg{
    wallpaper, so they sit in the footer next to the on/off switch */
 #gx-theme-panel .gxp-sharp{display:flex;gap:0;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
 #gx-theme-panel .gxp-sharp button{
-  font:600 11px/1 inherit;padding:5px 9px;border:0;cursor:pointer;
+  font:600 11px/1 var(--slate-font);padding:5px 9px;border:0;cursor:pointer;
   background:transparent;color:var(--mu);
 }
 #gx-theme-panel .gxp-sharp button + button{border-left:1px solid var(--bd)}

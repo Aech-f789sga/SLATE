@@ -1,3 +1,5 @@
+import { anchorBelow } from './ui-system';
+
 /**
  * The two writing switches, in their own pill beside the page card.
  *
@@ -66,7 +68,7 @@ html[data-bar=compact] #edm{display:none!important}
   background:#fff;border:1px solid #e7ecf4;border-radius:15px;
   box-shadow:0 18px 44px rgba(8,20,38,.28);
   color:#2b3542;z-index:55;
-  font:400 12.5px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font:400 12.5px/1.35 var(--slate-font);
 }
 #edm-card.open{display:flex;animation:edm-drop .17s cubic-bezier(.2,.8,.3,1) both}
 /* laid out but not animating, so the first measurement is the resting box */
@@ -83,7 +85,7 @@ html[data-bar=compact] #edm{display:none!important}
   padding:0 2px 6px;border-bottom:1px solid #f0f3f8;margin-bottom:4px;
 }
 #edm-card .edm-head span{
-  font:600 10px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font:600 10px/1 var(--slate-font);
   letter-spacing:.09em;text-transform:uppercase;color:#8a94a6;
 }
 #edm-card .edm-x{
@@ -227,33 +229,29 @@ function toolButtons(): HTMLButtonElement[] {
 function anchorDrawer(anchor: HTMLElement) {
   const drw = document.getElementById('gn-drw');
   if (!drw || drw.style.display !== 'block') return;
-  const r = anchor.getBoundingClientRect();
+  // The shared helper prefers below, flips above only when below does not fit,
+  // clamps to the 8px gutter, and measures the fixed box's real origin so a
+  // transformed toolbar cannot shift it. It also refuses to move a drawer the
+  // user has dragged.
+  const p = anchorBelow(drw, anchor, { align: 'start', gap: 6 });
+  if (!p) return;
   const w = drw.offsetWidth;
   const h = drw.offsetHeight;
-  const left = Math.max(8, Math.min(innerWidth - w - 8, r.left));
 
-  /*
-   * Prefer below, flip above only when below does not fit, and never let the
-   * flip land on the pen row. On a short window `r.top - h - 6` is negative, the
-   * clamp turns that into 8, and the drawer opens across the pen dock — which
-   * reads as the dropdown coming out of the wrong place entirely.
-   */
-  const below = r.bottom + 6;
-  const above = r.top - h - 6;
-  let top = below + h <= innerHeight - 8 ? below : above;
-
+  /* A flipped drawer can land across the pen row, which reads as the dropdown
+     coming out of the wrong place entirely. Nudge it below the row instead. */
   const pen = document.getElementById('ink-pen');
   if (pen) {
-    const p = pen.getBoundingClientRect();
-    const hitsPen = p.width > 0 && left < p.right && left + w > p.left && top < p.bottom && top + h > p.top;
-    if (hitsPen) top = p.bottom + 8;
+    const pr = pen.getBoundingClientRect();
+    const hits =
+      pr.width > 0 &&
+      p.left < pr.right && p.left + w > pr.left &&
+      p.top < pr.bottom && p.top + h > pr.top;
+    if (hits) {
+      const wantTop = Math.min(Math.max(p.top, pr.bottom + 8), innerHeight - h - 8);
+      drw.style.top = `${Math.round(wantTop - p.originY)}px`;
+    }
   }
-  top = Math.max(8, Math.min(innerHeight - h - 8, top));
-
-  drw.style.left = `${left}px`;
-  drw.style.top = `${top}px`;
-  drw.style.right = 'auto';
-  drw.style.bottom = 'auto';
 }
 
 /**
@@ -342,19 +340,11 @@ function syncTools() {
 }
 
 function place() {
-  if (!card || !pill) return;
-  // A fixed box is laid out against its nearest transformed ancestor, not the
-  // viewport — some skins put a filter on `#tb`. Ask the browser where the card
-  // actually landed and shift it by the difference, as the page card does.
-  card.style.left = '0px';
-  card.style.top = '0px';
-  const c = card.getBoundingClientRect();
-  const p = pill.getBoundingClientRect();
-  if (!p.width) return;
-  const wantLeft = Math.min(Math.max(8, p.right - c.width), window.innerWidth - 8 - c.width);
-  const wantTop = Math.min(p.bottom + 7, window.innerHeight - 8 - c.height);
-  card.style.left = `${Math.round(wantLeft - c.left)}px`;
-  card.style.top = `${Math.round(wantTop - c.top)}px`;
+  if (!card || !pill || !pill.offsetWidth) return;
+  // Right edge aligned with the trigger, directly below it, clamped and
+  // flipped by the shared anchor. Called while `.measuring` is on so the
+  // entry keyframe's transform cannot skew the measured box.
+  anchorBelow(card, pill, { align: 'end', gap: 7 });
 }
 
 function isOpen(): boolean {

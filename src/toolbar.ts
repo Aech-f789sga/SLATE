@@ -433,12 +433,12 @@ html[data-bar-min="1"] #tb #bar2{display:none!important}
 #gn-confirm b{display:block;font-size:16.5px;font-weight:800;letter-spacing:-.02em;margin-bottom:7px}
 #gn-confirm p{margin:0 0 16px;font-size:12.8px;line-height:1.55;color:#5b6673}
 #gn-confirm kbd{
-  font:600 11px ui-monospace,Menlo,monospace;background:#f1f3f7;border-radius:4px;
+  font:600 11px var(--slate-font-mono);background:#f1f3f7;border-radius:4px;
   padding:1px 4px;color:#41505f;
 }
 #gn-confirm .gn-cf-row{display:flex;gap:8px}
 #gn-confirm button{
-  flex:1;border:0;border-radius:11px;padding:11px 14px;font:700 13px/1 inherit;cursor:pointer;
+  flex:1;border:0;border-radius:11px;padding:11px 14px;font:700 13px/1 var(--slate-font);cursor:pointer;
 }
 #gn-confirm .gn-cf-no{background:#f1f3f7;color:#3c4654}
 #gn-confirm .gn-cf-no:hover{background:#e7ebf2}
