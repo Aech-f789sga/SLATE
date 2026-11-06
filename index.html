@@ -73,8 +73,9 @@ html[data-bar=compact] #bar{padding-right:0}
 #pen-md h4{margin:2px 0 0;font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
 #pen-pad{height:92px;border:1px dashed var(--bd);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;color:var(--mu);font-size:12px;touch-action:none;background:var(--bg);user-select:none;-webkit-user-select:none;cursor:crosshair}
 #pen-pad b{font-size:20px;color:var(--tx);font-weight:600}
-.pen-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px;color:var(--mu)}
-.pen-meta i{color:var(--tx);font-style:normal;font-weight:600}
+.pen-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12px;color:var(--mu)}
+.pen-meta>div{display:flex;justify-content:space-between;gap:6px;min-width:0}
+.pen-meta i{color:var(--tx);font-style:normal;font-weight:600;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #pen-bar{height:6px;border-radius:3px;background:var(--bd);overflow:hidden}
 #pen-bar>i{display:block;height:100%;width:0;background:var(--ac);transition:width .08s linear}
 .pen-hint{font-size:11.5px;color:var(--mu);line-height:1.5}
@@ -125,6 +126,7 @@ html[data-bar=compact] #bar{padding-right:0}
 <script type="module" src="/src/skin-material.ts"></script>
 <script type="module" src="/src/nav-collapse.ts"></script>
 <script type="module" src="/src/mod-panel.ts"></script>
+<script type="module" src="/src/pen-input.ts"></script>
 <script type="module" src="/src/pen-dock.ts"></script>
 <script type="module" src="/src/focus.ts"></script>
 <script type="module" src="/src/page-menu.ts"></script>
@@ -433,7 +435,7 @@ function fit(){fitting=1;cv.style.aspectRatio=W+'/'+H;layout();const d=cvD=wantD
 function pos(e){const r=cv.getBoundingClientRect(),p=[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];return SNAPON?gSnap(p):p}
 function snap(){undo.push(JSON.stringify(pg().strokes));if(undo.length>60)undo.shift();redo=[]}
 function eraseAt(x,y){if(cur&&cur.pe)return partial(x,y);const s=pg().strokes,n=s.length,r=12+size;pg().strokes=s.filter(k=>{if(k.t==="ers"||frH(k))return true;if(!k.p){if(k.fl)return true;const b=bb(k);return !(x>b[0]-r&&x<b[2]+r&&y>b[1]-r&&y<b[3]+r)}return !k.p.some(q=>Math.hypot(q[0]-x,q[1]-y)<r+(k.t==="hl"?k.w*2:k.w/2))});if(pg().strokes.length!==n)return true;let fc=false;for(const k of pg().strokes)if(k.fl&&fillCut(k,x,y))fc=true;return fc}
-cv.addEventListener("pointerdown",e=>{if(flipping)return;if(e.pointerType==="pen"&&!penSeen){penSeen=1;$("#po").checked=true;$("#po").dispatchEvent(new Event("change"))}if($("#po").checked&&e.pointerType==="touch")return;if(e.pointerType==="pen"||e.pointerType==="eraser"){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}e.preventDefault();cv.setPointerCapture(e.pointerId);{const r0=pos(e);if(gdDown(r0[0],r0[1]))return;if(lyBlock())return;SNAPON=gdTool()}const[x,y]=pos(e);commitText();if(tool==="text"&&!textSel(x,y)){openText(x,y);return}if(tool==="bk"){bucket(x,y);return}if(tool==="laser"){cur={t:"laser",s:{p:[[x,y,performance.now()]],rt:0,l:[x,y],m:LM}};trail.push(cur.s);laserLoop();return}if(tool==="sel"||tool==="text"){snap();cur=null;sel=sel.filter(lyOn);const k=W/cv.getBoundingClientRect().width;
+cv.addEventListener("pointerdown",e=>{if(flipping)return;if(e.pointerType==="pen"&&!penSeen){penSeen=1;try{window.__slatePen&&window.__slatePen.firstPen&&window.__slatePen.firstPen()}catch(x){}}if(!PENAPI.accept(e))return;if(e.pointerType==="pen"||e.pointerType==="eraser"){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}e.preventDefault();cv.setPointerCapture(e.pointerId);{const r0=pos(e);if(gdDown(r0[0],r0[1]))return;if(lyBlock())return;SNAPON=gdTool()}const[x,y]=pos(e);commitText();if(tool==="text"&&!textSel(x,y)){openText(x,y);return}if(tool==="bk"){bucket(x,y);return}if(tool==="laser"){cur={t:"laser",s:{p:[[x,y,performance.now()]],rt:0,l:[x,y],m:LM}};trail.push(cur.s);laserLoop();return}if(tool==="sel"||tool==="text"){snap();cur=null;sel=sel.filter(lyOn);const k=W/cv.getBoundingClientRect().width;
  if(sel.length){const b=selBox(),C=cor(b);let h=-1;C.forEach((c,i)=>{if(Math.hypot(x-c[0],y-c[1])<16*k)h=i});
   if(Math.hypot(x-(b[0]+b[2])/2,y-b[1]+34)<16*k){const cx=(b[0]+b[2])/2,cy=(b[1]+b[3])/2;cur={t:"sel",rot:1,cx,cy,a0:Math.atan2(y-cy,x-cx),o:sel.map(s=>JSON.parse(JSON.stringify(s)))}}else if(h>=0){const c=C[h],a=C[3-h];cur={t:"sel",rs:1,a,w0:Math.abs(c[0]-a[0])||1,h0:Math.abs(c[1]-a[1])||1,sx:Math.sign(c[0]-a[0])||1,sy:Math.sign(c[1]-a[1])||1,o:sel.map(s=>JSON.parse(JSON.stringify(s)))}}
   else if(sel.length===1&&sel[0].t==="text"&&Math.hypot(x-(b[2]+6),y-(b[1]+b[3])/2)<16*k)cur={t:"sel",tw:1,it:sel[0]};else if(x>b[0]-6&&x<b[2]+6&&y>b[1]-6&&y<b[3]+6)cur={t:"sel",mv:1,l:[x,y],tap:tool==="text"?wasSel:null}}
@@ -441,8 +443,8 @@ cv.addEventListener("pointerdown",e=>{if(flipping)return;if(e.pointerType==="pen
  if(tool==="er"){const it={t:"ers",ts:Date.now(),w:2*(8+size*1.2),p:[[x,y]]};pg().strokes.push(it);cur={t:"er",it,changed:true};draw()}else if(tool==="pe"){cur={t:"er",changed:false};if(eraseAt(x,y))cur.changed=true;draw()}
  else if(["line","rect","ell","arrow","hid","ax2","ax3"].includes(tool)){cur={t:"shape",k:tool,c:color,w:size,ds:tool==="hid"||dashOn,ac:[...axc],a:[x,y],b:[x,y]};draw()}
  else{cur={t:tool,c:color,w:size,v:$("#pt").value,sd:Math.random()*1e5|0,lt:performance.now(),pr:prOn(e)?1:0,p:[prOn(e)?[x,y,pw(e,0,null)]:[x,y]]};draw()}});
-cv.addEventListener("pointermove",e=>{if(!cur)return;const ev=e.getCoalescedEvents?e.getCoalescedEvents():[e];
- for(const q of(ev.length?ev:[e])){const[x,y]=pos(q);if(sn&&lastP){const dt=Math.max(1,q.timeStamp-lastP[2]);sMove(Math.hypot(x-lastP[0],y-lastP[1])/dt);lastP=[x,y,q.timeStamp]}if(cur.t==="laser"){cur.s.p.push([x,y,performance.now()]);cur.s.l=[x,y]}else if(cur.t==="er"){if(cur.it){const l=cur.it.p[cur.it.p.length-1];if(Math.hypot(x-l[0],y-l[1])>1.5)cur.it.p.push([x,y])}else if(eraseAt(x,y))cur.changed=true}else if(cur.t==="shape")cur.b=[x,y];else if(cur.t==="sel"){if(cur.mv){cur.m=(cur.m||0)+Math.hypot(x-cur.l[0],y-cur.l[1]);mv(sel,x-cur.l[0],y-cur.l[1]);cur.l=[x,y]}else if(cur.rot){const d=Math.atan2(y-cur.cy,x-cur.cx)-cur.a0;sel.forEach((s,i)=>rotApply(s,cur.o[i],cur.cx,cur.cy,d))}else if(cur.tw){cur.it.w=Math.max(40,x-cur.it.x)}else if(cur.rs){const f=Math.max(.1,Math.max((x-cur.a[0])*cur.sx/cur.w0,(y-cur.a[1])*cur.sy/cur.h0));sel.forEach((s,i)=>tf(s,cur.o[i],cur.a[0],cur.a[1],f))}else if(cur.rect){const a=cur.lp0;cur.lp=[[a[0],a[1]],[x,a[1]],[x,y],[a[0],y]]}else cur.lp.push([x,y])}else{const l=cur.p[cur.p.length-1],S2=smx(cur,x,y),x2=S2[0],y2=S2[1];cur.rx=x;cur.ry=y;if(Math.hypot(x2-l[0],y2-l[1])>1.2){const t=performance.now(),sp=Math.hypot(x2-l[0],y2-l[1])/Math.max(1,t-(cur.lt||t));cur.p.push([x2,y2,cur.pr?pw(q,sp,l):(l[2]||1)*.7+Math.max(.45,Math.min(1.2,1.3-sp*.5))*.3]);cur.lt=t}}}draw()});
+cv.addEventListener("pointermove",e=>{if(!cur)return;const ev=PENAPI.samples(e);
+ for(const q of ev){const[x,y]=pos(q);if(sn&&lastP){const dt=Math.max(1,q.timeStamp-lastP[2]);sMove(Math.hypot(x-lastP[0],y-lastP[1])/dt);lastP=[x,y,q.timeStamp]}if(cur.t==="laser"){cur.s.p.push([x,y,performance.now()]);cur.s.l=[x,y]}else if(cur.t==="er"){if(cur.it){const l=cur.it.p[cur.it.p.length-1];if(Math.hypot(x-l[0],y-l[1])>1.5)cur.it.p.push([x,y])}else if(eraseAt(x,y))cur.changed=true}else if(cur.t==="shape")cur.b=[x,y];else if(cur.t==="sel"){if(cur.mv){cur.m=(cur.m||0)+Math.hypot(x-cur.l[0],y-cur.l[1]);mv(sel,x-cur.l[0],y-cur.l[1]);cur.l=[x,y]}else if(cur.rot){const d=Math.atan2(y-cur.cy,x-cur.cx)-cur.a0;sel.forEach((s,i)=>rotApply(s,cur.o[i],cur.cx,cur.cy,d))}else if(cur.tw){cur.it.w=Math.max(40,x-cur.it.x)}else if(cur.rs){const f=Math.max(.1,Math.max((x-cur.a[0])*cur.sx/cur.w0,(y-cur.a[1])*cur.sy/cur.h0));sel.forEach((s,i)=>tf(s,cur.o[i],cur.a[0],cur.a[1],f))}else if(cur.rect){const a=cur.lp0;cur.lp=[[a[0],a[1]],[x,a[1]],[x,y],[a[0],y]]}else cur.lp.push([x,y])}else{const l=cur.p[cur.p.length-1],S2=smx(cur,x,y),x2=S2[0],y2=S2[1];cur.rx=x;cur.ry=y;if(Math.hypot(x2-l[0],y2-l[1])>1.2){const t=performance.now(),sp=Math.hypot(x2-l[0],y2-l[1])/Math.max(1,t-(cur.lt||t));cur.p.push([x2,y2,cur.pr?pw(q,sp,l):(l[2]||1)*.7+Math.max(.45,Math.min(1.2,1.3-sp*.5))*.3]);cur.lt=t}}}draw()});
 function end(){SNAPON=false;if(!cur)return;if(pt0){tool=pt0;pt0=null;syncTools()}if(cur.t==="laser"){cur.s.rt=performance.now();cur=null;laserLoop();return}sStop();if(cur.t==="er"){if(!cur.changed)undo.pop();else{flushRas();if(cur.it)splitAll(cur.it);else splitCF()}}
  else if(cur.t==="sel"){if(cur.lp){const P=cur.lp;{const X=P.map(q=>q[0]),Y=P.map(q=>q[1]);if(Math.max(...X)-Math.min(...X)<8&&Math.max(...Y)-Math.min(...Y)<8){const h=tapSel(P[0][0],P[0][1]);sel=h?[h]:[]}else if(P.length>2)sel=pg().strokes.filter(s=>!frH(s)&&lyOn(s)&&inFrac(s,P)>=.85)}undo.pop()}else if(cur.tap&&(cur.m||0)<4){undo.pop();const it=cur.tap;cur=null;sel=[];openText(0,0,it);return}else if(cur.mv&&(cur.m||0)<4&&sel.length===1&&sel[0].t==='vid'){vToggle(sel[0]);undo.pop()}}
  else if(cur.t==="shape"){if(Math.hypot(cur.b[0]-cur.a[0],cur.b[1]-cur.a[1])>3){const o={t:"shape",k:cur.k,c:cur.c,w:cur.w,ds:cur.ds,ac:cur.ac,a:cur.a,b:cur.b};for(const q of["r","q","poly","el","pb","hb","v","dm","ho","hl","fc","fop"])if(cur[q]!==undefined)o[q]=cur[q];pg().strokes.push(o);symAdd(o)}else undo.pop()}
@@ -490,9 +492,26 @@ function wrap(c,s){fnt(c,s);const out=[];s.txt.split("\n").forEach(p=>{if(!s.w){
 function hitText(x,y){return[...pg().strokes].reverse().find(s=>{if(s.t!=="text"||!lyOn(s))return 0;const b=bb(s);return x>=b[0]-4&&x<=b[2]+4&&y>=b[1]-4&&y<=b[3]+4})}
 function textSel(x,y){const k=W/cv.getBoundingClientRect().width;if(sel.length===1&&sel[0].t==="text"){const b=selBox();if(cor(b).some(c=>Math.hypot(x-c[0],y-c[1])<16*k)||Math.hypot(x-(b[2]+6),y-(b[1]+b[3])/2)<16*k||(x>b[0]-6&&x<b[2]+6&&y>b[1]-6&&y<b[3]+6)){wasSel=sel[0];return true}}
  const h=hitText(x,y);if(h){sel=[h];wasSel=null;return true}if(sel.length){sel=[];draw()}return false}
-function normP(p){if(p>0){PC.min=Math.min(PC.min,p);PC.max=Math.max(PC.max*.9998,p);if(++PC.n%40===0)try{localStorage.setItem("inkpad-pc",JSON.stringify(PC))}catch(e){}}const r=PC.max-PC.min;return r<.08?p:Math.max(0,Math.min(1,(p-PC.min)/r))}
-function prOn(e){return (e.pointerType==="pen"||(e.pointerType==="mouse"&&e.pressure>0&&e.pressure!==.5))&&$("#prs").value!=="off"&&!(PC.n>30&&PC.max-PC.min<.08)}
-function pw(q,sp,l){const g=+$("#prs").value||1,pr=normP(q.pressure),al=q.altitudeAngle,tl=Math.min(1,(q.tiltX||q.tiltY)?Math.hypot(q.tiltX||0,q.tiltY||0)/70:(al!==undefined?1-al/(Math.PI/2):0)),v=$("#pt").value,sh=v==="pencil"||v==="crayon"||v==="marker"||v==="brush";const PK={ball:.95,fountain:1.05,brush:1.55,pencil:.62,crayon:1.25,marker:1.2}[v]||1;const f=(.18+Math.pow(pr,g)*PK)*(1+tl*(sh?1.4:.22));return l&&l[2]?l[2]*.55+f*.45:f}
+/* Pen input layer. src/pen-input.ts replaces these methods at boot with the
+   real implementations: per-device pressure ranges, exact altitude maths and
+   automatic palm rejection. The defaults below reproduce the previous
+   behaviour, so a failed module load degrades instead of breaking the canvas. */
+var PENAPI={
+ accept:function(e){return !($("#po").checked&&e.pointerType==="touch")},
+ samples:function(e){try{return e.getCoalescedEvents?e.getCoalescedEvents():[e]}catch(x){return[e]}},
+ pressure:function(e){return normP(e.pressure)},
+ pressureRaw:function(p){return normP(p)},
+ tilt:function(e){var a=e.altitudeAngle;if(typeof a==="number")return Math.max(0,Math.min(1,1-a/(Math.PI/2)));return Math.max(0,Math.min(1,Math.hypot(e.tiltX||0,e.tiltY||0)/70))},
+ hasPressure:function(e){return (e.pointerType==="pen"||(e.pointerType==="mouse"&&e.pressure>0&&e.pressure!==.5))&&!(PC.n>30&&PC.max-PC.min<.08)},
+ twist:function(e){return typeof e.twist==="number"?e.twist:null},
+ altitude:function(e){return typeof e.altitudeAngle==="number"?e.altitudeAngle:null},
+ azimuth:function(e){return null},
+ note:function(){},
+ palmSized:function(){return false}
+};
+function normP(p){if(p>0){PC.min=Math.min(PC.min,p);PC.max=Math.max(PC.max,p);if(++PC.n%40===0)try{localStorage.setItem("inkpad-pc",JSON.stringify(PC))}catch(e){}}const r=PC.max-PC.min;return r<.08?p:Math.max(0,Math.min(1,(p-PC.min)/r))}
+function prOn(e){return $("#prs").value!=="off"&&PENAPI.hasPressure(e)}
+function pw(q,sp,l){const g=+$("#prs").value||1,pr=PENAPI.pressure(q),tl=PENAPI.tilt(q),v=$("#pt").value,sh=v==="pencil"||v==="crayon"||v==="marker"||v==="brush";const PK={ball:.95,fountain:1.05,brush:1.55,pencil:.62,crayon:1.25,marker:1.2}[v]||1;const f=(.18+Math.pow(pr,g)*PK)*(1+tl*(sh?1.4:.22));return l&&l[2]?l[2]*.55+f*.45:f}
 $("#prs").onchange=()=>{PC={min:1,max:0,n:0};try{localStorage.removeItem("inkpad-pc")}catch(e){}};
 function dens(p,st){const o=[p[0]];for(let i=1;i<p.length;i++){const a=p[i-1],b=p[i],d=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.ceil(d/st);for(let k=1;k<n;k++){const t=k/n;o.push(b.length>2&&a.length>2?[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]:[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t])}o.push(b)}return o}
 function shapePts(s){const a=s.a,b=s.b,L=[],line=(u,v)=>{const n=Math.max(1,Math.ceil(Math.hypot(v[0]-u[0],v[1]-u[1])/6));for(let i=0;i<=n;i++)L.push([u[0]+(v[0]-u[0])*i/n,u[1]+(v[1]-u[1])*i/n])};
@@ -1266,11 +1285,20 @@ function penBtn(e){
 }
 function penMeta(){
   var m=document.getElementById('pen-meta');if(!m)return;
-  var prs=PENLIVE.prMax-PENLIVE.prMin>.08;
+  var L=(window.__slatePen&&window.__slatePen.last())||null;
+  var prof=(window.__slatePen&&window.__slatePen.profile())||null;
+  var prs=prof?prof.pen.variable:(PENLIVE.prMax-PENLIVE.prMin>.08);
   var kind=PENLIVE.type==='pen'?'stylus':PENLIVE.type==='eraser'?'eraser':PENLIVE.type==='touch'?'finger':PENLIVE.seen?'mouse':'waiting';
+  // "Tilt" and "Twist" report capability, not the last sample: a pen sitting
+  // upright at this instant is not a pen that cannot tilt. The live angle is
+  // shown when there is one, so the row is still a live readout.
+  var tl=(prof&&prof.pen.tilt)?(PENLIVE.tilt?PENLIVE.tilt+'\u00b0':'yes'):'no';
+  var tw=(prof&&prof.pen.twist)?((L&&L.twist)?Math.round(L.twist*180/Math.PI)+'\u00b0':'yes'):'no';
   m.innerHTML='<div>Device <i>'+kind+'</i></div>'+
     '<div>Pressure <i>'+(PENLIVE.type==='pen'?(prs?'variable':'not reported'):'-')+'</i></div>'+
-    '<div>Tilt <i>'+(PENLIVE.tilt?'yes':'no')+'</i></div>'+
+    (prof?'<div>Range <i>'+prof.pen.lo.toFixed(2)+'\u2013'+prof.pen.hi.toFixed(2)+'</i></div>':'')+
+    '<div>Tilt <i>'+tl+'</i></div>'+
+    '<div>Twist <i>'+tw+'</i></div>'+
     '<div>Last button <i>'+PENLIVE.btn+'</i></div>'+
     '<div>Eraser end <i>'+(PENLIVE.eraser?'detected':'not seen')+'</i></div>'+
     '<div>Barrel <i>'+(PENLIVE.side?'detected':(PENLIVE.side2?'second only':'not seen'))+'</i></div>';
@@ -1281,6 +1309,7 @@ function penPad(){
   var pad=document.getElementById('pen-pad');if(!pad)return;
   function note(e){
     PENLIVE.seen=1;PENLIVE.type=e.pointerType||'-';
+    try{PENAPI.note(e)}catch(x){}
     var p=(typeof e.pressure==='number')?e.pressure:0;
     if(e.type!=='pointerup'&&p>0){PENLIVE.pr=p;if(p<PENLIVE.prMin)PENLIVE.prMin=p;if(p>PENLIVE.prMax)PENLIVE.prMax=p}
     PENLIVE.tilt=Math.max(Math.abs(e.tiltX||0),Math.abs(e.tiltY||0));
@@ -1290,7 +1319,16 @@ function penPad(){
     PENLIVE.btn=e.type==='pointerup'?'none':(e.button===0?'tip':e.button===5?'eraser':e.button===2?'barrel':e.button===1?'barrel 2':'b'+e.button);
     penMeta();
     var s=pad.querySelector('span');
-    if(s&&e.type!=='pointerup')s.textContent='pressure '+p.toFixed(2)+'  ·  tilt '+PENLIVE.tilt+'°';
+    if(s&&e.type!=='pointerup'){
+      var L=(window.__slatePen&&window.__slatePen.last())||null;
+      var out=['pressure '+p.toFixed(2)];
+      if(L){
+        out.push('tilt '+(L.tilt*100|0)+'%');
+        if(L.altitude!=null)out.push('alt '+Math.round(L.altitude*180/Math.PI)+'\u00b0');
+        if(L.twist!=null)out.push('twist '+Math.round(L.twist*180/Math.PI)+'\u00b0');
+      }
+      s.textContent=out.join('  \u00b7  ');
+    }
   }
   ['pointerdown','pointermove','pointerup','pointercancel'].forEach(function(t){pad.addEventListener(t,note)});
   pad.addEventListener('contextmenu',function(e){e.preventDefault()});
@@ -1320,8 +1358,9 @@ function openPenPanel(){
       '<div class="row"><span>Second barrel button</span><select id="pen-side2"></select></div>'+
       '<h4>Pressure &amp; palm</h4>'+
       '<div class="row"><span>Pressure response</span><select id="pen-prs"><option value=".6">Soft</option><option value="1">Normal</option><option value="1.7">Firm</option><option value="off">Off (speed only)</option></select></div>'+
-      '<div class="row"><span>Palm rejection (pen only)</span><input type="checkbox" id="pen-po"></div>'+
-      '<div class="pen-hint">The pen tip always draws with the current tool. The eraser end and barrel buttons can be mapped to any tool, and the previous tool returns as soon as you lift the pen. XP-Pen, Huion and Wacom only send pressure and button data to the browser when Windows Ink / pointer events is enabled in their driver.</div>'+
+      '<div class="row"><span>Palm rejection</span><select id="pen-palm"><option value="auto">Automatic</option><option value="pen">Pen only</option><option value="off">Off</option></select></div>'+
+      '<div class="row"><span>Pressure range</span><button id="pen-recal" style="border:1px solid var(--bd);background:transparent;border-radius:7px;font-size:11px;padding:3px 8px;cursor:pointer;color:inherit">Recalibrate</button></div>'+
+      '<div class="pen-hint">Automatic palm rejection blocks touch while the pen is down, hovering, or within a moment of lifting. Two-finger pan and pinch keep working either way. The pen tip always draws with the current tool; the eraser end and barrel buttons can be mapped to any tool, and the previous tool returns as soon as you lift the pen. XP-Pen, Huion and Wacom only send pressure and button data to the browser when Windows Ink / pointer events is enabled in their driver.</div>'+
       '<div style="display:flex;justify-content:flex-end"><button id="pen-done" class="on">Done</button></div>'+
     '</div>';
     document.body.appendChild(md);
@@ -1336,16 +1375,18 @@ function openPenPanel(){
       var p=document.getElementById('prs');
       if(p){p.value=this.value;p.dispatchEvent(new Event('change'))}
     };
-    document.getElementById('pen-po').onchange=function(){
-      var c=document.getElementById('po');
-      if(c){c.checked=this.checked;c.dispatchEvent(new Event('change'))}
+    document.getElementById('pen-palm').onchange=function(){
+      if(window.__slatePen)window.__slatePen.setPalmMode(this.value);
+    };
+    document.getElementById('pen-recal').onclick=function(){
+      if(window.__slatePen){window.__slatePen.reset();PENLIVE.prMin=1;PENLIVE.prMax=0;penMeta();}
     };
   }
   penFill('pen-eraser',PENCFG.eraser);
   penFill('pen-side',PENCFG.side);
   penFill('pen-side2',PENCFG.side2);
   var prs=document.getElementById('prs');if(prs)document.getElementById('pen-prs').value=prs.value;
-  var po=document.getElementById('po');if(po)document.getElementById('pen-po').checked=po.checked;
+  var palm=document.getElementById('pen-palm');if(palm&&window.__slatePen)palm.value=window.__slatePen.palmMode();
   penMeta();
   md.classList.add('on');
 }

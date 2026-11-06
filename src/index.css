@@ -433,6 +433,21 @@ input[type=range] {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
+  /* a long press on the glass must not raise the text-selection menu */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Pen input: the page owns the gesture, not the browser.
+   `touch-action: none` stops scroll and double-tap zoom on the stroke surface.
+   `overscroll-behavior` stops the two gestures it cannot: Android's
+   pull-to-refresh and the iOS rubber-band, which otherwise steals a stroke
+   that begins while the page is already scrolled to the top. */
+html,
+body,
+#stage,
+#wrap,
+#cv {
+  overscroll-behavior: none;
 }
 
 #tx {
