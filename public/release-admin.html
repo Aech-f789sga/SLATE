@@ -117,6 +117,9 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 
 const ADMIN_EMAIL = 'derrickdarrack@gmail.com';
+const DB_ID = 'ai-studio-slate-289ffd97-dd6b-4b1f-9f9d-93b8e9fea93e';
+const RULES_URL =
+  `https://console.firebase.google.com/u/0/project/project-d6c1fcd0-76ec-4d52-b97/firestore/databases/${DB_ID}/rules`;
 
 const firebaseConfig = {
   projectId: 'project-d6c1fcd0-76ec-4d52-b97',
@@ -264,6 +267,26 @@ function render() {
          </p>`}
     </div>`;
 
+  const pinCard = `
+    <div class="card">
+      <div class="row"><span class="label">Pin a build manually</span></div>
+      <p class="empty" style="margin:8px 0 10px">
+        For when no build is waiting &mdash; CI never ran, or you want to move
+        everyone onto a specific deploy. Use the immutable deployment URL from
+        Vercel, <strong>not</strong> the production alias: the alias moves on
+        every push, which is the thing this gate exists to stop.
+      </p>
+      <div class="field">
+        <input type="text" id="pin-url" placeholder="https://slate-8f2a1c-yourteam.vercel.app" />
+      </div>
+      <div class="field">
+        <input type="text" id="pin-ver" placeholder="2026.11.06-manual" />
+      </div>
+      <div class="actions">
+        <button id="pin-save">Make this the live build</button>
+      </div>
+    </div>`;
+
   const historyCard = history.length ? `
     <div class="card">
       <div class="row"><span class="label">Previous builds</span></div>
@@ -299,10 +322,37 @@ function render() {
       </div>
     </div>`;
 
-  root.innerHTML = pendingCard + approvedCard + historyCard + apkCard;
+  root.innerHTML = pendingCard + approvedCard + historyCard + pinCard + apkCard;
 
   const approveBtn = document.getElementById('approve');
   if (approveBtn) approveBtn.onclick = () => approve(pending, approved, history);
+
+  const pinSave = document.getElementById('pin-save');
+  if (pinSave) {
+    pinSave.onclick = async () => {
+      const url = document.getElementById('pin-url').value.trim().replace(/\/+$/, '');
+      const version = document.getElementById('pin-ver').value.trim();
+      if (!url || !version) return toast('Both fields are required');
+      if (!/^https:\/\//.test(url)) return toast('The build URL must be https');
+      if (/^https:\/\/slate-omega-henna\.vercel\.app$/.test(url)) {
+        return toast('That is the production alias. Use the immutable deployment URL.');
+      }
+      pinSave.disabled = true;
+      try {
+        const nextHistory = [approved, ...history].filter(Boolean).slice(0, 20);
+        await setDoc(releaseRef, {
+          approved: { version, url, at: Date.now(), commit: 'manual' },
+          history: nextHistory,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        toast(`${version} is now live for every user`);
+      } catch (err) {
+        toast(err?.message || 'Could not pin the build');
+      } finally {
+        pinSave.disabled = false;
+      }
+    };
+  }
 
   root.querySelectorAll('[data-rollback]').forEach((btn) => {
     btn.onclick = () => rollback(history[Number(btn.dataset.rollback)], approved, history);
@@ -386,7 +436,17 @@ onAuthStateChanged(auth, (user) => {
     }, (err) => {
       state.loading = false;
       state.error = err;
-      root.innerHTML = `<div class="warnbox">Could not read the release document: ${esc(err.message)}</div>`;
+      const denied = /permission|insufficient|denied/i.test(err?.message || '');
+      root.innerHTML = `<div class="warnbox">
+        <strong>Could not read the release document.</strong><br>
+        ${esc(err?.message || err)}
+        ${denied ? `<br><br>
+          The <code>app_config</code> rules have not been published to this
+          database yet, so every read is denied. Open
+          <a href="${RULES_URL}" target="_blank" rel="noopener">Firestore &rarr; Rules</a>,
+          paste <code>firestore.rules</code>, and publish. It takes effect in a
+          few seconds &mdash; then reload this page.` : ''}
+      </div>`;
     });
   } else {
     state.loading = false;
