@@ -27,7 +27,11 @@
  *   7. The layer tracks the stage and repaints when the page scrolls.
  *   8. Drawing at 800% still lands under the finger.
  *   9. A page turn hands the layer back instead of leaving the page soft.
- *  10. No page errors.
+ *  10. "Desktop site" mode gets the handheld budget, not the desktop one.
+ *  11. Desktop-site at 100% stays inside that budget per frame.
+ *  12. Desktop-site at 800% turns the layer on and is far denser for no more
+ *      cost than the page canvas.
+ *  13. No page errors.
  */
 import { chromium } from 'playwright';
 
@@ -43,6 +47,17 @@ const PHONE = {
   hasTouch: true,
   userAgent:
     'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
+};
+
+/* "Desktop site" on the same phone: a desktop user agent, a 980 px layout
+   viewport, and a coarse pointer. This is the mode that was slow. */
+const DESK = {
+  viewport: { width: 980, height: 1743 },
+  deviceScaleFactor: 3,
+  isMobile: true,
+  hasTouch: true,
+  userAgent:
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
 };
 
 let failed = 0;
@@ -282,6 +297,45 @@ ok(
 ok('no page errors', D.errors.length === 0, D.errors.slice(0, 3).join(' | '));
 await D.page.screenshot({ path: `shots/zoom-800${TAG ? '-' + TAG : ''}.png` });
 await D.ctx.close();
+
+/* ---------------------------------------------------------------- */
+/* 10-13. The same page in "desktop site" mode                        */
+/* ---------------------------------------------------------------- */
+/* The report had two halves: pixelated at 800%, and slow only in desktop mode.
+   Both came from the same place. The budget was chosen by sniffing the user
+   agent, so this mode got the desktop budget — 7.92 MP per frame instead of
+   3.52 — and the layer could not help, because its density was capped at the
+   same MAXPIX and so its cost was always exactly the page canvas's, which lost
+   the "cheaper" test every time. Now the budget follows the pointer type (which
+   does not change with the layout mode) and the layer is capped by the page
+   canvas instead, so it wins on sharpness at equal cost. */
+
+const E = await open(DESK, 40);
+const deskCap = await E.page.evaluate(() => window.eval('MAXPIX'));
+ok('desktop-site mode gets the handheld budget', deskCap <= 4.2e6, `${(deskCap / 1e6).toFixed(1)} MP`);
+
+await E.page.evaluate(() => {
+  window.eval('z=1');
+  window.eval('layout()');
+  window.eval('fit()');
+});
+await E.page.waitForTimeout(400);
+const d1 = await E.page.evaluate(() => window.__slateDetail());
+ok('desktop-site at 100% stays inside that budget', d1.base <= 4.3e6, `${(d1.base / 1e6).toFixed(2)} MP per frame`);
+
+await E.page.evaluate(() => {
+  window.eval('z=8');
+  window.eval('layout()');
+  window.eval('fit()');
+});
+await E.page.waitForTimeout(500);
+const d8 = await E.page.evaluate(() => window.__slateDetail());
+ok('desktop-site at 800% turns the layer on', d8.on === 1, JSON.stringify(d8));
+ok('desktop-site at 800% is far denser than the page', d8.window >= d8.page * 3, `window ${d8.window} vs page ${d8.page}`);
+ok('desktop-site at 800% costs no more than the page canvas', d8.px <= d8.base * 1.02, `${(d8.px / 1e6).toFixed(2)} MP vs ${(d8.base / 1e6).toFixed(2)} MP`);
+ok('desktop-site raises no page errors', E.errors.length === 0, E.errors.slice(0, 3).join(' | '));
+await E.page.screenshot({ path: `shots/zoom-desksite${TAG ? '-' + TAG : ''}.png` });
+await E.ctx.close();
 
 await browser.close();
 console.log(`\n${failed === 0 ? 'ALL PASS' : failed + ' FAILED'}`);

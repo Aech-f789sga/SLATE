@@ -461,18 +461,25 @@ function paintPage(live){render(ctx,pg(),live);ctx.save();ctx.strokeStyle="#2f6d
    No coordinate changes: the layer is pointer-events:none and the page canvas
    underneath still receives every event and still spans the page, so pos(),
    hit radii, pinch and export are untouched. */
-function detailK(){const s=$('#stage');if(!s)return 1;const vw=Math.max(1,s.clientWidth),vh=Math.max(1,s.clientHeight);return Math.min(devicePixelRatio||1,Math.sqrt(MAXPIX/(vw*vh)))}
-/* Use the window layer only when it is both sharper AND cheaper than the page
-   canvas. The two conditions matter separately: sharper alone would switch it
-   on at 100% zoom where the page already fits and the window is the larger
-   canvas, and cheaper alone would switch it on to show a softer image. */
+/* The layer may spend what the page canvas spends, no more — covering only the
+   window at the page's own budget is always sharper for the same money. Capping
+   it at MAXPIX instead made the two exactly equal on a large viewport (both
+   sized off the same budget), so the layer could never win the cost test there
+   and a phone in desktop-site mode stayed at the page's 3 device pixels per
+   unit — the same "200 dpi" blur, in the one layout that also felt slow. */
+function detailK(){const s=$('#stage');if(!s)return 1;const vw=Math.max(1,s.clientWidth),vh=Math.max(1,s.clientHeight);
+ const pagePx=Math.max(1,W*H*cvD*cvD);return Math.min(devicePixelRatio||1,Math.sqrt(pagePx/(vw*vh)))}
+/* Use the window layer only when it is both sharper AND no more expensive than
+   the page canvas. The two conditions matter separately: sharper alone would
+   switch it on at 100% zoom where the page already fits and the window is the
+   larger canvas, and cost alone would switch it on to show a softer image. */
 function detailOn(){if(!dCv||!dCtx||!nb||flipping)return 0;
  const s=$('#stage'),w=$('#wrap');if(!s||!w)return 0;
  const cssW=w.clientWidth,vw=s.clientWidth,vh=s.clientHeight;
  if(!cssW||!vw||!vh)return 0;
  const k=detailK(),dd=(cssW/W)*k;
  if(dd<=cvD+.06)return 0;
- return vw*vh*k*k<W*H*cvD*cvD?1:0}
+ return vw*vh*k*k<=W*H*cvD*cvD*1.02?1:0}
 function detailInfo(){const s=$('#stage'),w=$('#wrap');if(!s||!w)return null;const cssW=w.clientWidth,k=detailK();
  return{on:detailOn()?1:0,page:cvD,window:+(cssW/W*k).toFixed(2),k:+k.toFixed(2),px:dCv?dCv.width*dCv.height:0,base:Math.round(W*cvD)*Math.round(H*cvD)}}
 try{window.__slateDetail=detailInfo}catch(e){}
@@ -701,13 +708,21 @@ const CF=new Set(),CAPD=/Mobi|Android|iPad/.test(navigator.userAgent)?4:6;
    paints in 15 ms. Once the page is on the slow path the pen handler cannot
    keep up with a 240 Hz digitiser and the stroke stutters — that is the delay
    that showed up at 1200 dpi.
-   This is only the *page* canvas now. The frame budget is protected by the
-   detail layer, which paints a window-sized canvas instead whenever that is
-   cheaper (see detailOn), so a phone in "desktop site" mode — which reports a
-   desktop user agent and used to be handed a desktop-sized canvas, and then
-   stuttered on the same page the mobile layout had drawn smoothly — no longer
-   pays for the larger budget. The dpi setting still governs export. */
-const MOB=/Mobi|Android|iPad/.test(navigator.userAgent),MAXPIX=MOB?4.2e6:8e6;
+   This is only the *page* canvas now. Sharpness past the budget is the detail
+   layer's job (see detailOn), so the budget only has to answer one question:
+   how much can this GPU rasterise per frame without falling off the cliff. The
+   user agent cannot answer that — a phone in "desktop site" mode reports a
+   desktop agent, was handed the desktop budget, and then stuttered on the very
+   page the mobile layout drew smoothly. Touch-primary input does not change
+   with the layout mode, so that is the signal now, and the layer takes care of
+   the sharpness a smaller budget gives up. The dpi setting still governs
+   export. */
+const MOB=/Mobi|Android|iPad/.test(navigator.userAgent),
+/* (pointer:coarse) is the primary input being a finger, which stays true on a
+   phone whatever layout mode it is in and stays false on a mouse-driven
+   desktop. matchMedia can be missing in odd embeddings, so fail to desktop. */
+COARSE=(function(){try{return matchMedia("(pointer:coarse)").matches}catch(e){return false}})(),
+MAXPIX=(MOB||COARSE)?4.2e6:8e6;
 function rasterFrac(s,P){const L=pg().strokes,si=L.indexOf(s),b=bb(s),bw=b[2]-b[0],bh=b[3]-b[1];if(bw<=0||bh<=0)return 0;const k=Math.min(1,160/Math.max(bw,bh)),w=Math.max(1,Math.ceil(bw*k)),h=Math.max(1,Math.ceil(bh*k)),c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.scale(k,k);g.translate(-b[0],-b[1]);stroke(g,s);
  L.forEach((e,i)=>{if(e.t==='ers'&&(s.fl?(e.ts||0)>=(s.ts||0):i>si))stroke(g,e)});
  const A=g.getImageData(0,0,w,h).data;let tot=0,ins=0;const st=Math.max(1,Math.floor(w*h/6000));for(let i=0;i<w*h;i+=st){if(A[i*4+3]>30){tot++;if(inPoly([b[0]+(i%w)/k,b[1]+Math.floor(i/w)/k],P))ins++}}return tot?ins/tot:0}
