@@ -77,7 +77,10 @@ ok('no parabola/hyperbola buttons', !menu.kinds.includes('parab') && !menu.kinds
 ok('curvable line button present', menu.kinds.includes('qcurve'));
 ok('no dead conic listeners', !/parab|hyper|Conics/.test(menu.html));
 const wide = menu.grids.find((g) => g.cls.includes('sh-wide'));
-ok('Curves grid has exactly 1 cell (no gap)', wide && wide.cells === 1, JSON.stringify(menu.grids));
+// Curves now holds three tools: Curvable Line, Bend Line and Elbow Line. The
+// point of this check is that the single-column grid has no orphan cells, so
+// every cell must be a real button rather than a placeholder.
+ok('Curves grid has 3 filled cells (no gap)', wide && wide.cells === 3, JSON.stringify(menu.grids));
 await page.screenshot({ path: shot('curve-warp-picker.png') });
 await page.click('#sh-pick .sh-pb[data-kind="qcurve"]');
 await page.waitForTimeout(220);
