@@ -163,7 +163,7 @@ const panel = await page.evaluate(() => {
   };
 });
 ok('panel opens on screen', panel.display !== 'none' && panel.inView, JSON.stringify(panel.rect));
-ok('4 warp styles: Arc / Bulge / Flag / Wave', JSON.stringify(panel.styles) === JSON.stringify(['arc', 'bulge', 'flag', 'wave']), JSON.stringify(panel.styles));
+ok('5 warp styles: Arc / Bulge / Flag / Wave / Manual', JSON.stringify(panel.styles) === JSON.stringify(['arc', 'bulge', 'flag', 'wave', 'manual']), JSON.stringify(panel.styles));
 ok('live preview has real pixels', panel.preview[2] > 100, JSON.stringify(panel.preview));
 ok('selection captured', panel.state.picked === 1 && !!panel.state.box, JSON.stringify(panel.state));
 await page.screenshot({ path: shot('curve-warp-panel.png') });
@@ -189,7 +189,10 @@ const sigs = await page.evaluate(() => {
   const b = W.state().box;
   const out = {};
   for (const st of W.styles) {
-    const src = W.rasterise(items, b, 32, 0.6);
+    // rasterise() returns { raster, used, skipped, tainted } since the taint-safe
+    // rewrite; the analytic styles still go through warpBuffer().
+    const res = W.rasterise(items, b, 32, 0.6);
+    const src = res && res.raster;
     const cnv = src ? W.warpBuffer(src, b, st, 0.8) : null;
     if (!cnv) {
       out[st] = null;
@@ -209,7 +212,7 @@ const sigs = await page.evaluate(() => {
 });
 for (const [k, v] of Object.entries(sigs)) ok(`style ${k} renders real pixels`, !!v && v.opaque > 100, JSON.stringify(v));
 const distinct = new Set(Object.values(sigs).map((v) => v && v.hash)).size;
-ok('all 4 styles produce distinct pixel fields', distinct === 4, `${distinct} distinct of 4`);
+ok('all 5 styles produce distinct pixel fields', distinct === 5, `${distinct} distinct of 5`);
 
 await page.click('.wp-style[data-style="wave"]');
 await page.evaluate(() => window.__slateWarp.setAmount(85));

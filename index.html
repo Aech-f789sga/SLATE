@@ -108,6 +108,7 @@ html[data-bar=compact] #bar{padding-right:0}
 <script type="module" src="/src/curve-line.ts"></script>
 <script type="module" src="/src/warp.ts"></script>
 <script type="module" src="/src/text.ts"></script>
+<script type="module" src="/src/richtext.ts"></script>
 <script type="module" src="/src/accessories.ts"></script>
 <script type="module" src="/src/library.ts"></script>
 <script type="module" src="/src/whiteboard.ts"></script>
@@ -353,11 +354,41 @@ function bg(c,tpl,col){c.fillStyle=col||"#fff";c.fillRect(0,0,W,H);c.strokeStyle
  if(tpl==="grid"){for(let x=0;x<W;x+=32){c.beginPath();c.moveTo(x,0);c.lineTo(x,H);c.stroke()}for(let y=0;y<H;y+=32){c.beginPath();c.moveTo(0,y);c.lineTo(W,y);c.stroke()}}
  if(tpl==="dot"){for(let x=32;x<W;x+=32)for(let y=32;y<H;y+=32){c.beginPath();c.arc(x,y,1.5,0,7);c.fill()}}}
 const IM={};function img(s){let i=IM[s.src];if(!i){i=IM[s.src]=new Image();i.onload=()=>{draw();thumbs()};i.src=s.src}return i}
-function fnt(c,s){c.font=`${s.s}px ${FF(s.f)}`;c.textBaseline="top"}
-function bb0(s,c=ctx){if(s.t==="text"){const L=wrap(c,s);return[s.x,s.y,s.x+Math.max(12,...L.map(l=>c.measureText(l).width)),s.y+L.length*s.s*1.3]}
+function fnt(c,s){const R=s&&s.rt||{};c.font=(R.i?"italic ":"")+(R.b?"700 ":"400 ")+`${s.s}px ${FF(s.f)}`;c.textBaseline="top"}
+function bb0(s,c=ctx){if(s.t==="text"){const L=wrap(c,s);return[s.x,s.y,s.x+Math.max(12,s.w||0,...L.map(l=>c.measureText(l).width)),s.y+L.length*s.s*1.3]}
  if(s.t==="img"||s.t==="vid")return[s.x,s.y,s.x+s.w,s.y+s.h];
  if(s.t==="shape"){if(s.k==="qcurve"){const C=qFrame(s).c;return[Math.min(s.a[0],s.b[0],C[0]),Math.min(s.a[1],s.b[1],C[1]),Math.max(s.a[0],s.b[0],C[0]),Math.max(s.a[1],s.b[1],C[1])]}const z=s.k==="ax3"?zEnd(s):s.a;return[Math.min(s.a[0],s.b[0],z[0]),Math.min(s.a[1],s.b[1],z[1]),Math.max(s.a[0],s.b[0],z[0]),Math.max(s.a[1],s.b[1],z[1])]}
  const xs=s.p.map(q=>q[0]),ys=s.p.map(q=>q[1]);return[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)]}
+/* Rich text: one renderer for plain and formatted text strokes.
+   s.rt = {b:bold, i:italic, u:underline, st:strike, al:left|center|right|justify}.
+   Everything is optional, so a notebook written before this existed renders
+   exactly as it did — the weight falls back to 400 and the slant to normal. */
+function rtText(c,s){
+ const R=s.rt||{},L=wrap(c,s),al=R.al||"left",lh=s.s*1.3;
+ const W=L.map(l=>c.measureText(l).width);
+ const aw=s.w||Math.max(0,...W);
+ c.fillStyle=s.c;
+ L.forEach((l,i)=>{
+  const y=s.y+i*lh,lw=W[i];
+  let x=s.x;
+  if(al==="center")x=s.x+(aw-lw)/2;
+  else if(al==="right")x=s.x+(aw-lw);
+  if(al==="justify"&&s.w&&i<L.length-1&&/\s/.test(l)){
+   // Last line of a paragraph is never stretched, exactly like a word processor.
+   const words=l.split(/\s+/).filter(Boolean);
+   const total=words.reduce((a,w)=>a+c.measureText(w).width,0);
+   const gap=words.length>1?(s.w-total)/(words.length-1):0;
+   let cx=x;
+   words.forEach((w,k)=>{c.fillText(w,cx,y);cx+=c.measureText(w).width+(k<words.length-1?gap:0)});
+  } else c.fillText(l,x,y);
+  if(R.u||R.st){
+   c.save();c.strokeStyle=s.c;c.lineWidth=Math.max(1,s.s*0.055);c.lineCap="butt";
+   if(R.u){c.beginPath();c.moveTo(x,y+s.s*1.07);c.lineTo(x+lw,y+s.s*1.07);c.stroke()}
+   if(R.st){c.beginPath();c.moveTo(x,y+s.s*0.58);c.lineTo(x+lw,y+s.s*0.58);c.stroke()}
+   c.restore();
+  }
+ });
+}
 function mv(a,dx,dy){a.forEach(s=>{if(s.p)s.p=s.p.map(q=>q.length>2?[q[0]+dx,q[1]+dy,q[2]]:[q[0]+dx,q[1]+dy]);if(s.er)s.er=s.er.map(e=>({w:e.w,p:e.p.map(q=>[q[0]+dx,q[1]+dy])}));if(s.a){s.a=[s.a[0]+dx,s.a[1]+dy];s.b=[s.b[0]+dx,s.b[1]+dy]}if(s.x!==undefined){s.x+=dx;s.y+=dy}})}
 function stroke(c,s){if(s.t==='fxw'){const f=s.f,q=s.c,h=f[8];c.save();c.translate(q[0]+f[0],q[1]+f[1]);c.rotate(f[4]);c.scale(f[2],f[3]);if(f[6]||f[7])c.transform(1,f[7],f[6],1,0,0);c.translate(-q[0],-q[1]);c.globalAlpha*=f[5];if(h){c.shadowColor='rgba(0,0,0,'+h[3]+')';c.shadowOffsetX=h[0];c.shadowOffsetY=h[1];c.shadowBlur=h[2]}stroke(c,s.s);c.restore();if(s.ov)(Array.isArray(s.ov)?s.ov:[s.ov]).forEach(o=>fxOv(c,o));return}
  if(s.r&&!inR){const b=bb0(s),cx=(b[0]+b[2])/2,cy=(b[1]+b[3])/2;c.save();c.translate(cx,cy);c.rotate(s.r);c.translate(-cx,-cy);inR=1;stroke(c,s);inR=0;c.restore();return}
@@ -365,7 +396,7 @@ function stroke(c,s){if(s.t==='fxw'){const f=s.f,q=s.c,h=f[8];c.save();c.transla
  if(s.t==="ers"){c.save();c.globalCompositeOperation="destination-out";c.lineCap=c.lineJoin="round";c.lineWidth=s.w;c.strokeStyle="#000";pth(c,s.p);c.stroke();c.restore();return}
  if(s.t==="vid"){drawVid(c,s);return}
  if(s.t==="img"){const rc=RC.get(s);if(rc){c.drawImage(rc,s.x,s.y,s.w,s.h);return}const i=img(s);if(i.complete&&i.naturalWidth)c.drawImage(i,s.x,s.y,s.w,s.h);return}
- if(s.t==="text"){fnt(c,s);c.fillStyle=s.c;wrap(c,s).forEach((l,i)=>c.fillText(l,s.x,s.y+i*s.s*1.3));return}
+ if(s.t==="text"){rtText(c,s);return}
  if(s.t==="shape"){shp(c,s);return}if(false){c.save();c.strokeStyle=s.c;c.lineWidth=s.w;c.lineCap="round";c.beginPath();const[x0,y0]=s.a,[x1,y1]=s.b;if(s.k==="line"){c.moveTo(x0,y0);c.lineTo(x1,y1)}else if(s.k==="rect")c.rect(x0,y0,x1-x0,y1-y0);else c.ellipse((x0+x1)/2,(y0+y1)/2,Math.abs(x1-x0)/2,Math.abs(y1-y0)/2,0,0,7);c.stroke();c.restore();return}
  const p=s.p;if(!p.length)return;
  if(s.t==="pen"&&BRX[s.v]&&BRX[s.v].t){drawStamp(c,s,BRX[s.v],s===cur||s._lv);return}
@@ -900,9 +931,9 @@ $("#zi").onclick=()=>zoom(1.2);$("#zo").onclick=()=>zoom(1/1.2);
 $("#stage").addEventListener("wheel",e=>{if(e.ctrlKey){e.preventDefault();zoom(e.deltaY<0?1.1:.9)}},{passive:false});
 function sc(){return cv.getBoundingClientRect().width/W}
 function openText(x,y,hit){
- if(hit){snap();pg().strokes=pg().strokes.filter(s=>s!==hit);te={x:hit.x,y:hit.y,s:hit.s,c:hit.c,w:hit.w,f:hit.f};tx.value=hit.txt;sel=[];draw()}else{te={x,y,s:10+size*3,c:color,w:undefined,f:$("#fnt").value};tx.value=""}
- Object.assign(tx.style,{display:"block",left:te.x*sc()+"px",top:te.y*sc()+"px",fontSize:te.s*sc()+"px",color:te.c,width:(te.w||40)*sc()+"px",fontFamily:FF(te.f),whiteSpace:te.w?"pre-wrap":"pre",height:te.s*2.7*sc()+"px"});tx.oninput=()=>{if(!te)return;if(!te.w){fnt(ctx,te);tx.style.width=(Math.max(30,...tx.value.split('\n').map(l=>ctx.measureText(l||' ').width))+14)*sc()+'px'}tx.style.height='auto';tx.style.height=tx.scrollHeight+'px'};setTimeout(()=>{tx.focus();tx.oninput()},30)}
-function commitText(){if(!te)return;const v=tx.value.trimEnd();if(v){snap();{const it={t:"text",c:te.c,s:te.s,x:te.x,y:te.y,txt:v,w:te.w,f:te.f};pg().strokes.push(it);sel=[it]}}te=null;tx.style.display="none";tx.value="";draw();save();thumbs()}
+ if(hit){snap();pg().strokes=pg().strokes.filter(s=>s!==hit);te={x:hit.x,y:hit.y,s:hit.s,c:hit.c,w:hit.w,f:hit.f,rt:hit.rt?Object.assign({},hit.rt):(window.__rtDefault?Object.assign({},window.__rtDefault):undefined)};tx.value=hit.txt;sel=[];draw()}else{te={x,y,s:10+size*3,c:color,w:undefined,f:$("#fnt").value,rt:window.__rtDefault?Object.assign({},window.__rtDefault):undefined};tx.value=""}
+ Object.assign(tx.style,{display:"block",left:te.x*sc()+"px",top:te.y*sc()+"px",fontSize:te.s*sc()+"px",color:te.c,width:(te.w||40)*sc()+"px",fontFamily:FF(te.f),whiteSpace:te.w?"pre-wrap":"pre",height:te.s*2.7*sc()+"px",fontWeight:te.rt&&te.rt.b?"700":"400",fontStyle:te.rt&&te.rt.i?"italic":"normal",textAlign:te.rt&&te.rt.al?te.rt.al:"left",textDecoration:te.rt&&(te.rt.u||te.rt.st)?[(te.rt.u?"underline":""),(te.rt.st?"line-through":"")].filter(Boolean).join(" "):"none"});tx.oninput=()=>{if(!te)return;if(!te.w){fnt(ctx,te);tx.style.width=(Math.max(30,...tx.value.split('\n').map(l=>ctx.measureText(l||' ').width))+14)*sc()+'px'}tx.style.height='auto';tx.style.height=tx.scrollHeight+'px'};setTimeout(()=>{tx.focus();tx.oninput()},30)}
+function commitText(){if(!te)return;const v=tx.value.trimEnd();if(v){snap();{const it={t:"text",c:te.c,s:te.s,x:te.x,y:te.y,txt:v,w:te.w,f:te.f,rt:te.rt};pg().strokes.push(it);sel=[it]}}te=null;tx.style.display="none";tx.value="";draw();save();thumbs()}
 tx.addEventListener("blur",commitText);tx.addEventListener("keydown",e=>{if(e.key==="Escape")tx.blur()});
 function delSel(){if(!sel.length)return;snap();pg().strokes=pg().strokes.filter(s=>!sel.includes(s));sel=[];draw();save();thumbs()}
 function scl(f){if(!sel.length)return;snap();const b=selBox(),cx=(b[0]+b[2])/2,cy=(b[1]+b[3])/2,P=q=>[cx+(q[0]-cx)*f,cy+(q[1]-cy)*f];

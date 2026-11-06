@@ -4,17 +4,22 @@
  * This is a genuine pixel transformation, not a CSS filter or a decorative
  * preview. The selected objects are rasterised into an offscreen Canvas 2D
  * buffer; for every destination pixel an INVERSE displacement field is solved
- * (analytically for Arc / Bulge / Twist, by fixed-point iteration for Flag /
- * Wave) and the source is sampled bilinearly in premultiplied-alpha space.
- * The result replaces the selection as one transparent image layer.
+ * and the source is sampled bilinearly in premultiplied-alpha space. The result
+ * replaces the selection as one transparent image layer.
  *
- *   Arc   — exact inverse of a circular bend: θ = (x-cx)/R, r = R-(y-cy)
- *   Bulge — monotonic radial power law, rs = R·(rd/R)^(1+k)
- *   Flag  — horizontal sway by row + vertical ripple by column
- *   Wave  — vertical-dominant sinusoid (the flag's coefficients swapped)
+ *   Arc    — exact inverse of a circular bend: θ = (x-cx)/R, r = R-(y-cy)
+ *   Bulge  — monotonic radial power law, rs = R·(rd/R)^(1+k)
+ *   Flag   — horizontal sway by row + vertical ripple by column
+ *   Wave   — vertical-dominant sinusoid (the flag's coefficients swapped)
+ *   Manual — a draggable mesh; each cell is split into two triangles and the
+ *            source is found by barycentric inverse mapping
  *
  * Inverse mapping (rather than forward splatting) is what keeps the warped
  * result free of holes: every destination pixel has exactly one source lookup.
+ *
+ * The preview is drawn twice from one buffer: a thumbnail inside the panel and
+ * a live composite straight onto the page canvas, so the effect is visible on
+ * the object itself while the intensity slider or a mesh node is being dragged.
  */
 
 import { anchorBelow, makeDraggable, rectOf, resetDrag } from './ui-system';
@@ -38,6 +43,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text?: stri
   return e;
 }
 
+type Pt = [number, number];
+
 interface Box {
   x: number;
   y: number;
@@ -56,7 +63,7 @@ interface Raster {
   oy: number;
 }
 
-type Style = 'arc' | 'bulge' | 'flag' | 'wave';
+type Style = 'arc' | 'bulge' | 'flag' | 'wave' | 'manual';
 
 const STYLES: { id: Style; name: string; hint: string; svg: string }[] = [
   {
@@ -82,6 +89,22 @@ const STYLES: { id: Style; name: string; hint: string; svg: string }[] = [
     name: 'Wave',
     hint: 'Vertical sine wave across the width',
     svg: '<path d="M2 12 Q6 3 10 12 T18 12 T22 12"/>',
+  },
+  {
+    id: 'manual',
+    name: 'Manual',
+    hint: 'Drag the mesh nodes to shape the selection by hand',
+    svg:
+      '<path d="M4 4h16v16H4z" opacity=".55"/><path d="M4 12h16M12 4v16" opacity=".55"/>' +
+      '<circle cx="4" cy="4" r="2.1" fill="currentColor" stroke="none"/>' +
+      '<circle cx="12" cy="4" r="2.1" fill="currentColor" stroke="none"/>' +
+      '<circle cx="20" cy="4" r="2.1" fill="currentColor" stroke="none"/>' +
+      '<circle cx="4" cy="12" r="2.1" fill="currentColor" stroke="none"/>' +
+      '<circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none"/>' +
+      '<circle cx="20" cy="12" r="2.1" fill="currentColor" stroke="none"/>' +
+      '<circle cx="4" cy="20" r="2.1" fill="currentColor" stroke="none"/>' +
+      '<circle cx="12" cy="20" r="2.1" fill="currentColor" stroke="none"/>' +
+      '<circle cx="20" cy="20" r="2.1" fill="currentColor" stroke="none"/>',
   },
 ];
 
@@ -119,6 +142,8 @@ function inverse(style: Style, dx: number, dy: number, b: Box, amt: number): [nu
     return [cx + (dx - cx) * ratio, cy + (dy - cy) * ratio];
   }
 
+  if (style === 'manual') return [dx, dy];
+
   // Flag / Wave. Forward is a coupled sinusoid; invert by fixed-point iteration
   // (it is a contraction for these amplitudes, six steps converge well below
   // a pixel). Both share the solver — only the amplitudes/frequencies differ.
@@ -134,6 +159,140 @@ function inverse(style: Style, dx: number, dy: number, b: Box, amt: number): [nu
     sy = dy - B * Math.sin(kX * (sx - b.x));
   }
   return [sx, sy];
+}
+
+/* ------------------------------------------------------------------ */
+/* Manual mesh                                                         */
+/* ------------------------------------------------------------------ */
+
+/** Cells per axis. 3×3 means a 4×4 grid of draggable nodes. */
+const MESH = { cols: 3, rows: 3 };
+/** Node positions in PAGE units. Empty until a selection is captured. */
+let mesh: Pt[] = [];
+/** The box + pad the current mesh was built for, so a rebuild is detectable. */
+let meshKey = '';
+
+function meshPoints(b: Box, pad: number, cols: number, rows: number): Pt[] {
+  const x0 = b.x - pad;
+  const y0 = b.y - pad;
+  const x1 = b.x + b.w + pad;
+  const y1 = b.y + b.h + pad;
+  const out: Pt[] = [];
+  for (let j = 0; j <= rows; j++) {
+    for (let i = 0; i <= cols; i++) {
+      out.push([x0 + ((x1 - x0) * i) / cols, y0 + ((y1 - y0) * j) / rows]);
+    }
+  }
+  return out;
+}
+
+function resetMesh(force = false) {
+  if (!box) {
+    mesh = [];
+    meshKey = '';
+    return;
+  }
+  const key = `${Math.round(box.x)}|${Math.round(box.y)}|${Math.round(box.w)}|${Math.round(box.h)}|${pad}|${MESH.cols}|${MESH.rows}`;
+  if (!force && key === meshKey && mesh.length) return;
+  meshKey = key;
+  mesh = meshPoints(box, pad, MESH.cols, MESH.rows);
+  buildMeshDom();
+  placeMesh();
+}
+
+/**
+ * Barycentric coordinates of P inside triangle A,B,C.
+ * Returns [u, v, w] with P = u·A + v·B + w·C, or null for a degenerate triangle.
+ */
+function bary(
+  ax: number, ay: number,
+  bx: number, by: number,
+  cx: number, cy: number,
+  px: number, py: number
+): [number, number, number] | null {
+  const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+  if (Math.abs(d) < 1e-9) return null;
+  const u = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / d;
+  const v = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / d;
+  return [u, v, 1 - u - v];
+}
+
+/**
+ * Mesh warp.
+ *
+ * Every grid cell becomes two triangles. A triangle is an affine map, so the
+ * inverse is a plain barycentric solve — exact, hole-free and cheap. Iterating
+ * the destination triangle's bounding box (rather than the whole buffer) keeps
+ * the cost proportional to the deformed area.
+ */
+function manualWarp(
+  src: Raster,
+  nodes: Pt[],
+  cols: number,
+  rows: number,
+  b: Box,
+  padding: number
+): HTMLCanvasElement | null {
+  const out = document.createElement('canvas');
+  out.width = src.w;
+  out.height = src.h;
+  const g = out.getContext('2d', { willReadFrequently: true });
+  if (!g) return null;
+  const dst = g.createImageData(src.w, src.h);
+  const S = src.data.data;
+  const D = dst.data;
+
+  const toBuf = (p: Pt): Pt => [(p[0] - src.ox) * src.kx, (p[1] - src.oy) * src.ky];
+  const basePage = meshPoints(b, padding, cols, rows);
+  const base: Pt[] = basePage.map(toBuf);
+  const dest: Pt[] = basePage.map((p, i) => toBuf(nodes[i] || p));
+
+  const tri = (a: number, bb: number, c: number) => {
+    const D0 = dest[a];
+    const D1 = dest[bb];
+    const D2 = dest[c];
+    if (!D0 || !D1 || !D2) return;
+    const den = (D1[1] - D2[1]) * (D0[0] - D2[0]) + (D2[0] - D1[0]) * (D0[1] - D2[1]);
+    if (Math.abs(den) < 1e-9) return;
+    const S0 = base[a];
+    const S1 = base[bb];
+    const S2 = base[c];
+
+    const minX = Math.max(0, Math.floor(Math.min(D0[0], D1[0], D2[0])));
+    const maxX = Math.min(src.w - 1, Math.ceil(Math.max(D0[0], D1[0], D2[0])));
+    const minY = Math.max(0, Math.floor(Math.min(D0[1], D1[1], D2[1])));
+    const maxY = Math.min(src.h - 1, Math.ceil(Math.max(D0[1], D1[1], D2[1])));
+
+    for (let j = minY; j <= maxY; j++) {
+      const py = j + 0.5;
+      for (let i = minX; i <= maxX; i++) {
+        const px = i + 0.5;
+        const u = ((D1[1] - D2[1]) * (px - D2[0]) + (D2[0] - D1[0]) * (py - D2[1])) / den;
+        const v = ((D2[1] - D0[1]) * (px - D2[0]) + (D0[0] - D2[0]) * (py - D2[1])) / den;
+        const w = 1 - u - v;
+        // A hair of tolerance closes the seam along the shared diagonal.
+        if (u < -0.0005 || v < -0.0005 || w < -0.0005) continue;
+        const sx = u * S0[0] + v * S1[0] + w * S2[0] - 0.5;
+        const sy = u * S0[1] + v * S1[1] + w * S2[1] - 0.5;
+        sample(S, src.w, src.h, sx, sy, D, (j * src.w + i) * 4);
+      }
+    }
+  };
+
+  const at = (i: number, j: number) => i + j * (cols + 1);
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const a = at(i, j);
+      const bb = at(i + 1, j);
+      const c = at(i + 1, j + 1);
+      const d = at(i, j + 1);
+      tri(a, bb, c);
+      tri(a, c, d);
+    }
+  }
+
+  g.putImageData(dst, 0, 0);
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -164,7 +323,14 @@ function bboxOf(items: any[]): Box | null {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-function rasterise(items: any[], b: Box, pad: number, scale: number): Raster | null {
+/** External images taint a canvas, which makes getImageData() throw. */
+function isSafe(s: any): boolean {
+  if (!s) return false;
+  if (s.t !== 'img') return true;
+  return /^data:/i.test(String(s.src || ''));
+}
+
+function drawItems(items: any[], b: Box, pad: number, scale: number): Raster | null {
   const ow = b.w + 2 * pad;
   const oh = b.h + 2 * pad;
   const w = Math.max(2, Math.round(ow * scale));
@@ -192,9 +358,32 @@ function rasterise(items: any[], b: Box, pad: number, scale: number): Raster | n
   try {
     data = g.getImageData(0, 0, w, h);
   } catch {
+    // SecurityError: an external image was drawn. The caller retries without it.
     return null;
   }
   return { w, h, data, kx, ky, ox, oy };
+}
+
+interface RasterResult {
+  raster: Raster | null;
+  /** items actually baked into `raster` — what Apply is allowed to replace */
+  used: any[];
+  /** items left out because they would taint the buffer */
+  skipped: any[];
+  tainted: boolean;
+}
+
+function rasterise(items: any[], b: Box, pad: number, scale: number): RasterResult {
+  const all = drawItems(items, b, pad, scale);
+  if (all) return { raster: all, used: items.slice(), skipped: [], tainted: false };
+
+  const safe = items.filter(isSafe);
+  const skipped = items.filter((s) => !isSafe(s));
+  if (safe.length) {
+    const retry = drawItems(safe, b, pad, scale);
+    if (retry) return { raster: retry, used: safe, skipped, tainted: true };
+  }
+  return { raster: null, used: safe, skipped, tainted: true };
 }
 
 /** Bilinear sample in premultiplied alpha, so transparent edges never bleed colour. */
@@ -264,6 +453,12 @@ function warpBuffer(src: Raster, b: Box, style: Style, amt: number): HTMLCanvasE
   return out;
 }
 
+/** One entry point so preview and Apply can never disagree. */
+function buildField(src: Raster, b: Box): HTMLCanvasElement | null {
+  if (style === 'manual') return manualWarp(src, mesh, MESH.cols, MESH.rows, b, pad);
+  return warpBuffer(src, b, style, amount / 100);
+}
+
 /* ------------------------------------------------------------------ */
 /* Panel                                                               */
 /* ------------------------------------------------------------------ */
@@ -271,7 +466,7 @@ function warpBuffer(src: Raster, b: Box, style: Style, amt: number): HTMLCanvasE
 const CSS = `
 #warp-btn{font-weight:600}
 .wp-panel{
-  position:fixed;z-index:20;display:none;width:264px;
+  position:fixed;z-index:20;display:none;width:280px;
   background:var(--sf,#fff);color:var(--tx,#1c1c1e);
   border:1px solid var(--bd,#d9d9de);border-radius:16px;
   box-shadow:0 12px 36px rgba(0,0,0,.26);padding:12px;
@@ -286,15 +481,19 @@ const CSS = `
 }
 .wp-x:hover{background:rgba(127,127,127,.15)}
 .wp-prev{
-  width:100%;height:118px;border-radius:10px;border:1px dashed var(--bd,#d9d9de);
-  background-color:var(--bg,#e6e9ef);
-  background-image:linear-gradient(45deg,rgba(127,127,127,.09) 25%,transparent 25%,transparent 75%,rgba(127,127,127,.09) 75%),
-                   linear-gradient(45deg,rgba(127,127,127,.09) 25%,transparent 25%,transparent 75%,rgba(127,127,127,.09) 75%);
+  width:100%;height:132px;border-radius:10px;border:1px solid var(--bd,#d9d9de);
+  background-color:#f4f6fa;
+  background-image:linear-gradient(45deg,rgba(127,127,127,.12) 25%,transparent 25%,transparent 75%,rgba(127,127,127,.12) 75%),
+                   linear-gradient(45deg,rgba(127,127,127,.12) 25%,transparent 25%,transparent 75%,rgba(127,127,127,.12) 75%);
   background-size:14px 14px;background-position:0 0,7px 7px;
   display:grid;place-items:center;overflow:hidden;margin-bottom:10px;
+  position:relative;
 }
-.wp-prev canvas{max-width:100%;max-height:100%;object-fit:contain}
-.wp-empty{font-size:11px;color:var(--mu,#6e6e73);text-align:center;padding:0 8px}
+.wp-prev canvas{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.wp-empty{
+  font-size:11px;line-height:1.35;color:var(--mu,#6e6e73);text-align:center;
+  padding:0 12px;max-width:100%;
+}
 .wp-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
 .wp-style{
   display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:9px;
@@ -303,6 +502,7 @@ const CSS = `
 }
 .wp-style:hover{border-color:var(--ac,#2f6df6)}
 .wp-style.on{background:color-mix(in srgb,var(--ac,#2f6df6) 13%,transparent);border-color:var(--ac,#2f6df6);color:var(--ac,#2f6df6)}
+.wp-style.wide{grid-column:1/-1}
 .wp-style svg{width:22px;height:22px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .wp-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mu,#6e6e73);margin-bottom:10px}
 .wp-row input[type=range]{flex:1;width:auto;min-width:0}
@@ -315,6 +515,35 @@ const CSS = `
 .wp-apply:disabled{opacity:.45;cursor:default}
 .wp-reset{background:transparent;border-color:var(--bd,#d9d9de);border-radius:9px;padding:8px 10px;font-size:12px;cursor:pointer}
 .wp-note{margin:8px 1px 0;font-size:10px;line-height:1.4;color:var(--mu,#6e6e73)}
+.wp-note.warn{color:#b4690e}
+.wp-manual{display:none;margin-bottom:10px}
+.wp-manual.on{display:block}
+.wp-meshrow{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--mu,#6e6e73);margin-bottom:6px}
+.wp-meshrow span{flex:1}
+.wp-mbtn{
+  border:1px solid var(--bd,#d9d9de);background:transparent;color:inherit;
+  border-radius:7px;padding:3px 7px;font-size:10.5px;font-weight:600;cursor:pointer;
+}
+.wp-mbtn.on{background:color-mix(in srgb,var(--ac,#2f6df6) 14%,transparent);border-color:var(--ac,#2f6df6);color:var(--ac,#2f6df6)}
+.wp-mreset{
+  width:100%;border:1px dashed var(--bd,#d9d9de);background:transparent;color:var(--mu,#6e6e73);
+  border-radius:8px;padding:5px;font-size:10.5px;cursor:pointer;
+}
+.wp-mreset:hover{border-color:var(--ac,#2f6df6);color:var(--ac,#2f6df6)}
+/* ---- manual mesh overlay ---- */
+#wm-layer{position:fixed;inset:0;pointer-events:none;z-index:14;overflow:hidden;display:none}
+#wm-layer.on{display:block}
+#wm-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+#wm-svg path{fill:none;stroke:var(--ac,#2f6df6);stroke-width:1.1;opacity:.5}
+.wm-node{
+  position:absolute;width:15px;height:15px;margin:-7.5px 0 0 -7.5px;border-radius:50%;
+  background:#fff;border:2px solid var(--ac,#2f6df6);
+  box-shadow:0 1px 4px rgba(0,0,0,.3);
+  pointer-events:auto;cursor:grab;touch-action:none;
+  transition:transform .1s ease;
+}
+.wm-node:hover{transform:scale(1.22)}
+.wm-node.on{cursor:grabbing;transform:scale(1.3);background:var(--ac,#2f6df6)}
 `;
 
 let panel: HTMLElement | null = null;
@@ -325,7 +554,10 @@ let emptyLabel: HTMLElement | null = null;
 let applyBtn: HTMLButtonElement | null = null;
 let amountInput: HTMLInputElement | null = null;
 let amountOut: HTMLOutputElement | null = null;
+let manualBlock: HTMLElement | null = null;
+let noteEl: HTMLElement | null = null;
 let styleButtons = new Map<Style, HTMLButtonElement>();
+let meshSizeButtons: HTMLButtonElement[] = [];
 let picked: any[] = [];
 let box: Box | null = null;
 let pad = 32;
@@ -333,6 +565,21 @@ let style: Style = 'arc';
 let amount = 60;
 let raf = 0;
 let refreshTimer = 0;
+let retryTimer = 0;
+
+/** The most recent warped buffer, shared by the thumbnail and the page preview. */
+let lastOut: HTMLCanvasElement | null = null;
+let lastBox: Box | null = null;
+/** True only while the panel is open, so draw() never paints a stale preview. */
+let liveActive = false;
+/** Items that could not be baked (external images) — reported, never destroyed. */
+let skippedItems: any[] = [];
+
+/* ---- mesh overlay refs ---- */
+let meshLayer: HTMLElement | null = null;
+let meshSvg: SVGSVGElement | null = null;
+let meshNodesEl: HTMLElement[] = [];
+let meshDrag: { idx: number; id: number } | null = null;
 
 function addButton() {
   const bar = document.getElementById('sbar');
@@ -364,7 +611,8 @@ function build() {
   x.type = 'button';
   x.title = 'Close';
   x.setAttribute('aria-label', 'Close warp panel');
-  x.innerHTML = (window as any).__slateUI?.CROSS_SVG ||
+  x.innerHTML =
+    (window as any).__slateUI?.CROSS_SVG ||
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   x.onclick = () => close();
   head.append(title, sub, x);
@@ -381,11 +629,15 @@ function build() {
     b.type = 'button';
     b.title = s.hint;
     b.dataset.style = s.id;
-    b.innerHTML =
-      `<svg viewBox="0 0 24 24" aria-hidden="true">${s.svg}</svg><span>${s.name}</span>`;
+    if (s.id === 'manual') b.classList.add('wide');
+    b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${s.svg}</svg><span>${s.name}</span>`;
     b.onclick = () => {
       style = s.id;
       paintStyles();
+      if (style === 'manual') {
+        resetMesh(true);
+        showMesh();
+      } else hideMesh();
       schedulePreview();
     };
     grid.append(b);
@@ -408,6 +660,34 @@ function build() {
   };
   row.append(amountInput, amountOut);
 
+  /* ---- manual mesh controls ---- */
+  manualBlock = el('div', 'wp-manual');
+  const meshRow = el('div', 'wp-meshrow');
+  meshRow.append(el('span', '', 'Mesh'));
+  for (const n of [2, 3, 4]) {
+    const b = el('button', 'wp-mbtn', `${n}×${n}`) as HTMLButtonElement;
+    b.type = 'button';
+    b.dataset.n = String(n);
+    b.onclick = () => {
+      MESH.cols = n;
+      MESH.rows = n;
+      resetMesh(true);
+      paintMeshButtons();
+      schedulePreview();
+    };
+    meshRow.append(b);
+    meshSizeButtons.push(b);
+  }
+  const mReset = el('button', 'wp-mreset', 'Reset nodes') as HTMLButtonElement;
+  mReset.type = 'button';
+  mReset.onclick = () => {
+    resetMesh(true);
+    schedulePreview();
+  };
+  manualBlock.append(meshRow, mReset);
+  manualBlock.append(el('p', 'wp-note', 'Drag any node on the page to shape the warp.'));
+  paintMeshButtons();
+
   const foot = el('div', 'wp-foot');
   applyBtn = el('button', 'wp-apply', 'Apply warp') as HTMLButtonElement;
   applyBtn.type = 'button';
@@ -420,18 +700,19 @@ function build() {
     amount = 60;
     if (amountInput) amountInput.value = '60';
     if (amountOut) amountOut.textContent = '60%';
+    hideMesh();
     paintStyles();
     schedulePreview();
   };
   foot.append(applyBtn, reset);
 
-  const note = el(
+  noteEl = el(
     'p',
     'wp-note',
     'Real Canvas pixel displacement. Applying replaces the selection with one transparent layer — Ctrl/Cmd + Z restores the original objects.'
   );
 
-  panel.append(head, previewBox, grid, row, foot, note);
+  panel.append(head, previewBox, grid, row, manualBlock, foot, noteEl);
   document.body.append(panel);
 
   makeDraggable(panel, '.wp-head');
@@ -442,6 +723,8 @@ function build() {
       if (!panel || panel.style.display === 'none') return;
       const t = e.target as HTMLElement;
       if (panel.contains(t) || (button && button.contains(t))) return;
+      // The mesh handles live outside the panel but belong to it.
+      if (meshLayer && meshLayer.contains(t)) return;
       close();
     },
     true
@@ -451,11 +734,18 @@ function build() {
   });
 }
 
+function paintMeshButtons() {
+  for (const b of meshSizeButtons) {
+    b.classList.toggle('on', Number(b.dataset.n) === MESH.cols);
+  }
+}
+
 function paintStyles() {
   for (const [id, b] of styleButtons) {
     b.classList.toggle('on', id === style);
     b.setAttribute('aria-pressed', id === style ? 'true' : 'false');
   }
+  manualBlock?.classList.toggle('on', style === 'manual');
 }
 
 function captureSelection() {
@@ -465,6 +755,7 @@ function captureSelection() {
   box = bboxOf(picked);
   pad = box ? Math.max(28, Math.round(Math.max(box.w, box.h) * 0.34)) : 32;
   if (applyBtn) applyBtn.disabled = !box || !picked.length;
+  resetMesh();
 }
 
 function schedulePreview() {
@@ -475,22 +766,86 @@ function schedulePreview() {
   });
 }
 
-function renderPreview() {
-  if (!preview || !previewBox || !emptyLabel || !box || !picked.length) {
-    if (preview) preview.style.display = 'none';
-    if (emptyLabel) emptyLabel.style.display = 'block';
+function showEmpty(msg: string) {
+  if (preview) preview.style.display = 'none';
+  if (emptyLabel) {
+    emptyLabel.style.display = 'block';
+    emptyLabel.textContent = msg;
+  }
+}
+
+/** Any selected image still decoding? Then the raster is missing it. */
+function pendingImages(): number {
+  const IM = ev<Record<string, HTMLImageElement>>('IM');
+  if (!IM) return 0;
+  let n = 0;
+  for (const s of picked) {
+    if (!s || s.t !== 'img' || !s.src) continue;
+    const i = IM[s.src];
+    if (!i || !i.complete || !i.naturalWidth) n++;
+  }
+  return n;
+}
+
+function setNote(msg: string, warn = false) {
+  if (!noteEl) return;
+  noteEl.textContent = msg;
+  noteEl.classList.toggle('warn', warn);
+}
+
+const DEFAULT_NOTE =
+  'Real Canvas pixel displacement. Applying replaces the selection with one transparent layer — Ctrl/Cmd + Z restores the original objects.';
+
+function renderPreview(tries = 0) {
+  if (!preview || !previewBox || !emptyLabel) return;
+
+  if (!box || !picked.length) {
+    showEmpty('Select something on the page to warp it.');
+    lastOut = null;
+    lastBox = null;
+    skippedItems = [];
+    setNote(DEFAULT_NOTE);
+    paintLive();
     return;
   }
+
   const ow = box.w + 2 * pad;
   const oh = box.h + 2 * pad;
-  const scale = Math.max(0.15, Math.min(1, 238 / ow, 116 / oh));
-  const src = rasterise(picked, box, pad, scale);
-  const out = src ? warpBuffer(src, box, style, amount / 100) : null;
-  if (!out) {
-    preview.style.display = 'none';
-    emptyLabel.style.display = 'block';
+  // One buffer serves both surfaces: big enough for the page, small enough to
+  // stay interactive while a slider or a mesh node is moving.
+  const scale = Math.max(0.2, Math.min(2, 560 / Math.max(ow, oh)));
+  const res = rasterise(picked, box, pad, scale);
+  skippedItems = res.skipped;
+
+  if (!res.raster) {
+    showEmpty(
+      res.tainted
+        ? 'This selection is an image loaded from another site, so its pixels cannot be read. Select drawn strokes, or a pasted image.'
+        : 'Could not read this selection. Try selecting the objects again.'
+    );
+    lastOut = null;
+    lastBox = null;
+    setNote(
+      res.tainted
+        ? 'Cross-origin images cannot be pixel-sampled by the browser. Warp works on strokes, text, shapes and pasted (data-URL) images.'
+        : DEFAULT_NOTE,
+      res.tainted
+    );
+    paintLive();
     return;
   }
+
+  const out = buildField(res.raster, box);
+  if (!out) {
+    showEmpty('Could not build the warp field. Try a smaller selection.');
+    lastOut = null;
+    paintLive();
+    return;
+  }
+
+  lastOut = out;
+  lastBox = { x: box.x - pad, y: box.y - pad, w: ow, h: oh };
+
   emptyLabel.style.display = 'none';
   preview.style.display = 'block';
   preview.width = out.width;
@@ -500,7 +855,211 @@ function renderPreview() {
     g.clearRect(0, 0, preview.width, preview.height);
     g.drawImage(out, 0, 0);
   }
+
+  if (res.skipped.length) {
+    setNote(
+      `Applied to the drawn content only — ${res.skipped.length} external image${
+        res.skipped.length > 1 ? 's were' : ' was'
+      } left untouched.`,
+      true
+    );
+  } else {
+    setNote(DEFAULT_NOTE);
+  }
+
+  paintLive();
+
+  // A sticker or pasted image may finish decoding after the first pass; refresh
+  // until every selected image is ready rather than showing a half-empty warp.
+  const waiting = pendingImages();
+  if (waiting > 0 && tries < 10) {
+    window.clearTimeout(retryTimer);
+    retryTimer = window.setTimeout(() => renderPreview(tries + 1), 180);
+  }
 }
+
+/**
+ * Composite the warped buffer straight onto the page canvas.
+ *
+ * `draw()` paints the whole page; we re-render it without the selected objects
+ * and then lay the warped layer over their exact footprint. Nothing in the
+ * document changes, so closing the panel simply repaints and the originals are
+ * back — there is no "preview" copy to undo.
+ */
+function paintLive() {
+  if (!liveActive || !panel || panel.style.display === 'none') return;
+  if (!lastOut || !lastBox) return;
+  const ctx = ev<CanvasRenderingContext2D>('ctx');
+  const page = ev<any>('pg()');
+  const render = (window as any).render;
+  if (!ctx || !page || typeof render !== 'function') return;
+
+  const keep = (page.strokes || []).filter((s: any) => picked.indexOf(s) === -1);
+  try {
+    render(ctx, Object.assign({}, page, { strokes: keep }), null);
+    ctx.drawImage(lastOut, lastBox.x, lastBox.y, lastBox.w, lastBox.h);
+  } catch {
+    return;
+  }
+
+  // Keep the selection frame so it is obvious which objects are being warped.
+  if (box) {
+    ctx.save();
+    ctx.strokeStyle = '#2f6df6';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(box.x - 6, box.y - 6, box.w + 12, box.h + 12);
+    ctx.restore();
+  }
+}
+
+function hookDraw() {
+  ev(`(function(){
+    if (window.__warpDrawHooked) return;
+    window.__warpDrawHooked = 1;
+    var od = draw;
+    draw = function(){
+      var r = od.apply(this, arguments);
+      try { window.__slateWarp && window.__slateWarp.paintLive(); } catch (e) {}
+      return r;
+    };
+  })()`);
+}
+
+/* ------------------------------------------------------------------ */
+/* Mesh overlay (Manual warp)                                          */
+/* ------------------------------------------------------------------ */
+
+function canvasEl(): HTMLCanvasElement | null {
+  return document.getElementById('cv') as HTMLCanvasElement | null;
+}
+
+/** Page units → viewport pixels, matching the engine's own scaling. */
+function toScreen(x: number, y: number): Pt {
+  const cv = canvasEl();
+  const W = ev<number>('W') || 800;
+  const H = ev<number>('H') || 1100;
+  if (!cv) return [x, y];
+  const r = cv.getBoundingClientRect();
+  return [r.left + (x / W) * r.width, r.top + (y / H) * r.height];
+}
+
+/** Viewport pixels → page units. */
+function toPage(clientX: number, clientY: number): Pt {
+  const cv = canvasEl();
+  const W = ev<number>('W') || 800;
+  const H = ev<number>('H') || 1100;
+  if (!cv) return [clientX, clientY];
+  const r = cv.getBoundingClientRect();
+  return [((clientX - r.left) / (r.width || 1)) * W, ((clientY - r.top) / (r.height || 1)) * H];
+}
+
+function ensureMeshLayer() {
+  if (meshLayer) return;
+  meshLayer = el('div');
+  meshLayer.id = 'wm-layer';
+  meshSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  meshSvg.id = 'wm-svg';
+  meshLayer.append(meshSvg);
+  document.body.append(meshLayer);
+
+  window.addEventListener('pointermove', (e) => {
+    if (!meshDrag) return;
+    const p = toPage(e.clientX, e.clientY);
+    mesh[meshDrag.idx] = p;
+    placeMesh();
+    schedulePreview();
+  });
+  const stop = () => {
+    if (!meshDrag) return;
+    meshNodesEl[meshDrag.idx]?.classList.remove('on');
+    meshDrag = null;
+  };
+  window.addEventListener('pointerup', stop);
+  window.addEventListener('pointercancel', stop);
+  window.addEventListener('blur', stop);
+}
+
+function buildMeshDom() {
+  ensureMeshLayer();
+  if (!meshLayer) return;
+  // Reuse handles across size changes so dragging is never interrupted.
+  while (meshNodesEl.length > mesh.length) {
+    meshNodesEl.pop()?.remove();
+  }
+  while (meshNodesEl.length < mesh.length) {
+    const idx = meshNodesEl.length;
+    const n = el('div', 'wm-node');
+    n.dataset.i = String(idx);
+    n.setAttribute('role', 'slider');
+    n.setAttribute('aria-label', `Mesh node ${idx + 1}`);
+    n.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      meshDrag = { idx, id: e.pointerId };
+      n.classList.add('on');
+      try {
+        n.setPointerCapture(e.pointerId);
+      } catch {
+        /* window listeners cover a lost capture */
+      }
+    });
+    meshLayer.append(n);
+    meshNodesEl.push(n);
+  }
+}
+
+function showMesh() {
+  ensureMeshLayer();
+  if (!meshLayer) return;
+  meshLayer.classList.add('on');
+  resetMesh();
+  placeMesh();
+}
+
+function hideMesh() {
+  meshLayer?.classList.remove('on');
+  meshDrag = null;
+}
+
+function placeMesh() {
+  if (!meshLayer || !meshSvg) return;
+  if (!liveActive || style !== 'manual' || !mesh.length || !box) {
+    meshLayer.classList.remove('on');
+    return;
+  }
+  meshLayer.classList.add('on');
+
+  const cols = MESH.cols;
+  const rows = MESH.rows;
+  const scr = mesh.map((p) => toScreen(p[0], p[1]));
+
+  // grid lines: one polyline per row and per column
+  let d = '';
+  for (let j = 0; j <= rows; j++) {
+    for (let i = 0; i <= cols; i++) {
+      const p = scr[i + j * (cols + 1)];
+      d += (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1);
+    }
+  }
+  for (let i = 0; i <= cols; i++) {
+    for (let j = 0; j <= rows; j++) {
+      const p = scr[i + j * (cols + 1)];
+      d += (j === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1);
+    }
+  }
+  meshSvg.innerHTML = `<path d="${d}"/>`;
+
+  for (let i = 0; i < meshNodesEl.length && i < scr.length; i++) {
+    const n = meshNodesEl[i];
+    n.style.left = scr[i][0] + 'px';
+    n.style.top = scr[i][1] + 'px';
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Open / close / apply                                                */
+/* ------------------------------------------------------------------ */
 
 function open(trigger: HTMLElement) {
   build();
@@ -514,6 +1073,10 @@ function open(trigger: HTMLElement) {
   panel.style.display = 'block';
   anchorBelow(panel, r, { align: 'center' });
   paintStyles();
+  paintMeshButtons();
+  liveActive = true;
+  if (style === 'manual') showMesh();
+  else hideMesh();
   renderPreview();
   // Images inside the selection may finish decoding a frame later.
   window.clearTimeout(refreshTimer);
@@ -526,8 +1089,16 @@ function open(trigger: HTMLElement) {
 
 function close() {
   if (!panel) return;
+  const wasLive = liveActive;
+  liveActive = false;
   panel.style.display = 'none';
   resetDrag(panel);
+  hideMesh();
+  lastOut = null;
+  lastBox = null;
+  window.clearTimeout(retryTimer);
+  // Repaint so the page goes back to the real, unwarped objects.
+  if (wasLive) ev('try{ draw(); }catch(e){}');
 }
 
 function apply(): boolean {
@@ -537,14 +1108,28 @@ function apply(): boolean {
   const oh = box.h + 2 * pad;
   // Cap the work at roughly 0.9 MP so the warp stays interactive.
   const scale = Math.max(1, Math.min(2, Math.sqrt(900000 / (ow * oh))));
-  const src = rasterise(picked, box, pad, scale);
-  if (!src) return false;
-  const out = warpBuffer(src, box, style, amount / 100);
+  const res = rasterise(picked, box, pad, scale);
+  if (!res.raster) {
+    ev(
+      `try{ toast("${
+        res.tainted
+          ? 'That image is loaded from another site, so it cannot be warped.'
+          : 'Could not warp this selection.'
+      }"); }catch(e){}`
+    );
+    return false;
+  }
+  const out = buildField(res.raster, box);
   if (!out) return false;
 
   const url = out.toDataURL('image/png');
   const strokes = ev<any[]>('pg().strokes');
   if (!strokes) return false;
+
+  // Only the objects that actually went into the buffer are replaced; an
+  // external image that had to be skipped stays on the page untouched.
+  const used = res.used;
+  if (!used.length) return false;
 
   // One undo step, captured before the mutation.
   ev('try{ snap(); }catch(e){}');
@@ -557,13 +1142,21 @@ function apply(): boolean {
     h: oh,
     ts: Date.now(),
   };
-  const first = strokes.findIndex((s) => picked.indexOf(s) !== -1);
+  const first = strokes.findIndex((s) => used.indexOf(s) !== -1);
   for (let i = strokes.length - 1; i >= 0; i--) {
-    if (picked.indexOf(strokes[i]) !== -1) strokes.splice(i, 1);
+    if (used.indexOf(strokes[i]) !== -1) strokes.splice(i, 1);
   }
   strokes.splice(first < 0 ? strokes.length : Math.min(first, strokes.length), 0, layerStroke);
+  liveActive = false;
+  hideMesh();
   ev('try{ sel=[]; draw(); save(); thumbs(); }catch(e){}');
-  ev('try{ toast("Warp applied — Ctrl/Cmd + Z to undo"); }catch(e){}');
+  ev(
+    `try{ toast("${
+      res.skipped.length
+        ? 'Warp applied — external image left unchanged'
+        : 'Warp applied — Ctrl/Cmd + Z to undo'
+    }"); }catch(e){}`
+  );
   close();
   return true;
 }
@@ -577,6 +1170,9 @@ function boot() {
   s.textContent = CSS;
   s.id = 'warp-style';
   if (!document.getElementById('warp-style')) document.head.append(s);
+
+  ensureMeshLayer();
+  hookDraw();
 
   // Watch for a selection so the panel can refresh its snapshot; the button
   // itself is inserted as soon as the engine's contextual bar exists.
@@ -596,10 +1192,18 @@ function boot() {
       lastSig = sig;
       if (panel && panel.style.display !== 'none') {
         captureSelection();
+        if (style === 'manual') showMesh();
         schedulePreview();
       }
     }
   }, 260);
+
+  window.addEventListener('resize', () => {
+    if (liveActive) {
+      placeMesh();
+      paintLive();
+    }
+  });
 
   (window as any).__slateWarp = {
     open: () => open((button || document.getElementById('sbar')) as HTMLElement),
@@ -609,6 +1213,10 @@ function boot() {
     setStyle: (id: Style) => {
       style = id;
       paintStyles();
+      if (style === 'manual') {
+        resetMesh(true);
+        showMesh();
+      } else hideMesh();
       schedulePreview();
     },
     setAmount: (n: number) => {
@@ -617,9 +1225,37 @@ function boot() {
       if (amountOut) amountOut.textContent = `${amount}%`;
       schedulePreview();
     },
+    // ---- mesh surface, used by the regression probe ----
+    mesh: () => mesh.map((p) => [p[0], p[1]] as Pt),
+    meshSize: () => ({ cols: MESH.cols, rows: MESH.rows }),
+    setMeshSize: (cols: number, rows: number) => {
+      MESH.cols = Math.max(1, Math.min(6, cols));
+      MESH.rows = Math.max(1, Math.min(6, rows));
+      resetMesh(true);
+      paintMeshButtons();
+      schedulePreview();
+    },
+    setNode: (i: number, x: number, y: number) => {
+      if (!mesh[i]) return false;
+      mesh[i] = [x, y];
+      placeMesh();
+      schedulePreview();
+      return true;
+    },
+    resetMesh: () => {
+      resetMesh(true);
+      schedulePreview();
+    },
+    live: () => ({
+      active: liveActive,
+      out: lastOut ? [lastOut.width, lastOut.height] : null,
+      box: lastBox,
+      skipped: skippedItems.length,
+    }),
     inverse,
     rasterise,
     warpBuffer,
+    manualWarp,
     state: () => ({ style, amount, picked: picked.length, box }),
   };
 }
