@@ -181,6 +181,13 @@ function onUp(e: PointerEvent) {
   /* The other finger lifting is not the end of this scratch. */
   if (e.pointerId !== t.id) return;
   trail = null;
+  /* The tool can change mid-gesture, and one press does it: a barrel button
+     mapped to Pan flips `tool` during the pointerdown that this trail was
+     started from — the engine resolves the button after this capture-phase
+     listener has already seen a pen. Panning backwards and forwards has the
+     turns and the length of a scratch-out, so without this the gesture would
+     delete whatever it dragged across. A pan is not an edit. */
+  if (!DRAW_TOOLS.has(toolNow())) return;
   /* A pinch between down and up moves the page under the trail, so its client
      coordinates no longer describe a box on the page. */
   if (zoomNow() !== t.z0) return;

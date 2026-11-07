@@ -661,6 +661,7 @@ const TOOL_LABELS: Record<string, string> = {
   er: 'Eraser',
   text: 'Text',
   sel: 'Lasso',
+  pan: 'Pan',
   laser: 'Laser pointer',
   bk: 'Bucket fill',
 };

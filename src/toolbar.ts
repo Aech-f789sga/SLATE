@@ -88,7 +88,7 @@ const ROW1: string[][] = [
   ['#title'],
   ['[data-t="pen"]', '[data-t="hl"]', '[data-t="er"]'],
   ['#sh-trigger', '[data-t="text"]'],
-  ['[data-t="sel"]', '[data-t="laser"]', '[data-t="bk"]'],
+  ['[data-t="sel"]', '[data-t="pan"]', '[data-t="laser"]', '[data-t="bk"]'],
   ['#img', '#gn-stk-btn', '#gn-note-btn', '#snap-btn'],
   ['#undo', '#redo'],
   ['#acc-trigger', '#more'],
