@@ -9,6 +9,26 @@ service cloud.firestore {
         && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
+    // Shape of an anonymous visit. By definition written by somebody with no
+    // account, so it is the one public write in this project — and it is boxed
+    // in as tightly as rules allow: the id must match the document name, the
+    // field set is fixed, and `seconds` can never be below ten minutes, which
+    // is exactly what the admin panel counts. Nothing else is accepted, so the
+    // collection cannot hold anything but engaged visits.
+    function validVisit(visitId) {
+      let d = request.resource.data;
+      return visitId.matches('^v_[a-z0-9]{4,36}$')
+        && d.keys().hasOnly(['id', 'first', 'last', 'seconds'])
+        && d.id is string && d.id == visitId
+        && d.first is int && d.last is int && d.seconds is int
+        && d.seconds >= 600 && d.seconds <= 172800
+        && d.last >= d.first
+        // clocks drift; an hour of slack keeps honest devices from being
+        // rejected without letting a forged timestamp travel far
+        && d.last <= request.time.toMillis() + 3600000
+        && d.first >= request.time.toMillis() - 7776000000;
+    }
+
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
 
@@ -30,6 +50,16 @@ service cloud.firestore {
     match /moderation/{uid} {
       allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
       allow write: if isAdmin();
+    }
+
+    // Engaged anonymous visits (ten minutes or more, signed out).
+    // Written by the browser, read only by the admin panel.
+    match /visitors/{visitId} {
+      allow read, delete: if isAdmin();
+      allow create: if validVisit(visitId);
+      allow update: if validVisit(visitId)
+        && request.resource.data.first == resource.data.first
+        && request.resource.data.seconds >= resource.data.seconds;
     }
 
     // Release channel — which web build every APK is allowed to load.

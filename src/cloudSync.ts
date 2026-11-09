@@ -23,8 +23,12 @@ import {
   listModeration,
   setBlocked,
   isBlocked,
+  visitorStats,
+  recentVisitors,
   User,
 } from './services/firebase';
+import { activeSeconds, isIdle, startVisitor, stopVisitor } from './usage';
+import type { DirectoryEntry } from './services/firebase';
 
 declare global {
   interface Window {
@@ -764,30 +768,68 @@ function providerOf(user: User | null): string {
 
 /* ---- presence heartbeat (60 s) ---- */
 
-let hbTimer: number | null = null;
-let hbLast = 0;
+/**
+ * The heartbeat no longer adds a minute because a minute passed. It adds the
+ * engaged seconds the activity clock banked since the previous beat, and it
+ * stops beating once the user has been silent for fifteen minutes — at which
+ * point the row is marked offline and time stops accruing for real.
+ *
+ * `hbOnline` is what the client last told the server, not what it believes now;
+ * that is what keeps this to one write per minute instead of one per tick.
+ */
+const HEARTBEAT_MS = 60_000;
 
-function startHeartbeat(user: User) {
+/** A row whose client vanished stays "online" only this long after its last word. */
+const ONLINE_STALE_MS = 16 * 60_000;
+
+let hbTimer: number | null = null;
+let hbMark = 0;
+let hbOnline: boolean | null = null;
+
+function pushPresence(online: boolean, delta: number) {
+  const u = auth.currentUser;
+  if (!u) return;
+  void touchDirectory(u, delta, online).catch(() => {});
+}
+
+function startHeartbeat() {
   stopHeartbeat();
-  hbLast = Date.now();
-  void touchDirectory(user, 0).catch(() => {});
-  hbTimer = window.setInterval(() => {
-    const u = auth.currentUser;
-    if (!u) return;
-    const now = Date.now();
-    const delta = Math.round((now - hbLast) / 1000);
-    hbLast = now;
-    void touchDirectory(u, delta).catch(() => {});
-  }, 60000);
-  window.addEventListener('beforeunload', flushHeartbeat);
+  hbMark = activeSeconds();
+  hbOnline = null;
+  pushPresence(true, 0);
+  hbTimer = window.setInterval(tickHeartbeat, HEARTBEAT_MS);
+  window.addEventListener('pagehide', flushHeartbeat);
+}
+
+function tickHeartbeat() {
+  if (!auth.currentUser) return;
+  const now = activeSeconds();
+  const delta = Math.max(0, now - hbMark);
+
+  if (isIdle()) {
+    /* Say it once, then go quiet: a row that stops changing is a row that is
+       offline, and there is nothing left to bill. */
+    if (hbOnline === false) return;
+    hbOnline = false;
+    hbMark = now;
+    pushPresence(false, delta);
+    return;
+  }
+
+  /* Present but still: `delta` is 0, yet `lastSeen` has to stay fresh or the
+     panel would call a reader offline four minutes in. */
+  hbOnline = true;
+  hbMark = now;
+  pushPresence(true, delta);
 }
 
 function flushHeartbeat() {
-  const u = auth.currentUser;
-  if (!u || !hbLast) return;
-  const delta = Math.round((Date.now() - hbLast) / 1000);
-  hbLast = Date.now();
-  if (delta > 0) void touchDirectory(u, delta).catch(() => {});
+  if (!auth.currentUser) return;
+  const now = activeSeconds();
+  const delta = Math.max(0, now - hbMark);
+  hbMark = now;
+  hbOnline = false;
+  pushPresence(false, delta);
 }
 
 function stopHeartbeat() {
@@ -795,7 +837,7 @@ function stopHeartbeat() {
     clearInterval(hbTimer);
     hbTimer = null;
   }
-  window.removeEventListener('beforeunload', flushHeartbeat);
+  window.removeEventListener('pagehide', flushHeartbeat);
 }
 
 function makeAdminButton(): HTMLButtonElement {
@@ -875,6 +917,20 @@ function openAdminFromHash() {
 }
 
 
+/**
+ * Online = the client did not say it went idle, and it spoke recently.
+ *
+ * `online` is only written by the current build, so an older client (or a row
+ * from before this field existed) has no opinion and falls back to freshness —
+ * otherwise every returning user would look offline until they reloaded. A
+ * client that *did* say "idle" is taken at its word, which is what makes the
+ * fifteen-minute rule the real cutoff rather than the heartbeat's own timing.
+ */
+function isOnlineNow(u: DirectoryEntry): boolean {
+  if (u.online === false) return false;
+  return Date.now() - u.lastSeen < ONLINE_STALE_MS;
+}
+
 function fmtDur(sec: number): string {
   if (!sec || sec < 60) return Math.round(sec || 0) + 's';
   const m = Math.floor(sec / 60);
@@ -899,6 +955,7 @@ function buildAdminPanel(): HTMLElement {
     '</div>' +
     '<div id="admin-id" style="font-size:11px;color:var(--mu)"></div>' +
     '<a href="/release-admin.html" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid var(--bd);border-radius:10px;font-size:13px;font-weight:600;color:var(--ac);text-decoration:none">📦 Release channel<span style="margin-left:auto;color:var(--mu);font-weight:400;font-size:12px">approve updates →</span></a>' +
+    '<div id="admin-visits" style="display:flex;flex-direction:column;gap:6px"></div>' +
     '<div id="admin-summary" style="font-size:12px;color:var(--mu)"></div>' +
     '<div id="admin-list" style="display:flex;flex-direction:column;gap:6px"></div>' +
     '<div style="font-size:11px;color:var(--mu);line-height:1.5">Blocking signs the account out on its next check and the client refuses to sync. Contact address shown to users: ' +
@@ -915,15 +972,101 @@ function buildAdminPanel(): HTMLElement {
   return md;
 }
 
+/* ---- visitors: signed-out sessions of ten minutes or more ---- */
+
+/** Cached so the user summary can mention visitors without a second read. */
+let visitTotal: number | null = null;
+
+function statCell(value: string, label: string): HTMLElement {
+  const cell = el('div', 'flex:1;min-width:0;border:1px solid var(--bd);border-radius:10px;padding:6px 8px');
+  cell.appendChild(el('div', 'font-size:17px;font-weight:700;line-height:1.25', value));
+  cell.appendChild(el('div', 'font-size:10px;color:var(--mu);line-height:1.3', label));
+  return cell;
+}
+
+/**
+ * Renders the visitor card.
+ *
+ * "Visitors" here has one exact meaning, because a vaguer one would be a lie:
+ * signed-out sessions that lasted at least ten minutes of engaged time. The
+ * collection only ever contains those, so the total is a count, not an
+ * estimate — and anything shorter than ten minutes was never written down.
+ */
+async function loadVisitorStats() {
+  const host = document.getElementById('admin-visits');
+  if (!host) return;
+  host.innerHTML = '';
+  host.appendChild(el('div', 'color:var(--mu);font-size:12px', 'Reading visits…'));
+  try {
+    const [stats, recent] = await Promise.all([visitorStats(), recentVisitors(4)]);
+    visitTotal = stats.total;
+    host.innerHTML = '';
+
+    const card = el(
+      'div',
+      'border:1px solid var(--bd);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px'
+    );
+    const head = el('div', 'display:flex;align-items:baseline;gap:6px;flex-wrap:wrap');
+    head.appendChild(el('span', 'font-size:12px;font-weight:600', '👣 Visitors'));
+    head.appendChild(el('span', 'font-size:11px;color:var(--mu)', 'signed out · 10 min+ · per session'));
+    card.appendChild(head);
+
+    const row = el('div', 'display:flex;gap:6px');
+    row.appendChild(statCell(stats.total.toLocaleString(), 'all time'));
+    row.appendChild(statCell(stats.week.toLocaleString(), 'last 7 days'));
+    row.appendChild(statCell(stats.today.toLocaleString(), 'today'));
+    card.appendChild(row);
+
+    const avg = stats.total ? Math.round(stats.seconds / stats.total) : 0;
+    card.appendChild(
+      el(
+        'div',
+        'font-size:11px;color:var(--mu)',
+        'time on site ' + fmtDur(stats.seconds) + (stats.total ? ' · avg ' + fmtDur(avg) + ' each' : '')
+      )
+    );
+
+    if (recent.length) {
+      const list = el('div', 'display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--mu)');
+      recent.forEach((v) => {
+        list.appendChild(el('div', 'white-space:nowrap', fmtDur(v.seconds) + ' · last seen ' + relTime(v.last)));
+      });
+      card.appendChild(list);
+    }
+    host.appendChild(card);
+  } catch (e: any) {
+    const code: string = e?.code || e?.message || 'permission-denied';
+    host.innerHTML = '';
+    host.appendChild(el('div', 'color:#e5383b;font-size:12px;line-height:1.5', 'Could not read visits — ' + code));
+    host.appendChild(
+      el(
+        'div',
+        'color:var(--mu);font-size:11px;line-height:1.55',
+        'Visits live in /visitors and are readable by the admin only. Deploy firestore.rules if this is a fresh project.'
+      )
+    );
+  }
+}
+
 async function loadAdminList(host: HTMLElement) {
   host.innerHTML = '';
   host.appendChild(el('div', 'color:var(--mu);font-size:12px', 'Loading…'));
   try {
     const [dir, mod] = await Promise.all([listDirectory(), listModeration()]);
     host.innerHTML = '';
-    const online = dir.filter((d) => Date.now() - d.lastSeen < 150000).length;
+    const online = dir.filter(isOnlineNow).length;
+    const total = dir.reduce((n, u) => n + (u.seconds || 0), 0);
     const summary = document.getElementById('admin-summary');
-    if (summary) summary.textContent = dir.length + ' registered · ' + online + ' online now';
+    if (summary) {
+      summary.textContent =
+        dir.length +
+        ' registered · ' +
+        online +
+        ' online now · ' +
+        fmtDur(total) +
+        ' signed in' +
+        (visitTotal !== null ? ' · ' + visitTotal.toLocaleString() + ' visitors (10m+)' : '');
+    }
 
     if (!dir.length) {
       host.appendChild(el('div', 'color:var(--mu);font-size:12px', 'No accounts have opened the app yet.'));
@@ -932,7 +1075,7 @@ async function loadAdminList(host: HTMLElement) {
     dir.forEach((u) => {
       const row = el('div', 'display:flex;align-items:center;gap:9px;padding:8px;border:1px solid var(--bd);border-radius:10px;font-size:12px');
       const dot = el('span', 'width:8px;height:8px;border-radius:50%;flex:none', '');
-      const isOn = Date.now() - u.lastSeen < 150000;
+      const isOn = isOnlineNow(u);
       dot.style.background = isOn ? '#2a9d4f' : 'var(--bd)';
       dot.title = isOn ? 'online' : 'offline';
       row.appendChild(dot);
@@ -945,7 +1088,7 @@ async function loadAdminList(host: HTMLElement) {
         el(
           'div',
           'color:var(--mu);font-size:11px',
-          u.provider + ' · used ' + fmtDur(u.seconds) + ' · seen ' + relTime(u.lastSeen)
+          u.provider + ' · used ' + fmtDur(u.seconds) + ' · ' + (isOn ? 'online' : 'seen ' + relTime(u.lastSeen))
         )
       );
       row.appendChild(info);
@@ -999,7 +1142,11 @@ function openAdminPanel() {
     idLine.textContent = 'Signed in as ' + (u?.email || '—') + ' · ' + providerOf(u);
   }
   const host = document.getElementById('admin-list');
-  if (host) void loadAdminList(host);
+  if (host) {
+    /* Visitors first: the summary line quotes their total, and rendering it
+       twice would flash a number that is about to change. */
+    void loadVisitorStats().then(() => loadAdminList(host));
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1053,7 +1200,8 @@ onAuthStateChanged(auth, async (user) => {
     } else if (user.email) {
       console.info('[inkpad] signed in as', user.email, '· admin address is', ADMIN_EMAIL);
     }
-    startHeartbeat(user);
+    stopVisitor();
+    startHeartbeat();
     try {
       await mergeCloudIntoLocal(user);
     } catch (e) {
@@ -1066,6 +1214,9 @@ onAuthStateChanged(auth, async (user) => {
     }
   } else {
     stopHeartbeat();
+    /* Nobody is signed in, so this session counts as an anonymous visit if it
+       lasts long enough. A blocked user lands here too, after the sign-out. */
+    startVisitor();
     ensureAdminButton();
     if (statusEl) {
       statusEl.textContent = '💻 Guest';

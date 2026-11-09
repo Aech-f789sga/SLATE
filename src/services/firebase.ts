@@ -24,6 +24,13 @@ import {
   getDocFromServer,
   collection,
   getDocs,
+  query,
+  where,
+  orderBy,
+  limit,
+  getCountFromServer,
+  getAggregateFromServer,
+  sum,
   deleteDoc,
   serverTimestamp,
 } from 'firebase/firestore';
@@ -215,7 +222,10 @@ export interface DirectoryEntry {
   provider: string;
   firstSeen: number;
   lastSeen: number;
+  /** Engaged seconds, accumulated by the client's own activity clock. */
   seconds: number;
+  /** What the client last said about itself. Absent on older rows. */
+  online?: boolean;
   blocked?: boolean;
 }
 
@@ -227,20 +237,28 @@ function providerOf(user: User): string {
 /**
  * Register / refresh this user in the public directory used by the admin panel.
  * Writes only the signed-in user's own document.
+ *
+ * `deltaSeconds` is engaged time, never wall-clock: the caller measures it with
+ * the activity clock in `src/usage.ts`. `online` is passed explicitly rather
+ * than inferred from `lastSeen`, because the two disagree in the window that
+ * matters — somebody who has been still for four minutes is present but has
+ * earned no time, and somebody who was closed an hour ago is neither.
  */
-export async function touchDirectory(user: User, deltaSeconds = 0): Promise<void> {
+export async function touchDirectory(user: User, deltaSeconds = 0, online?: boolean): Promise<void> {
   if (!user) return;
   const ref = doc(db, 'directory', user.uid);
   const snap = await getDoc(ref);
   const now = Date.now();
-  const base = {
+  const prev = snap.exists() ? snap.data() : null;
+  const base: Record<string, any> = {
     email: user.email || '',
     provider: providerOf(user),
     lastSeen: now,
-    seconds: (snap.exists() ? Number(snap.data().seconds || 0) : 0) + Math.max(0, deltaSeconds),
+    seconds: Number(prev?.seconds || 0) + Math.max(0, Math.round(deltaSeconds)),
   };
-  if (!snap.exists()) {
-    await setDoc(ref, { ...base, firstSeen: now, lastSeen: now, seconds: Math.max(0, deltaSeconds) });
+  if (typeof online === 'boolean') base.online = online;
+  if (!prev) {
+    await setDoc(ref, { ...base, firstSeen: now });
   } else {
     await setDoc(ref, base, { merge: true });
   }
@@ -258,10 +276,107 @@ export async function listDirectory(): Promise<DirectoryEntry[]> {
       firstSeen: Number(v.firstSeen || 0),
       lastSeen: Number(v.lastSeen || 0),
       seconds: Number(v.seconds || 0),
+      online: typeof v.online === 'boolean' ? v.online : undefined,
       blocked: Boolean(v.blocked),
     });
   });
   return out.sort((a, b) => b.lastSeen - a.lastSeen);
+}
+
+/* ------------------------------------------------------------------ */
+/* Anonymous visits                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One engaged signed-out visit: ten minutes or more, by construction.
+ *
+ * The collection is written by browsers that have no account, so the create is
+ * public (see firestore.rules — it is the only public write in the project).
+ * The rules pin the id to the document name, fix the shape, and refuse anything
+ * under 600 seconds, so the collection can only ever hold exactly what the
+ * admin panel counts.
+ */
+export interface VisitorDoc {
+  id: string;
+  /** First moment of the visit, ms. */
+  first: number;
+  /** Last update from the client, ms. */
+  last: number;
+  /** Engaged seconds. */
+  seconds: number;
+}
+
+export interface VisitorStats {
+  total: number;
+  week: number;
+  today: number;
+  seconds: number;
+}
+
+export async function upsertVisitor(v: VisitorDoc): Promise<void> {
+  if (!v || !v.id) return;
+  await setDoc(
+    doc(db, 'visitors', v.id),
+    {
+      id: v.id,
+      first: Math.round(v.first),
+      last: Math.round(v.last),
+      seconds: Math.round(v.seconds),
+    },
+    { merge: true }
+  );
+}
+
+/**
+ * Aggregates rather than documents: the panel only needs four numbers, and
+ * pulling every visit down to count them would get slower every week.
+ * Falls back to a bounded read if the backend refuses the aggregate.
+ */
+export async function visitorStats(): Promise<VisitorStats> {
+  const col = collection(db, 'visitors');
+  const start = new Date();
+  const dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+  const weekStart = dayStart - 6 * 86400000;
+  try {
+    const [all, week, today, total] = await Promise.all([
+      getCountFromServer(col),
+      getCountFromServer(query(col, where('first', '>=', weekStart))),
+      getCountFromServer(query(col, where('first', '>=', dayStart))),
+      getAggregateFromServer(col, { seconds: sum('seconds') }),
+    ]);
+    return {
+      total: all.data().count,
+      week: week.data().count,
+      today: today.data().count,
+      seconds: Number(total.data().seconds || 0),
+    };
+  } catch {
+    const snap = await getDocs(query(col, orderBy('last', 'desc'), limit(1000)));
+    let week = 0;
+    let today = 0;
+    let seconds = 0;
+    snap.forEach((d) => {
+      const v = d.data() as any;
+      const first = Number(v.first || 0);
+      seconds += Number(v.seconds || 0);
+      if (first >= weekStart) week++;
+      if (first >= dayStart) today++;
+    });
+    return { total: snap.size, week, today, seconds };
+  }
+}
+
+export async function recentVisitors(max = 4): Promise<VisitorDoc[]> {
+  const snap = await getDocs(query(collection(db, 'visitors'), orderBy('last', 'desc'), limit(max)));
+  return snap.docs.map((d) => {
+    const v = d.data() as any;
+    return {
+      id: d.id,
+      first: Number(v.first || 0),
+      last: Number(v.last || 0),
+      seconds: Number(v.seconds || 0),
+    };
+  });
 }
 
 export async function listModeration(): Promise<Record<string, boolean>> {
