@@ -472,6 +472,12 @@ const CSS = `
 .brush-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:8px 14px 4px}
 /* the engine's 32 brush presets, two to a row with a live stroke preview */
 .brush-presets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:2px 14px 4px}
+/* a brush's own icon (Sketchbook glyph / Procreate thumbnail), fitted to the
+   same box the stroke sample occupies so the grid stays even */
+.brush-preset .pi{
+  width:100%;height:34px;object-fit:contain;display:block;
+  background:#fff;border-radius:4px;
+}
 .brush-preset{
   display:flex;flex-direction:column;gap:3px;padding:5px 6px 6px;cursor:pointer;text-align:left;
   border:1px solid var(--gn-line,#e6e2dc);border-radius:9px;background:#fff;
@@ -1634,6 +1640,8 @@ interface BrushPreset {
   id: string;
   n: string;
   sz: number;
+  /** Icon hash into `window.SKB.icons`; only imported brushes carry one. */
+  ic?: string;
 }
 
 /** The three preset families, in the order the engine's own panel used. */
@@ -1648,10 +1656,23 @@ const PRESET_FAMILIES: { prefix: string; title: string }[] = [
  * writes them to `window.SKB`, and index.html appends them to the engine's
  * `BRD`). One family per pack, so a 500-brush library stays navigable.
  */
-function packFamilies(): { prefix: string; title: string }[] {
-  const s = (window as unknown as { SKB?: { packs?: { id: string; name: string }[] } }).SKB;
+function packFamilies(): { prefix: string; title: string; source: string }[] {
+  const s = (window as unknown as {
+    SKB?: { packs?: { id: string; name: string; source?: string }[] };
+  }).SKB;
   if (!s || !Array.isArray(s.packs)) return [];
-  return s.packs.map((p) => ({ prefix: p.id + '-', title: p.name }));
+  return s.packs.map((p) => ({
+    prefix: p.id + '-',
+    title: p.name,
+    source: p.source || 'other',
+  }));
+}
+
+/** Icon URL for a brush, when its source set shipped one. */
+function iconUrl(hash: string | null | undefined): string | null {
+  if (!hash) return null;
+  const s = (window as unknown as { SKB?: { icons?: Record<string, string> } }).SKB;
+  return (s && s.icons && s.icons[hash]) || null;
 }
 
 let presets: BrushPreset[] | null = null;
@@ -1661,7 +1682,7 @@ function brushPresets(): BrushPreset[] {
   presets =
     ev<BrushPreset[]>(`(function(){
       try{
-        return BRD.map(function(x){ return { id: x.id, n: x.n, sz: x.sz || 3 }; });
+        return BRD.map(function(x){ return { id: x.id, n: x.n, sz: x.sz || 3, ic: x.ic || null }; });
       }catch(e){ return []; }
     })()`) || [];
   return presets;
@@ -1783,16 +1804,36 @@ function paintBrushPop() {
   const sel = document.createElement('select');
   sel.className = 'bset';
   sel.setAttribute('aria-label', 'Brush set');
-  const addOpt = (v: string, label: string) => {
-    const o = document.createElement('option');
-    o.value = v;
-    o.textContent = label;
-    sel.append(o);
-  };
-  addOpt('builtin', `Built-in (${all.filter((x) => /^(dd|pb|cs)/.test(x.id)).length})`);
-  packs.forEach((p) => {
-    const n = all.filter((x) => x.id.startsWith(p.prefix)).length;
-    if (n) addOpt(p.prefix, `${p.title} (${n})`);
+  // Grouped by where the brushes came from, so the list reads as the folders
+  // they arrived in rather than one flat run of 60 names.
+  const SOURCE_GROUPS: { key: string; label: string }[] = [
+    { key: 'builtin', label: 'Built-in' },
+    { key: 'sketchbook', label: 'Sketchbook sets' },
+    { key: 'procreate', label: 'Procreate sets' },
+    { key: 'stamps', label: 'Stamp packs' },
+  ];
+  SOURCE_GROUPS.forEach((grp) => {
+    const og = document.createElement('optgroup');
+    og.label = grp.label;
+    if (grp.key === 'builtin') {
+      const n = all.filter((x) => /^(dd|pb|cs)/.test(x.id)).length;
+      const o = document.createElement('option');
+      o.value = 'builtin';
+      o.textContent = `Engine presets (${n})`;
+      og.append(o);
+    } else {
+      packs
+        .filter((p) => p.source === grp.key)
+        .forEach((p) => {
+          const n = all.filter((x) => x.id.startsWith(p.prefix)).length;
+          if (!n) return;
+          const o = document.createElement('option');
+          o.value = p.prefix;
+          o.textContent = `${p.title} (${n})`;
+          og.append(o);
+        });
+    }
+    if (og.children.length) sel.append(og);
   });
   const stored = ls(BRUSHSET_KEY, 'builtin');
   sel.value = stored;
@@ -1815,8 +1856,23 @@ function paintBrushPop() {
       b.className = 'brush-preset';
       b.title = x.n;
       b.classList.toggle('on', x.id === active);
-      const c = document.createElement('canvas');
-      b.append(c);
+      // Sets that ship a glyph or a rendered preview (Sketchbook icons,
+      // Procreate QuickLook thumbnails) show that, exactly as their own app
+      // does; everything else falls back to a live stroke sample.
+      const icon = iconUrl(x.ic);
+      if (icon) {
+        const img = document.createElement('img');
+        img.className = 'pi';
+        img.src = icon;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        b.append(img);
+      } else {
+        const c = document.createElement('canvas');
+        b.append(c);
+        drawPresetPreview(c, x.id, x.sz);
+      }
       const nm = el('span', '', x.n);
       nm.className = 'pn';
       b.append(nm);
@@ -1825,8 +1881,6 @@ function paintBrushPop() {
         paintBrushPop();
       };
       pg.append(b);
-      // paint after the node is in the document so the dpr maths is right
-      drawPresetPreview(c, x.id, x.sz);
     });
     bd.append(pg);
   };

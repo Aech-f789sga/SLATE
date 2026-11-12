@@ -99,7 +99,7 @@ export default defineConfig(() => {
           // they are the mods' own files rather than re-encodes: a single
           // 4K wallpaper is bigger than this whole app. Precaching them would
           // mean downloading every theme on first visit.
-          globIgnores: ['**/stickers/**', '**/themes/**', '**/mods/**', '**/brushes/**', '**/version.json'],
+          globIgnores: ['**/stickers/**', '**/themes/**', '**/mods/**', '**/brushes/**', '**/brush-icons/**', '**/version.json'],
           // release-admin.html is a plain page, not a route of the SPA. Without
           // this the service worker would answer the navigation with the cached
           // index.html shell and the admin console would never appear.
@@ -122,6 +122,16 @@ export default defineConfig(() => {
               options: {
                 cacheName: 'inkpad-brush-masks',
                 expiration: { maxEntries: 1200, maxAgeSeconds: 60 * 60 * 24 * 365 },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+            {
+              // brush icons for the picker, same deal
+              urlPattern: /\/brush-icons\/[0-9a-f]{32}\.webp$/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'inkpad-brush-icons',
+                expiration: { maxEntries: 1000, maxAgeSeconds: 60 * 60 * 24 * 365 },
                 cacheableResponse: { statuses: [0, 200] },
               },
             },

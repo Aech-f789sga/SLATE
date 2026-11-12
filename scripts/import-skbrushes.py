@@ -35,6 +35,7 @@ import io
 import json
 import math
 import os
+import plistlib
 import re
 import sys
 import zipfile
@@ -78,6 +79,10 @@ def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
+def slug(name):
+    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+
+
 def parse_set(xml_text):
     """Return [{name, params, tip, paper}] for one .skbrushes XML."""
     out = []
@@ -87,10 +92,12 @@ def parse_set(xml_text):
         bpar = re.search(r'<brushParameters[^>]*>', body)
         custom = re.search(r'<customBrush[^>]*>', body)
         paper = re.search(r'<paperTexture[^>]*>', body)
+        pers = re.search(r'<personalized[^>]*>', body)
         st = stroke.group(0) if stroke else ''
         bp = bpar.group(0) if bpar else ''
         cb = custom.group(0) if custom else ''
         pt = paper.group(0) if paper else ''
+        pe = pers.group(0) if pers else ''
 
         out.append({
             'name': name.strip(),
@@ -108,6 +115,8 @@ def parse_set(xml_text):
             'angle': f(bp, 'angle', 0.0),
             'tip': s(cb, 'name', '') if re.search(r'\.tiff?$', s(cb, 'name', ''), re.I) else '',
             'paper': s(pt, 'name', '') if 'paperTextureEnabled="true"' in pt else '',
+            'icon': s(pe, 'icon', ''),
+            'texIcon': s(pe, 'useTextureIcon', 'false') == 'true',
         })
     return out
 
@@ -136,51 +145,101 @@ def to_mask(tif_bytes):
     return mask
 
 
-def fallback_tip(name, size=96):
-    """Synthesise a tip for brushes that use a Sketchbook *internal* shape.
+def is_degenerate(mask):
+    """True when a mask cannot work as a stamp.
 
-    A fair number of presets (most of the marker and pen sets) carry a
-    `<customBrush>` with no `name`, meaning the tip lives inside Sketchbook
-    itself and was never shipped in the ZIP. Those tips are all simple solids,
-    so drawing an approximation keeps the preset usable instead of dropping it.
+    A handful of the `.tif` files are paper grains rather than tips: uniformly
+    light with a little noise, which as an opacity mask paints a solid block.
+    Such brushes are skipped — nothing is substituted for them, so every mask
+    that ships is the set's own artwork.
     """
-    n = name.lower()
-    if 'square' in n or 'chisel' in n or 'flat' in n:
-        shape, hardness, squash = 'square', 0.95, 0.55
-    elif 'bristle' in n or 'brush tip' in n:
-        shape, hardness, squash = 'bristle', 0.55, 1.0
-    elif 'firm' in n or 'bullet' in n or 'hard' in n:
-        shape, hardness, squash = 'round', 0.9, 1.0
-    elif 'soft' in n or 'air' in n:
-        shape, hardness, squash = 'round', 0.15, 1.0
-    else:
-        shape, hardness, squash = 'round', 0.6, 1.0
+    lo, hi = mask.getextrema()
+    if lo > 200:          # essentially opaque everywhere
+        return True
+    if hi < 24:           # essentially empty
+        return True
+    return False
 
-    img = Image.new('L', (size, size), 0)
-    px = img.load()
-    c = (size - 1) / 2.0
-    rmax = size / 2.0
-    for y in range(size):
-        for x in range(size):
-            dx = (x - c) / rmax
-            dy = (y - c) / (rmax * squash)
-            if shape == 'square':
-                d = max(abs(dx), abs(dy))
-                v = 255 if d <= 0.78 else 0
-            else:
-                d = (dx * dx + dy * dy) ** 0.5
-                if d > 1.0:
-                    v = 0
-                elif shape == 'bristle':
-                    # a few soft streaks across the tip
-                    import math
-                    streak = 0.75 + 0.25 * abs(math.sin(dx * 9.0))
-                    v = int(255 * streak * max(0.0, 1.0 - d) ** 0.35)
-                else:
-                    # hardness controls where the falloff starts
-                    v = int(255 * max(0.0, min(1.0, (1.0 - d) / max(1e-3, 1.0 - hardness))) ** 0.7)
-            px[x, y] = max(0, min(255, v))
-    return img
+
+def scale_radius(r):
+    """Map a Sketchbook radius onto Slate's stamp-radius band.
+
+    Sketchbook's min/maxRadius run 0.1..511 and are not comparable between
+    brushes, so using them verbatim makes a bristle brush paint a 140 px blob
+    while a pencil stays hairline. A square-root curve keeps the ordering and
+    the relative feel while landing every brush in a usable range.
+    """
+    return clamp(1.2 + 8.8 * math.sqrt(max(0.0, r) / 60.0), 1.2, 10.5)
+
+
+def procreate_params(raw):
+    """Read a Procreate `Brush.archive` into Slate brush fields.
+
+    The archive is a binary NSKeyedArchiver plist whose root object carries
+    **named** settings — `plotSpacing`, `plotJitter`, `dynamicsJitterSize`,
+    `minSize`/`maxSize`, `shapeRoundness`, `shapeRotation`, `shapeAzimuth` and
+    the brush's own `name`. (An earlier pass assumed the keys were positional;
+    they are not, so these are the brush's real settings, not defaults.)
+
+    The numbers still need calibrating, because the two engines measure
+    different things:
+      * Procreate's `plotSpacing` is a fraction of the dab diameter. Slate
+        spaces stamps by `sp * 0.274 * a1 * size/3` against a radius of
+        `a1 * size/3`, i.e. a fraction of `sp * 0.137`, so `sp = frac / 0.137`.
+      * Procreate's `maxSize` is the brush's default diameter (measured range
+        1.1..16.0, median 13.1), while Slate's `a1` is a scale on `size/3`.
+        Feeding it through the same curve used for Sketchbook radii keeps the
+        ordering between brushes and lands them in Slate's band.
+      * `shapeRotation` is a turn fraction and is commonly exactly 1.0, which
+        means "no rotation" — it is normalised to 0 rather than 360.
+    """
+    out = {}
+    try:
+        d = plistlib.load(io.BytesIO(raw))
+        objs = d.get('$objects', [])
+        root = objs[1] if len(objs) > 1 else None
+        if not isinstance(root, dict):
+            return out
+
+        def g(key, default=0.0):
+            v = root.get(key, default)
+            if isinstance(v, plistlib.UID):
+                v = objs[v.data] if v.data < len(objs) else default
+            return v
+
+        name = g('name', '')
+        if isinstance(name, str) and name.strip():
+            out['name'] = name.strip()
+
+        sp = float(g('plotSpacing', 0.0)) / 0.137
+        out['sp'] = round(clamp(sp, MIN_SP, MAX_SP), 3)
+        out['sn'] = round(clamp(float(g('plotJitter', 0.0)) * 3.0, 0.0, MAX_SN), 3)
+        out['rj'] = round(clamp(float(g('dynamicsJitterSize', 0.0)) * 2.0, 0.0, 20.0), 2)
+        out['oj'] = round(clamp(float(g('dynamicsJitterOpacity', 0.0)) * 33.0, 0.0, 20.0), 2)
+        out['rt'] = 0.0
+        out['f'] = 1 if g('shapeAzimuth', False) else 0
+
+        max_size = float(g('maxSize', 1.0)) or 1.0
+        min_size = float(g('minSize', 0.0))
+        a1 = scale_radius(max_size)
+        a0 = clamp(a1 * clamp(min_size / max_size, 0.05, 1.0), 0.4, a1)
+        out['a0'] = round(a0, 2)
+        out['a1'] = round(a1, 2)
+
+        paint = clamp(float(g('paintOpacity', 1.0)), 0.02, 1.0)
+        o0 = clamp(float(g('minOpacity', 0.0)) * paint, 0.02, 1.0)
+        o1 = clamp(float(g('maxOpacity', 1.0)) * paint, 0.02, 1.0)
+        out['o0'] = round(min(o0, o1), 3)
+        out['o1'] = round(max(o0, o1), 3)
+
+        out['q'] = round(clamp(float(g('shapeRoundness', 1.0)), 0.2, 1.0), 3)
+        # a turn fraction of 1.0 means "no rotation", not a full spin
+        out['g'] = round((float(g('shapeRotation', 0.0)) * 360.0) % 360.0, 2)
+        out['vt'] = 0
+        out['sz'] = 4
+    except Exception:
+        return {}
+    return out
 
 
 def read_palettes(folder):
@@ -217,35 +276,6 @@ def read_palettes(folder):
     return out
 
 
-def scale_radius(r):
-    """Map a Sketchbook radius onto Slate's stamp-radius band.
-
-    Sketchbook's min/maxRadius run 0.1..511 and are not comparable between
-    brushes, so using them verbatim makes a bristle brush paint a 140 px blob
-    while a pencil stays hairline. A square-root curve keeps the ordering and
-    the relative feel while landing every brush in a usable range.
-    """
-    return clamp(1.2 + 8.8 * math.sqrt(max(0.0, r) / 60.0), 1.2, 10.5)
-
-
-def is_degenerate(mask):
-    """True when a mask cannot work as a stamp.
-
-    A handful of the `.tif` files are paper grains rather than tips: uniformly
-    light with a little noise, which as an opacity mask paints a solid block.
-    """
-    lo, hi = mask.getextrema()
-    if lo > 200:          # essentially opaque everywhere
-        return True
-    if hi < 24:           # essentially empty
-        return True
-    return False
-
-
-def slug(name):
-    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('source')
@@ -264,6 +294,42 @@ def main():
 
     brush_dir = os.path.join(args.out, 'brushes')
     os.makedirs(brush_dir, exist_ok=True)
+    icon_dir = os.path.join(args.out, 'brush-icons')
+    os.makedirs(icon_dir, exist_ok=True)
+
+    icons = {}         # hash -> web path
+
+    def write_icon(raw, bg=None):
+        """Store a brush icon (Sketchbook glyph or Procreate thumbnail).
+
+        Procreate's QuickLook thumbnails are 1060x324 renders of a *white*
+        stroke on transparency — they are drawn against Procreate's dark UI, so
+        on a light panel they are invisible. `bg` composites them onto that dark
+        plate so the artwork reads as it does in its own app. Icons are only
+        ever shown by the picker's <img>, never read back as pixels, so WebP is
+        safe here and roughly a quarter the size of PNG.
+        """
+        im = Image.open(io.BytesIO(raw))
+        im.load()
+        if im.mode != 'RGBA':
+            im = im.convert('RGBA')
+        if bg is not None:
+            plate = Image.new('RGBA', im.size, bg)
+            plate.alpha_composite(im)
+            im = plate
+        w, h = im.size
+        if max(w, h) > 256:
+            k = 256.0 / max(w, h)
+            im = im.resize((max(1, round(w * k)), max(1, round(h * k))), Image.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, format='WEBP', quality=82, method=4)
+        data = buf.getvalue()
+        key = hashlib.md5(data).hexdigest()
+        if key not in icons:
+            with open(os.path.join(icon_dir, key + '.webp'), 'wb') as fh:
+                fh.write(data)
+            icons[key] = f'/brush-icons/{key}.webp'
+        return key
 
     tips = {}          # hash -> web path
     seen = {}          # hash -> mask (dedupe)
@@ -291,6 +357,9 @@ def main():
             # Prefer a real filename stem when it is already a 32-hex hash, so
             # tips shared with Slate's built-in set reuse the same key.
             by_basename = {os.path.basename(n): n for n in names if n.lower().endswith('.tif')}
+            # brush glyphs: `<personalized icon="fine-art-4h-icon">` names a
+            # `fine-art-4h-icon.png` (or @2x) shipped alongside the set
+            icons_by_name = {os.path.basename(n): n for n in names if n.lower().endswith('.png')}
 
             brushes = []
             seen_brushes = set()
@@ -311,17 +380,18 @@ def main():
                     stem = os.path.splitext(os.path.basename(entry))[0]
                     key = stem.lower() if re.fullmatch(r'[0-9a-fA-F]{32}', stem) else None
                     mask = to_mask(z.read(entry))
+                    # A paper grain is not a stamp. Skip rather than substitute
+                    # a generated tip: every mask shipped must be the set's own.
                     if is_degenerate(mask):
-                        mask = fallback_tip(b['name'])
-                        key = None
                         skipped_missing_tip += 1
+                        continue
                     if key is None:
                         key = hashlib.md5(mask.tobytes()).hexdigest()
                 else:
-                    # internal Sketchbook tip: approximate it
-                    mask = fallback_tip(b['name'])
-                    key = hashlib.md5(mask.tobytes()).hexdigest()
+                    # the tip lives inside Sketchbook itself and is not in the
+                    # ZIP — nothing authentic to use, so the preset is dropped
                     skipped_missing_tip += 1
+                    continue
 
                 key = key.lower()
 
@@ -339,10 +409,21 @@ def main():
                 a0 = clamp(a1 * clamp(ratio, 0.05, 1.0), 0.4, a1)
                 sp = clamp(b['spacingBias'] * SPACING_K, MIN_SP, MAX_SP)
 
+                ic = None
+                if b['icon']:
+                    for cand in (b['icon'] + '@2x.png', b['icon'] + '.png'):
+                        if cand in icons_by_name:
+                            try:
+                                ic = write_icon(z.read(icons_by_name[cand]))
+                            except Exception:
+                                ic = None
+                            break
+
                 brushes.append({
                     'id': f'{pack_id}-{bi}',
                     'n': b['name'],
                     't': key,
+                    **({'ic': ic} if ic else {}),
                     'sp': round(sp, 3),
                     'sn': round(clamp(b['spacingNoise'], 0.0, MAX_SN), 3),
                     'rj': round(clamp(b['radiusJitter'], 0.0, 20.0), 2),
@@ -360,7 +441,8 @@ def main():
                 })
 
         if brushes:
-            packs.append({'id': pack_id, 'name': pack_name, 'brushes': brushes})
+            packs.append({'id': pack_id, 'name': pack_name, 'source': 'sketchbook',
+                          'brushes': brushes})
             print(f'  {pack_name:34} {len(brushes):3} brushes')
 
     # ----------------------------------------------------------------------
@@ -398,44 +480,90 @@ def main():
         tips[key] = f'/brushes/{key}.png'
         return key
 
-    def emit_mask_pack(pack_name, items, defaults=STAMP_DEFAULTS):
-        """items: [(brush name, PIL mask)] -> one pack of stamp brushes."""
+    def emit_mask_pack(pack_name, items, defaults=STAMP_DEFAULTS, source='stamps'):
+        """items: [(brush name, PIL mask, icon bytes or None)] -> one pack."""
         nonlocal skipped_missing_tip
         pack_id = slug(pack_name)
         if pack_id in seen_packs or not items:
             return
         seen_packs.add(pack_id)
         brushes = []
-        for i, (nm, mask) in enumerate(items):
+        for i, (nm, mask, icon_raw) in enumerate(items):
             if is_degenerate(mask):
-                mask = fallback_tip(nm)
                 skipped_missing_tip += 1
+                continue
+            ic = None
+            if icon_raw:
+                try:
+                    ic = write_icon(icon_raw)
+                except Exception:
+                    ic = None
             brushes.append({
                 'id': f'{pack_id}-{i}', 'n': nm, 't': write_mask(mask),
+                **({'ic': ic} if ic else {}),
                 **defaults,
             })
-        packs.append({'id': pack_id, 'name': pack_name, 'brushes': brushes})
+        if not brushes:
+            return
+        packs.append({'id': pack_id, 'name': pack_name, 'source': source,
+                      'brushes': brushes})
         print(f'  {pack_name:34} {len(brushes):3} brushes')
 
-    def procreate_items(zf):
-        """Every <uuid>/Shape.png in a .brushset becomes one brush."""
-        out = []
+    def emit_procreate(pack_name, zf):
+        """One brush per `<uuid>/`, using Procreate's own shape and settings."""
+        nonlocal skipped_missing_tip
+        pack_id = slug(pack_name)
+        if pack_id in seen_packs:
+            return
+        seen_packs.add(pack_id)
+        brushes = []
         for n in sorted(zf.namelist()):
             if not n.endswith('/Shape.png') or '__MACOSX' in n:
                 continue
             # the top-level folder is the brush; `Reset/` is Procreate's default
             if n.count('/') != 1:
                 continue
+            uid = n.split('/')[0]
             try:
-                out.append((f'Brush {len(out) + 1}', to_mask(zf.read(n))))
+                mask = to_mask(zf.read(n))
             except Exception:
                 continue
-        return out
+            if is_degenerate(mask):
+                skipped_missing_tip += 1
+                continue
+            params = {}
+            arch = f'{uid}/Brush.archive'
+            if arch in zf.namelist():
+                try:
+                    params = procreate_params(zf.read(arch))
+                except Exception:
+                    params = {}
+            nm = params.pop('name', '') or f'Brush {len(brushes) + 1}'
+            icon = None
+            thumb = f'{uid}/QuickLook/Thumbnail.png'
+            if thumb in zf.namelist():
+                try:
+                    # Procreate renders these white-on-clear for its dark UI
+                    icon = write_icon(zf.read(thumb), bg=(28, 28, 30, 255))
+                except Exception:
+                    icon = None
+            brushes.append({
+                'id': f'{pack_id}-{len(brushes)}',
+                'n': nm,
+                't': write_mask(mask),
+                **({'ic': icon} if icon else {}),
+                **{**STAMP_DEFAULTS, **params},
+            })
+        if not brushes:
+            return
+        packs.append({'id': pack_id, 'name': pack_name, 'source': 'procreate',
+                      'brushes': brushes})
+        print(f'  {pack_name:34} {len(brushes):3} brushes')
 
     def read_brushset_bytes(data, name):
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                emit_mask_pack(name, procreate_items(z))
+                emit_procreate(name, z)
         except zipfile.BadZipFile:
             print(f'  ! {name}: not a zip, skipped')
 
@@ -466,18 +594,19 @@ def main():
                 for n in sorted(pngs):
                     try:
                         items.append((os.path.splitext(os.path.basename(n))[0],
-                                      to_mask(z.read(n))))
+                                      to_mask(z.read(n)), None))
                     except Exception:
                         continue
                 emit_mask_pack(os.path.splitext(fname)[0], items,
-                               {**STAMP_DEFAULTS, 'sp': 6.0})
+                               {**STAMP_DEFAULTS, 'sp': 6.0}, source='stamps')
         except zipfile.BadZipFile:
             print(f'  ! {fname}: not a zip, skipped')
 
     for fname in sorted(n for n in os.listdir(src) if n.lower().endswith(('.abr', '.sut'))):
         print(f'  - {fname}: format not supported, skipped')
 
-    payload = {'packs': packs, 'tips': tips, 'palettes': read_palettes(src)}
+    payload = {'packs': packs, 'tips': tips, 'icons': icons,
+               'palettes': read_palettes(src)}
     js_path = os.path.join(args.out, 'sketchbook-packs.js')
     with open(js_path, 'w', encoding='utf-8') as fh:
         fh.write('/* Generated by scripts/import-skbrushes.py — do not edit by hand. */\n')
