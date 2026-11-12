@@ -242,17 +242,25 @@ def is_degenerate(mask):
     return False
 
 
+def slug(name):
+    return re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('source')
     ap.add_argument('--size', type=int, default=96, help='mask edge in px (Slate ships 96)')
     ap.add_argument('--out', default='public')
+    ap.add_argument('--stamp-zip', action='append', default=[],
+                    help='zip of loose PNG stamps to import as one set (repeatable)')
     args = ap.parse_args()
 
     src = args.source
     files = sorted(n for n in os.listdir(src) if n.lower().endswith('.skbrushes'))
-    if not files:
-        sys.exit(f'no .skbrushes in {src}')
+    others = [n for n in os.listdir(src)
+              if n.lower().endswith(('.brushset', '.zip', '.abr', '.sut'))]
+    if not files and not others:
+        sys.exit(f'no brush sources in {src}')
 
     brush_dir = os.path.join(args.out, 'brushes')
     os.makedirs(brush_dir, exist_ok=True)
@@ -320,8 +328,10 @@ def main():
                 if key not in seen:
                     seen[key] = mask
                     m = mask.resize((args.size, args.size), Image.LANCZOS)
-                    rgb = Image.merge('RGB', (m, m, m))
-                    rgb.save(os.path.join(brush_dir, key + '.png'), optimize=True)
+                    # Saved as an 8-bit greyscale PNG. A browser decodes it to
+                    # R=G=B=level, which is exactly what the engine's red-channel
+                    # read wants, at a third of the bytes of an RGB PNG.
+                    m.save(os.path.join(brush_dir, key + '.png'), optimize=True)
                 tips[key] = f'/brushes/{key}.png'
 
                 a1 = scale_radius(b['maxRadius'])
@@ -352,6 +362,120 @@ def main():
         if brushes:
             packs.append({'id': pack_id, 'name': pack_name, 'brushes': brushes})
             print(f'  {pack_name:34} {len(brushes):3} brushes')
+
+    # ----------------------------------------------------------------------
+    # Procreate `.brushset` and plain PNG stamp packs
+    #
+    # A Procreate brushset is a ZIP of one folder per brush, each holding a
+    # `Shape.png` — the stamp — plus a binary `Brush.archive` with the settings.
+    # The archive is an NSKeyedArchiver blob whose parameters are indexed rather
+    # than named, so the settings are not recoverable without reverse-engineering
+    # Procreate's own keys. The shape is the brush's visual identity, so it is
+    # used with tuned defaults instead: Procreate brushes then behave like
+    # stamps, which is what most of these sets are.
+    #
+    # `.abr` (Photoshop) and `.sut` (Clip Studio) are skipped: the ABR here uses
+    # the CS-era UUID-sampled layout rather than the classic `samp` table, and
+    # Clip Studio's .sut is a SQLite file whose texture column is empty — the
+    # images live in the app's material catalog, not in the file.
+    # ----------------------------------------------------------------------
+
+    # These sets are clump stamps: the artwork occupies a thin silhouette inside
+    # the mask, so the stamp has to be drawn large enough for the blades to read.
+    # At a1=4 a grass tuft collapsed into a dot.
+    STAMP_DEFAULTS = {
+        'sp': 5.0, 'sn': 0.0, 'rj': 0.0, 'rt': 0.0, 'f': 0, 'oj': 0.0,
+        'a0': 4.0, 'a1': 9.0, 'o0': 1.0, 'o1': 1.0, 'q': 1.0, 'g': 0.0,
+        'vt': 0, 'sz': 4,
+    }
+
+    def write_mask(mask):
+        key = hashlib.md5(mask.tobytes()).hexdigest()
+        if key not in seen:
+            seen[key] = mask
+            m = mask.resize((args.size, args.size), Image.LANCZOS)
+            m.save(os.path.join(brush_dir, key + '.png'), optimize=True)
+        tips[key] = f'/brushes/{key}.png'
+        return key
+
+    def emit_mask_pack(pack_name, items, defaults=STAMP_DEFAULTS):
+        """items: [(brush name, PIL mask)] -> one pack of stamp brushes."""
+        nonlocal skipped_missing_tip
+        pack_id = slug(pack_name)
+        if pack_id in seen_packs or not items:
+            return
+        seen_packs.add(pack_id)
+        brushes = []
+        for i, (nm, mask) in enumerate(items):
+            if is_degenerate(mask):
+                mask = fallback_tip(nm)
+                skipped_missing_tip += 1
+            brushes.append({
+                'id': f'{pack_id}-{i}', 'n': nm, 't': write_mask(mask),
+                **defaults,
+            })
+        packs.append({'id': pack_id, 'name': pack_name, 'brushes': brushes})
+        print(f'  {pack_name:34} {len(brushes):3} brushes')
+
+    def procreate_items(zf):
+        """Every <uuid>/Shape.png in a .brushset becomes one brush."""
+        out = []
+        for n in sorted(zf.namelist()):
+            if not n.endswith('/Shape.png') or '__MACOSX' in n:
+                continue
+            # the top-level folder is the brush; `Reset/` is Procreate's default
+            if n.count('/') != 1:
+                continue
+            try:
+                out.append((f'Brush {len(out) + 1}', to_mask(zf.read(n))))
+            except Exception:
+                continue
+        return out
+
+    def read_brushset_bytes(data, name):
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                emit_mask_pack(name, procreate_items(z))
+        except zipfile.BadZipFile:
+            print(f'  ! {name}: not a zip, skipped')
+
+    # standalone .brushset files
+    for fname in sorted(n for n in os.listdir(src) if n.lower().endswith('.brushset')):
+        with open(os.path.join(src, fname), 'rb') as fh:
+            read_brushset_bytes(fh.read(), os.path.splitext(fname)[0])
+
+    # zips that carry brushesets, or loose PNG stamps
+    for fname in sorted(n for n in os.listdir(src) if n.lower().endswith('.zip')):
+        try:
+            with zipfile.ZipFile(os.path.join(src, fname)) as z:
+                inner = [n for n in z.namelist()
+                         if n.lower().endswith('.brushset') and '__MACOSX' not in n]
+                if inner:
+                    for n in inner:
+                        read_brushset_bytes(z.read(n), os.path.splitext(os.path.basename(n))[0])
+                    continue
+                # A zip of loose PNGs is only a brush pack if it was named
+                # explicitly: a downloads folder is full of archives that happen
+                # to contain PNGs (repo snapshots, exam figures) and importing
+                # those as brushes would be wrong.
+                if fname not in args.stamp_zip:
+                    continue
+                pngs = [n for n in z.namelist()
+                        if n.lower().endswith('.png') and '__MACOSX' not in n]
+                items = []
+                for n in sorted(pngs):
+                    try:
+                        items.append((os.path.splitext(os.path.basename(n))[0],
+                                      to_mask(z.read(n))))
+                    except Exception:
+                        continue
+                emit_mask_pack(os.path.splitext(fname)[0], items,
+                               {**STAMP_DEFAULTS, 'sp': 6.0})
+        except zipfile.BadZipFile:
+            print(f'  ! {fname}: not a zip, skipped')
+
+    for fname in sorted(n for n in os.listdir(src) if n.lower().endswith(('.abr', '.sut'))):
+        print(f'  - {fname}: format not supported, skipped')
 
     payload = {'packs': packs, 'tips': tips, 'palettes': read_palettes(src)}
     js_path = os.path.join(args.out, 'sketchbook-packs.js')

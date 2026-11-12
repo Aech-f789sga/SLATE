@@ -159,6 +159,9 @@ const PRESETS = presetPalette();
 const RECENT_KEY = 'inkpad-recent-colors';
 const SAVED_KEY = 'inkpad-saved-colors';
 const PALETTE_KEY = 'inkpad-color-palette';
+/** Which brush set the pen sheet is showing. With the imported libraries the
+ *  preset list runs to ~1100 entries, so the sheet shows one set at a time. */
+const BRUSHSET_KEY = 'inkpad-brush-set';
 
 /**
  * Colour palettes imported from Autodesk Sketchbook `.skcolors` files
@@ -458,6 +461,14 @@ const CSS = `
 /* brush picker */
 #ink-brush{width:330px;max-width:calc(100vw - 16px)}
 #ink-brush .bd{max-height:min(70vh,500px)}
+/* the set chooser: one dropdown instead of ~70 stacked sections */
+#ink-brush .bset-row{padding:2px 14px 9px}
+#ink-brush .bset{
+  width:100%;box-sizing:border-box;padding:7px 9px;border-radius:9px;
+  border:1px solid var(--gn-line,#e6e2dc);background:#fff;color:#1c2430;
+  font-size:12.5px;font-weight:600;cursor:pointer;
+}
+#ink-brush .bset:focus{outline:2px solid #2f6df6;outline-offset:1px}
 .brush-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:8px 14px 4px}
 /* the engine's 32 brush presets, two to a row with a live stroke preview */
 .brush-presets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:2px 14px 4px}
@@ -1761,10 +1772,41 @@ function paintBrushPop() {
 
   // the engine's own preset library, grouped the way its drawer used to group it
   const all = brushPresets();
-  PRESET_FAMILIES.concat(packFamilies()).forEach((fam) => {
-    const list = all.filter((x) => x.id.startsWith(fam.prefix));
-    if (!list.length) return;
-    bd.append(sec(fam.title));
+  const packs = packFamilies();
+
+  // One set at a time. The library is ~1100 presets once the imported
+  // Sketchbook and Procreate sets are counted; stacking 70 sections in this
+  // sheet made it a scroll with no landmarks.
+  bd.append(sec('Brush set'));
+  const srow = el('div', '');
+  srow.className = 'bset-row';
+  const sel = document.createElement('select');
+  sel.className = 'bset';
+  sel.setAttribute('aria-label', 'Brush set');
+  const addOpt = (v: string, label: string) => {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = label;
+    sel.append(o);
+  };
+  addOpt('builtin', `Built-in (${all.filter((x) => /^(dd|pb|cs)/.test(x.id)).length})`);
+  packs.forEach((p) => {
+    const n = all.filter((x) => x.id.startsWith(p.prefix)).length;
+    if (n) addOpt(p.prefix, `${p.title} (${n})`);
+  });
+  const stored = ls(BRUSHSET_KEY, 'builtin');
+  sel.value = stored;
+  // a stored set can disappear if the importer output changes
+  const chosen = sel.value || 'builtin';
+  sel.value = chosen;
+  sel.onchange = () => {
+    lsSet(BRUSHSET_KEY, sel.value);
+    paintBrushPop();
+  };
+  srow.append(sel);
+  bd.append(srow);
+
+  const renderGrid = (list: BrushPreset[]) => {
     const pg = el('div', '');
     pg.className = 'brush-presets';
     list.forEach((x) => {
@@ -1787,7 +1829,19 @@ function paintBrushPop() {
       drawPresetPreview(c, x.id, x.sz);
     });
     bd.append(pg);
-  });
+  };
+
+  if (chosen === 'builtin') {
+    PRESET_FAMILIES.forEach((fam) => {
+      const list = all.filter((x) => x.id.startsWith(fam.prefix));
+      if (!list.length) return;
+      bd.append(sec(fam.title));
+      renderGrid(list);
+    });
+  } else {
+    const list = all.filter((x) => x.id.startsWith(chosen));
+    if (list.length) renderGrid(list);
+  }
 }
 
 /**

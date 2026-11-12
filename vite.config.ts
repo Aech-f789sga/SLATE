@@ -121,7 +121,7 @@ export default defineConfig(() => {
               handler: 'CacheFirst',
               options: {
                 cacheName: 'inkpad-brush-masks',
-                expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 365 },
+                expiration: { maxEntries: 1200, maxAgeSeconds: 60 * 60 * 24 * 365 },
                 cacheableResponse: { statuses: [0, 200] },
               },
             },
