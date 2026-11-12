@@ -158,6 +158,26 @@ const PRESETS = presetPalette();
 
 const RECENT_KEY = 'inkpad-recent-colors';
 const SAVED_KEY = 'inkpad-saved-colors';
+const PALETTE_KEY = 'inkpad-color-palette';
+
+/**
+ * Colour palettes imported from Autodesk Sketchbook `.skcolors` files
+ * (`scripts/import-skbrushes.py` writes them to `window.SKB.palettes`).
+ * Choosing one swaps the Presets grid for that palette; the choice sticks.
+ */
+interface ImportedPalette {
+  name: string;
+  colors: string[];
+}
+
+function paletteList(): ImportedPalette[] {
+  const s = (window as unknown as { SKB?: { palettes?: ImportedPalette[] } }).SKB;
+  return s && Array.isArray(s.palettes) ? s.palettes : [];
+}
+
+function activePalette(): string {
+  return ls(PALETTE_KEY, 'default');
+}
 
 function readList(key: string): string[] {
   try {
@@ -322,6 +342,21 @@ const CSS = `
   box-shadow:inset 0 0 0 1px rgba(0,0,0,.10);
 }
 #ink-pop .grid button.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.10),0 0 0 2px #fff,0 0 0 3.5px #2f6df6}
+/* palette chips — Default plus one per imported Sketchbook .skcolors file.
+   They scroll sideways rather than wrapping, so the swatch grid below keeps a
+   stable position no matter how many palettes are installed. */
+#ink-pop .pal-row{
+  display:flex;gap:4px;overflow-x:auto;padding-bottom:8px;
+  scrollbar-width:none;-ms-overflow-style:none;
+}
+#ink-pop .pal-row::-webkit-scrollbar{display:none}
+#ink-pop .pal-row button{
+  flex:none;border:1px solid #e3e8f0;background:#fff;color:#5b6572;
+  border-radius:999px;padding:4px 9px;font-size:11px;font-weight:600;
+  cursor:pointer;white-space:nowrap;
+}
+#ink-pop .pal-row button:hover{background:#f4f7fc}
+#ink-pop .pal-row button.on{background:#2f6df6;border-color:#2f6df6;color:#fff}
 #ink-pop .empty{font-size:12px;color:#8b95a3;padding:14px 2px;text-align:center}
 
 /* HSB wheel */
@@ -1089,10 +1124,37 @@ function paintColorPop() {
   colorPop.append(body);
 
   if (tab === 'presets') {
+    const palettes = paletteList();
+    const chosen = activePalette();
+
+    // Palette chips, above the swatches they switch between.
+    if (palettes.length) {
+      const row = el('div', '');
+      row.className = 'pal-row';
+      const chip = (label: string, key: string) => {
+        const b = el('button', '', label) as HTMLButtonElement;
+        b.type = 'button';
+        b.classList.toggle('on', key === chosen);
+        b.onclick = () => {
+          lsSet(PALETTE_KEY, key);
+          paintColorPop();
+        };
+        row.append(b);
+      };
+      chip('Default', 'default');
+      palettes.forEach((p) => chip(p.name, p.name));
+      body.append(row);
+      // the row scrolls sideways, so make sure the palette in use is the one
+      // you can see rather than leaving it off the right edge
+      const on = row.querySelector('button.on') as HTMLElement | null;
+      if (on) requestAnimationFrame(() => on.scrollIntoView({ block: 'nearest', inline: 'center' }));
+    }
+
     const g = el('div', '');
     g.className = 'grid';
     const saved = readList(SAVED_KEY);
-    const all = saved.concat(PRESETS);
+    const imported = palettes.find((p) => p.name === chosen);
+    const all = imported ? imported.colors : saved.concat(PRESETS);
     all.forEach((c) => {
       const b = el('button') as HTMLButtonElement;
       b.style.background = c;
@@ -1570,6 +1632,17 @@ const PRESET_FAMILIES: { prefix: string; title: string }[] = [
   { prefix: 'cs', title: 'Calligraphy' },
 ];
 
+/**
+ * Brush sets imported from Autodesk Sketchbook (`scripts/import-skbrushes.py`
+ * writes them to `window.SKB`, and index.html appends them to the engine's
+ * `BRD`). One family per pack, so a 500-brush library stays navigable.
+ */
+function packFamilies(): { prefix: string; title: string }[] {
+  const s = (window as unknown as { SKB?: { packs?: { id: string; name: string }[] } }).SKB;
+  if (!s || !Array.isArray(s.packs)) return [];
+  return s.packs.map((p) => ({ prefix: p.id + '-', title: p.name }));
+}
+
 let presets: BrushPreset[] | null = null;
 
 function brushPresets(): BrushPreset[] {
@@ -1688,7 +1761,7 @@ function paintBrushPop() {
 
   // the engine's own preset library, grouped the way its drawer used to group it
   const all = brushPresets();
-  PRESET_FAMILIES.forEach((fam) => {
+  PRESET_FAMILIES.concat(packFamilies()).forEach((fam) => {
     const list = all.filter((x) => x.id.startsWith(fam.prefix));
     if (!list.length) return;
     bd.append(sec(fam.title));
