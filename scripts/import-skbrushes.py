@@ -126,6 +126,9 @@ def parse_set(xml_text):
             'paper': s(pt, 'name', '') if 'paperTextureEnabled="true"' in pt else '',
             'icon': s(pe, 'icon', ''),
             'texIcon': s(pe, 'useTextureIcon', 'false') == 'true',
+            # the display name lives here; `<brush name>` is often just
+            # "Custom 10271", which is an id, not something to show a user
+            'pname': s(pe, 'name', ''),
         })
     return out
 
@@ -467,7 +470,7 @@ def main():
 
                 brushes.append({
                     'id': f'{pack_id}-{bi}',
-                    'n': b['name'],
+                    'n': (b['pname'] or b['name']).strip(),
                     't': key,
                     **({'ic': ic} if ic else {}),
                     'sp': round(sp, 3),
