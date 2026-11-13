@@ -161,15 +161,23 @@ def is_degenerate(mask):
     return False
 
 
-def scale_radius(r):
-    """Map a Sketchbook radius onto Slate's stamp-radius band.
+def scale_radius(r, median=46.0):
+    """Map a source brush radius onto Slate's `a1` band.
 
-    Sketchbook's min/maxRadius run 0.1..511 and are not comparable between
-    brushes, so using them verbatim makes a bristle brush paint a 140 px blob
-    while a pencil stays hairline. A square-root curve keeps the ordering and
-    the relative feel while landing every brush in a usable range.
+    This is the single most important calibration in the import. Slate's own
+    textured presets run `a1` from about 4 to 46 (median ~14) — a cloud brush is
+    `a1=45`, a quill `a1=7` — and the stamp radius is `a1 * size/3`. An earlier
+    version squeezed everything into 1.2..10.5, which made every imported brush
+    paint a thin line: the dab was so small that a textured mask collapsed to a
+    hairline and its edges read as regular ticks, which is exactly the "row of
+    dots" complaint.
+
+    So the mapping is anchored on the source's median value, which lands at 14 —
+    the middle of Slate's own band — and a 0.6 power spreads the rest while
+    keeping the ordering. Relative size between brushes survives; absolute size
+    stays in the range the engine and its other presets already use.
     """
-    return clamp(1.2 + 8.8 * math.sqrt(max(0.0, r) / 60.0), 1.2, 10.5)
+    return clamp(14.0 * (max(r, 0.05) / median) ** 0.6, 1.5, 46.0)
 
 
 def procreate_params(raw):
@@ -221,16 +229,19 @@ def procreate_params(raw):
 
         max_size = float(g('maxSize', 1.0)) or 1.0
         min_size = float(g('minSize', 0.0))
-        a1 = scale_radius(max_size)
+        a1 = scale_radius(max_size, median=13.1)
         a0 = clamp(a1 * clamp(min_size / max_size, 0.05, 1.0), 0.4, a1)
         out['a0'] = round(a0, 2)
         out['a1'] = round(a1, 2)
 
-        paint = clamp(float(g('paintOpacity', 1.0)), 0.02, 1.0)
-        o0 = clamp(float(g('minOpacity', 0.0)) * paint, 0.02, 1.0)
-        o1 = clamp(float(g('maxOpacity', 1.0)) * paint, 0.02, 1.0)
-        out['o0'] = round(min(o0, o1), 3)
-        out['o1'] = round(max(o0, o1), 3)
+        # minOpacity/maxOpacity are the opacity *slider's* range, not a per-dab
+        # random range; the brush's actual opacity is paintOpacity. Using the
+        # slider range here scattered dabs between 0% and 100%, which speckles
+        # the stroke — the "dots" look.
+        paint = clamp(float(g('paintOpacity', 1.0)), 0.2, 1.0)
+        paint = density_opacity(out.get('sp', 1.0), paint)
+        out['o0'] = round(clamp(paint * 0.7, 0.2, paint), 3)
+        out['o1'] = round(paint, 3)
 
         out['q'] = round(clamp(float(g('shapeRoundness', 1.0)), 0.2, 1.0), 3)
         # a turn fraction of 1.0 means "no rotation", not a full spin
@@ -274,6 +285,23 @@ def read_palettes(folder):
             out.append({'name': name, 'colors': colors})
             print(f'  palette {name:24} {len(colors)} colours')
     return out
+
+
+def density_opacity(sp, o1):
+    """Hold back per-dab opacity when a brush stamps very densely.
+
+    Sketchbook and Procreate both layer a separate paper grain over the stroke,
+    so a densely-stamped brush still shows texture. Slate has no grain layer: at
+    full opacity, hundreds of overlapping tips average into a flat slab — which
+    is what made the acrylic set look like a solid black bar. Letting the dabs be
+    translucent instead lets the tip's own texture survive the overlap, which is
+    also how the source brushes read.
+    """
+    if sp < 0.35:
+        o1 = min(o1, 0.55)
+    elif sp < 0.8:
+        o1 = min(o1, 0.78)
+    return o1
 
 
 def main():
@@ -404,10 +432,19 @@ def main():
                     m.save(os.path.join(brush_dir, key + '.png'), optimize=True)
                 tips[key] = f'/brushes/{key}.png'
 
-                a1 = scale_radius(b['maxRadius'])
+                a1 = scale_radius(b['maxRadius'], median=46.0)
                 ratio = (b['minRadius'] / b['maxRadius']) if b['maxRadius'] > 0 else 1.0
                 a0 = clamp(a1 * clamp(ratio, 0.05, 1.0), 0.4, a1)
                 sp = clamp(b['spacingBias'] * SPACING_K, MIN_SP, MAX_SP)
+
+                # minOpacity/maxOpacity are the pressure range of the opacity
+                # slider. Mapping that straight onto Slate's per-dab random
+                # range lets dabs land at 1-2% opacity, which punches holes in
+                # the stroke and reads as speckle. Keep the top of the range and
+                # hold the floor up so consecutive dabs stay connected.
+                o1 = clamp(b['maxOpacity'], 0.2, 1.0)
+                o1 = density_opacity(sp, o1)
+                o0 = clamp(o1 * 0.7, 0.2, o1)
 
                 ic = None
                 if b['icon']:
@@ -432,8 +469,8 @@ def main():
                     'oj': round(clamp(b['opacityJitter'], 0.0, 20.0), 2),
                     'a0': round(a0, 2),
                     'a1': round(a1, 2),
-                    'o0': round(clamp(b['minOpacity'], 0.02, 1.0), 3),
-                    'o1': round(clamp(b['maxOpacity'], 0.02, 1.0), 3),
+                    'o0': round(o0, 3),
+                    'o1': round(o1, 3),
                     'q': round(clamp(b['squish'], 0.2, 1.0), 3),
                     'g': round(b['angle'], 2),
                     'vt': 0,
