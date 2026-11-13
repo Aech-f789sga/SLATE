@@ -56,9 +56,18 @@ from PIL import Image
 #
 # so the fields below are chosen to reproduce Sketchbook's spacing/rotation/
 # opacity behaviour rather than to copy its numbers verbatim.
+#
+# SPACING_K: `spacingBias` runs 0.1..10 across the sets, and 10 means "one dab
+# diameter apart" — at that spacing a stamp brush reads as separate shapes, and
+# 0.1 reads as a solid line. So the native spacing is `bias * 0.1` of the dab
+# diameter. Slate spaces dabs by `sp * 0.274 * a1 * size/3` against a radius of
+# `a1 * size/3`, i.e. a fraction of `sp * 0.137`, hence
+# `sp = (bias * 0.1) / 0.137 = bias * 0.73`. An earlier version used 2.0, which
+# spaced every mid-range brush ~2.7x too far apart: clouds, water textures and
+# the like broke into visible dabs instead of flowing.
 
-SPACING_K = 2.0   # spacingBias -> sp; 0.7 gives a dense, overlapping tip run
-MIN_SP, MAX_SP = 0.12, 12.0
+SPACING_K = 0.73  # spacingBias -> sp; see the note below
+MIN_SP, MAX_SP = 0.12, 8.0
 MAX_SN = 3.0      # guard: sn > 4 can drive the spacing step negative
 MAX_RADIUS = 46.0 # Slate's own a1 tops out at 45.99
 
