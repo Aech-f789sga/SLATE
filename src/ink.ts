@@ -162,6 +162,17 @@ const PALETTE_KEY = 'inkpad-color-palette';
 /** Which brush set the pen sheet is showing. With the imported libraries the
  *  preset list runs to ~1100 entries, so the sheet shows one set at a time. */
 const BRUSHSET_KEY = 'inkpad-brush-set';
+/**
+ * Per-tool / per-brush opacity, 0.05..1. Keyed by the pen type when the Pen tab
+ * is open (a brush id, or 'ball'/'fountain'/… for the plain pens), and by
+ * 'hl' / 'er' for the highlighter and eraser.
+ *
+ * The value is pushed to `window.BROP` and stamped onto each stroke as `s.op`
+ * when it starts, so it is baked into that stroke. The engine multiplies it into
+ * whatever alpha the stroke would otherwise use. Doing it that way means moving
+ * the slider does not retroactively repaint strokes you already drew.
+ */
+const OPACITY_KEY = 'inkpad-brush-opacity';
 
 /**
  * Colour palettes imported from Autodesk Sketchbook `.skcolors` files
@@ -182,8 +193,61 @@ function activePalette(): string {
   return ls(PALETTE_KEY, 'default');
 }
 
-function readList(key: string): string[] {
+/* ---- stroke opacity ------------------------------------------------- */
+
+function opacityMap(): Record<string, number> {
   try {
+    const raw = JSON.parse(ls(OPACITY_KEY, '{}'));
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function opacityOf(key: string): number {
+  const v = opacityMap()[key];
+  return typeof v === 'number' && v > 0 && v <= 1 ? v : 1;
+}
+
+function setOpacity(key: string, k: number) {
+  const m = opacityMap();
+  const v = Math.max(0.05, Math.min(1, k));
+  if (v >= 0.995) delete m[key];
+  else m[key] = v;
+  lsSet(OPACITY_KEY, JSON.stringify(m));
+  pushOpacity();
+}
+
+/** Hand the map to the engine, which reads it when a stroke begins. */
+function pushOpacity() {
+  (window as unknown as { BROP?: Record<string, number> }).BROP = opacityMap();
+}
+
+/** Opacity slider shared by the brush sheet and the eraser sheet. */
+function opacityRow(bd: HTMLElement, key: string) {
+  bd.append(sec('Opacity'));
+  const row = el('div', '');
+  row.className = 'brush-wm';
+  const cur = opacityOf(key);
+  const range = el('input') as HTMLInputElement;
+  range.type = 'range';
+  range.min = '5';
+  range.max = '100';
+  range.step = '1';
+  range.value = String(Math.round(cur * 100));
+  range.setAttribute('aria-label', 'Opacity');
+  const out = el('code', '', Math.round(cur * 100) + '%');
+  out.className = 'wm-out';
+  range.oninput = () => {
+    const k = Number(range.value) / 100;
+    out.textContent = Math.round(k * 100) + '%';
+    setOpacity(key, k);
+  };
+  row.append(range, out);
+  bd.append(row);
+}
+
+function readList(key: string): string[] {  try {
     const raw = JSON.parse(ls(key, '[]'));
     return Array.isArray(raw) ? raw.filter((x) => typeof x === 'string').slice(0, 24) : [];
   } catch {
@@ -1791,6 +1855,10 @@ function paintBrushPop() {
   bd.append(sec('Thickness'));
   paintWidthRow(bd, 'pen');
 
+  // Opacity for the pen or brush currently selected. The highlighter tab
+  // returns above and adds its own row, since it is one tool with no brush list.
+  opacityRow(bd, currentPenType());
+
   // the engine's own preset library, grouped the way its drawer used to group it
   const all = brushPresets();
   const packs = packFamilies();
@@ -1993,6 +2061,9 @@ function paintHighlighterTab(bd: HTMLElement) {
   bd.append(sec('Tip'));
   paintWidthRow(bd, 'hl');
 
+  // the highlighter is a single tool, so its opacity is its own
+  opacityRow(bd, 'hl');
+
   bd.append(sec('Colour'));
   const cols = el('div', '');
   cols.className = 'brush-w';
@@ -2133,10 +2204,13 @@ function paintErSheet() {
     paintErSheet();
   }));
 
+  // partial erase: the engine draws the eraser with destination-out, so an
+  // opacity below 1 lifts the ink instead of wiping it
+  opacityRow(bd, 'er');
+
   const clear = el('div', '');
   clear.className = 'row';
-  const cl = el('span', '', 'Clear Page');
-  cl.className = 'lb danger';
+  const cl = el('span', '', 'Clear Page');  cl.className = 'lb danger';
   const cb = el('button', '', 'Clear');
   cb.className = 'lb';
   cb.style.cssText =
@@ -2508,6 +2582,7 @@ function boot() {
   hookEraser();
   hookDrawer();
   pushEraserMode();
+  pushOpacity();
   hookAutoDeselect();
   loadDash();
   hookDashStroke();
