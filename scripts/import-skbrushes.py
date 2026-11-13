@@ -339,24 +339,19 @@ def main():
 
     icons = {}         # hash -> web path
 
-    def write_icon(raw, bg=None):
-        """Store a brush icon (Sketchbook glyph or Procreate thumbnail).
+    def write_icon(raw):
+        """Store a Sketchbook brush glyph.
 
-        Procreate's QuickLook thumbnails are 1060x324 renders of a *white*
-        stroke on transparency — they are drawn against Procreate's dark UI, so
-        on a light panel they are invisible. `bg` composites them onto that dark
-        plate so the artwork reads as it does in its own app. Icons are only
-        ever shown by the picker's <img>, never read back as pixels, so WebP is
-        safe here and roughly a quarter the size of PNG.
+        Only Sketchbook sets carry their own brush icons (`personalized/@icon`
+        pointing at a 40 or 80 px PNG). Procreate and Clip Studio brushes are
+        left without one and fall back to the picker's live stroke sample.
+        Icons are only ever shown by an <img>, never read back as pixels, so
+        WebP is safe here and roughly a quarter the size of PNG.
         """
         im = Image.open(io.BytesIO(raw))
         im.load()
         if im.mode != 'RGBA':
             im = im.convert('RGBA')
-        if bg is not None:
-            plate = Image.new('RGBA', im.size, bg)
-            plate.alpha_composite(im)
-            im = plate
         w, h = im.size
         if max(w, h) > 256:
             k = 256.0 / max(w, h)
@@ -588,19 +583,13 @@ def main():
                 except Exception:
                     params = {}
             nm = params.pop('name', '') or f'Brush {len(brushes) + 1}'
-            icon = None
-            thumb = f'{uid}/QuickLook/Thumbnail.png'
-            if thumb in zf.namelist():
-                try:
-                    # Procreate renders these white-on-clear for its dark UI
-                    icon = write_icon(zf.read(thumb), bg=(28, 28, 30, 255))
-                except Exception:
-                    icon = None
+            # Procreate's QuickLook thumbnail is deliberately NOT used as an
+            # icon: only Sketchbook sets carry their own brush glyphs, so
+            # everything else keeps the live stroke sample in the picker.
             brushes.append({
                 'id': f'{pack_id}-{len(brushes)}',
                 'n': nm,
                 't': write_mask(mask),
-                **({'ic': icon} if icon else {}),
                 **{**STAMP_DEFAULTS, **params},
             })
         if not brushes:
