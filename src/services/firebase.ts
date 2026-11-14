@@ -313,6 +313,38 @@ export interface VisitorStats {
   seconds: number;
 }
 
+/** One row per recorded visit, for the admin analytics chart. */
+export interface VisitorRow {
+  id: string;
+  first: number;
+  last: number;
+  seconds: number;
+}
+
+/**
+ * The raw visitor documents, newest first.
+ *
+ * `visitorStats()` answers "how many", which is all the panel summary needs.
+ * The analytics view needs the shape over time, and Firestore has no group-by,
+ * so the rows are read and bucketed on the client. Capped: this is a small
+ * collection by design (only sessions of ten minutes or more are ever written),
+ * and the cap keeps a surprise spike from stalling the panel.
+ */
+export async function visitorRows(cap = 3000): Promise<VisitorRow[]> {
+  const snap = await getDocs(query(collection(db, 'visitors'), orderBy('first', 'desc'), limit(cap)));
+  const out: VisitorRow[] = [];
+  snap.forEach((d) => {
+    const v = d.data() as Record<string, unknown>;
+    out.push({
+      id: String(v.id || d.id),
+      first: Number(v.first || 0),
+      last: Number(v.last || 0),
+      seconds: Number(v.seconds || 0),
+    });
+  });
+  return out;
+}
+
 export async function upsertVisitor(v: VisitorDoc): Promise<void> {
   if (!v || !v.id) return;
   await setDoc(

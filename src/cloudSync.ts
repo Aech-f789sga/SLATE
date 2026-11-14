@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { openVisitorAnalytics } from './analytics-view';
 import {
   auth,
   signInWithGoogleAnywhere,
@@ -916,6 +917,13 @@ function openAdminFromHash() {
   openAdminPanel();
 }
 
+/** `#analytics` opens the visitor charts directly, skipping the user list. */
+function openAnalyticsFromHash() {
+  if (!/^#analytics\b/i.test(location.hash)) return;
+  if (!isAdminUser(auth.currentUser)) return;
+  openVisitorAnalytics();
+}
+
 
 /**
  * Online = the client did not say it went idle, and it spoke recently.
@@ -956,6 +964,7 @@ function buildAdminPanel(): HTMLElement {
     '<div id="admin-id" style="font-size:11px;color:var(--mu)"></div>' +
     '<a href="/release-admin.html" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid var(--bd);border-radius:10px;font-size:13px;font-weight:600;color:var(--ac);text-decoration:none">📦 Release channel<span style="margin-left:auto;color:var(--mu);font-weight:400;font-size:12px">approve updates →</span></a>' +
     '<div id="admin-visits" style="display:flex;flex-direction:column;gap:6px"></div>' +
+    '<button id="admin-analytics" style="display:flex;align-items:center;gap:6px;padding:9px 12px;border:1px solid var(--bd);border-radius:10px;font-size:13px;font-weight:600;color:var(--tx);background:var(--sf);cursor:pointer;text-align:left;font-family:inherit">📊 Visitor analytics<span style="margin-left:auto;color:var(--mu);font-weight:400;font-size:12px">charts →</span></button>' +
     '<div id="admin-summary" style="font-size:12px;color:var(--mu)"></div>' +
     '<div id="admin-list" style="display:flex;flex-direction:column;gap:6px"></div>' +
     '<div style="font-size:11px;color:var(--mu);line-height:1.5">Blocking signs the account out on its next check and the client refuses to sync. Contact address shown to users: ' +
@@ -966,6 +975,8 @@ function buildAdminPanel(): HTMLElement {
   document.body.appendChild(md);
   const close = () => (md!.style.display = 'none');
   document.getElementById('admin-close')!.onclick = close;
+  const an = document.getElementById('admin-analytics');
+  if (an) (an as HTMLButtonElement).onclick = () => openVisitorAnalytics();
   md.addEventListener('pointerdown', (e) => {
     if (e.target === md) close();
   });
@@ -1240,6 +1251,8 @@ void refreshSyncedIds();
 
 window.addEventListener('hashchange', openAdminFromHash);
 window.addEventListener('load', openAdminFromHash);
+window.addEventListener('hashchange', openAnalyticsFromHash);
+window.addEventListener('load', openAnalyticsFromHash);
 
 /* Debug bridge — lets the admin confirm recognition from the console. */
 (window as any).__inkpad_admin = {
