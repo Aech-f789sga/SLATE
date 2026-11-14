@@ -1053,7 +1053,7 @@ async function loadVisitorStats() {
       el(
         'div',
         'color:var(--mu);font-size:11px;line-height:1.55',
-        'Visits live in /visitors and are readable by the admin only. Deploy firestore.rules if this is a fresh project.'
+        'Visits live in /visitors and only the admin may read them. Permission-denied here usually means the rules are not on this database yet: it is a named database, and the Firebase console edits (default), which this project does not have. Deploy from the repo with firebase.json.'
       )
     );
   }

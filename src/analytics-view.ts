@@ -351,11 +351,28 @@ export function openVisitorAnalytics(): void {
       const code = (e as { code?: string })?.code || (e as Error)?.message || 'permission-denied';
       body.innerHTML = '';
       body.appendChild(el('div', 'font-size:12px;color:#e5383b;line-height:1.5', 'Could not read visits — ' + code));
+      // The likely cause is not the account: this project has a *named*
+      // database, and the Firebase console's Rules tab edits `(default)`, which
+      // does not exist here. So the rules have to go out from this repo, where
+      // firebase.json names the right database.
+      const cmd = el(
+        'code',
+        'display:block;font-size:10px;line-height:1.5;color:var(--tx);background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;white-space:pre-wrap;word-break:break-all',
+        'npx firebase-tools deploy --only firestore:rules --project project-d6c1fcd0-76ec-4d52-b97'
+      );
       body.appendChild(
         el(
           'div',
           'font-size:11px;color:var(--mu);line-height:1.55',
-          'Visits live in /visitors and are readable by the admin only. Deploy firestore.rules if this is a fresh project.'
+          'Visits live in /visitors and only the admin may read them. If this says permission-denied while you are signed in as the admin over Google, the rules are not on the database yet — run this from the repo:'
+        )
+      );
+      body.appendChild(cmd);
+      body.appendChild(
+        el(
+          'div',
+          'font-size:11px;color:var(--mu);line-height:1.55',
+          'The Firebase console edits the (default) database; this project uses a named one, so the console will not fix it.'
         )
       );
     });
