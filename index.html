@@ -333,7 +333,7 @@ html[data-bar=compact] #bar{padding-right:0}
   <button data-t="er"></button><button data-t="pe"></button><button data-t="line" title="Line">╱</button><button data-t="rect" title="Rectangle">▭</button><button data-t="ell" title="Oval">◯</button><button data-t="text" title="Text">T</button><select id="fnt" aria-label="Font"></select><input type="file" id="ffile" accept=".ttf,.otf,.woff,.woff2" hidden><button data-t="sel"></button><button data-t="pan"></button><button data-t="laser"></button><button data-t="bk"></button><button id="img" title="Insert image">🖼</button><input type="file" id="file" accept="image/*" hidden><button id="sg" title="Enlarge selection">⤢</button><button id="ss" title="Shrink selection">⤡</button><button id="dsel"></button><button id="fs"></button><button id="share"></button>
   <span class="sep"></span>
   <span id="sws"></span><input type="color" id="col" value="#111111" aria-label="Custom color" style="width:32px;height:28px;padding:0">
-  <input type="range" id="size" min="1" max="24" step="0.1" value="3" aria-label="Stroke size"><select id="pt" aria-label="Pen type"><option value="ball">Ballpoint</option><option value="fountain">Fountain</option><option value="brush">Brush</option><option value="pencil">Pencil</option><option value="crayon">Crayon</option><option value="marker">Marker</option></select><select id="prs" aria-label="Stylus pressure" title="Stylus pressure (re-pick to recalibrate for a new pen)"><option value="1">Pressure: normal</option><option value=".6">Pressure: soft</option><option value="1.7">Pressure: firm</option><option value="off">Pressure: off</option></select>
+  <input type="range" id="size" min="1" max="24" step="0.1" value="3" aria-label="Stroke size"><select id="pt" aria-label="Pen type"><option value="ball">Ballpoint</option><option value="fountain">Fountain</option><option value="brush">Brush</option><option value="pencil">Pencil</option><option value="crayon">Crayon</option><option value="marker">Marker</option></select><select id="prs" aria-label="Stylus pressure" title="Stylus pressure: how far the line width follows the nib. To re-measure a new pen, use Recalibrate in Stylus &amp; pen."><option value="1">Pressure: normal</option><option value=".6">Pressure: soft</option><option value="1.7">Pressure: firm</option><option value="off">Pressure: off</option></select>
   <span class="sep"></span>
   <button id="undo">↶</button><button id="redo">↷</button>
   <button id="clr">Clear page</button><span class="sep"></span><button id="zo">🔍−</button><button id="zi">🔍+</button><button id="side-t" title="Page thumbnails">▦</button><label><input type="checkbox" id="po"> Pen only</label><label><input type="checkbox" id="snd" checked> Sound</label>
@@ -1512,32 +1512,53 @@ function penCfgSet(k,v){
   PENCFG[k]=v;penCfgSave();
   if(k==='side'){try{var s=JSON.parse(localStorage.getItem('inkpad-set')||'{}');s.side=v;localStorage.setItem('inkpad-set',JSON.stringify(s))}catch(e){}}
 }
+/* Which button is which, from the spec rather than from guesswork.
+ *
+ * For a pen, `button` is 0 for the tip, 1 for the first barrel button, 2 for the
+ * second, 5 for the eraser end; `buttons` carries the same four as bits 1, 4, 2
+ * and 32. The two barrel tests used to be the other way round, so the button
+ * most people reach for — the upper one, `button===1` — was wired to the second
+ * slot, which defaults to Nothing, while the lower one erased. On a pen with two
+ * buttons and no eraser that reads as "the app ignores my stylus": press the
+ * button you always press and nothing happens. */
 function penBtn(e){
   if(e.pointerType!=='pen'&&e.pointerType!=='eraser')return '';
   if((e.buttons&32)||e.button===5||e.pointerType==='eraser')return PENCFG.eraser==='none'?'':PENCFG.eraser;
-  if((e.buttons&2)||e.button===2)return PENCFG.side==='none'?'':PENCFG.side;
-  if((e.buttons&4)||e.button===1)return PENCFG.side2==='none'?'':PENCFG.side2;
+  if((e.buttons&4)||e.button===1)return PENCFG.side==='none'?'':PENCFG.side;
+  if((e.buttons&2)||e.button===2)return PENCFG.side2==='none'?'':PENCFG.side2;
   return '';
 }
 function penMeta(){
   var m=document.getElementById('pen-meta');if(!m)return;
   var L=(window.__slatePen&&window.__slatePen.last())||null;
   var prof=(window.__slatePen&&window.__slatePen.profile())||null;
-  var prs=prof?prof.pen.variable:(PENLIVE.prMax-PENLIVE.prMin>.08);
+  // The range the brush is actually using, which is not always the stored one:
+  // a pen with less travel than the last pen on this machine gets its own range
+  // once it has drawn enough to prove it, and this is where that shows up.
+  var rg=(window.__slatePen&&window.__slatePen.range)?window.__slatePen.range():null;
+  var span=rg?rg.hi-rg.lo:0;
   var kind=PENLIVE.type==='pen'?'stylus':PENLIVE.type==='eraser'?'eraser':PENLIVE.type==='touch'?'finger':PENLIVE.seen?'mouse':'waiting';
   // "Tilt" and "Twist" report capability, not the last sample: a pen sitting
   // upright at this instant is not a pen that cannot tilt. The live angle is
   // shown when there is one, so the row is still a live readout.
   var tl=(prof&&prof.pen.tilt)?(PENLIVE.tilt?PENLIVE.tilt+'\u00b0':'yes'):'no';
   var tw=(prof&&prof.pen.twist)?((L&&L.twist)?Math.round(L.twist*180/Math.PI)+'\u00b0':'yes'):'no';
+  var barrels=(PENLIVE.side?1:0)+(PENLIVE.side2?1:0);
+  var btns=!PENLIVE.seen?'-':(barrels?barrels===1?'1 barrel button':barrels+' barrel buttons':'none seen');
+  var prs=!rg?'not reported, using speed':(span<.25?'on (narrow range, stretched)':'on');
   m.innerHTML='<div>Device <i>'+kind+'</i></div>'+
-    '<div>Pressure <i>'+(PENLIVE.type==='pen'?(prs?'variable':'not reported'):'-')+'</i></div>'+
-    (prof?'<div>Range <i>'+prof.pen.lo.toFixed(2)+'\u2013'+prof.pen.hi.toFixed(2)+'</i></div>':'')+
+    '<div>Pressure <i>'+(PENLIVE.type==='pen'?prs:'-')+'</i></div>'+
+    '<div>Range <i>'+(rg?rg.lo.toFixed(2)+'\u2013'+rg.hi.toFixed(2):'none yet')+'</i></div>'+
     '<div>Tilt <i>'+tl+'</i></div>'+
     '<div>Twist <i>'+tw+'</i></div>'+
     '<div>Last button <i>'+PENLIVE.btn+'</i></div>'+
-    '<div>Eraser end <i>'+(PENLIVE.eraser?'detected':'not seen')+'</i></div>'+
-    '<div>Barrel <i>'+(PENLIVE.side?'detected':(PENLIVE.side2?'second only':'not seen'))+'</i></div>';
+    '<div>Barrel <i>'+btns+'</i></div>'+
+    '<div>Eraser end <i>'+(PENLIVE.seen?(PENLIVE.eraser?'detected':'not seen'):'-')+'</i></div>';
+  // A pen with two barrel buttons and no eraser end is the common case, and the
+  // second button defaults to Nothing. Saying which one is free beats a row
+  // that reads "not seen" forever.
+  if(PENLIVE.seen&&!PENLIVE.eraser&&PENCFG.side2==='none')
+    m.innerHTML+='<div class="pen-hint">This pen has no eraser end, so the second barrel button is free: map it to Eraser or any tool above.</div>';
   var bar=document.querySelector('#pen-bar>i');
   if(bar)bar.style.width=Math.round(Math.max(0,Math.min(1,PENLIVE.pr))*100)+'%';
 }
@@ -1550,9 +1571,9 @@ function penPad(){
     if(e.type!=='pointerup'&&p>0){PENLIVE.pr=p;if(p<PENLIVE.prMin)PENLIVE.prMin=p;if(p>PENLIVE.prMax)PENLIVE.prMax=p}
     PENLIVE.tilt=Math.max(Math.abs(e.tiltX||0),Math.abs(e.tiltY||0));
     if((e.buttons&32)||e.button===5)PENLIVE.eraser=1;
-    if((e.buttons&2)||e.button===2)PENLIVE.side=1;
-    if((e.buttons&4)||e.button===1)PENLIVE.side2=1;
-    PENLIVE.btn=e.type==='pointerup'?'none':(e.button===0?'tip':e.button===5?'eraser':e.button===2?'barrel':e.button===1?'barrel 2':'b'+e.button);
+    if((e.buttons&4)||e.button===1)PENLIVE.side=1;
+    if((e.buttons&2)||e.button===2)PENLIVE.side2=1;
+    PENLIVE.btn=e.type==='pointerup'?'none':(e.button===0?'tip':e.button===5?'eraser':e.button===1?'barrel':e.button===2?'barrel 2':'b'+e.button);
     penMeta();
     var s=pad.querySelector('span');
     if(s&&e.type!=='pointerup'){

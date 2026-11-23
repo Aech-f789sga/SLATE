@@ -35,6 +35,17 @@ type Kind = 'pen' | 'touch' | 'mouse';
  * Kept per pointerType rather than globally. The old code had a single
  * `{min,max}` record shared between the pen and the mouse, so a mouse's
  * constant 0.5 dragged the pen's range down and every stroke came out flat.
+ *
+ * Two ranges, not one. `lo`/`hi` are the committed range: they survive a reload
+ * and only ever widen. `strokeLo`/`strokeHi` are the range of the stroke being
+ * drawn right now. A committed range that only grows has no way to notice that
+ * a different stylus is now on the desk — the old pen's extremes stay on record
+ * and the new one can never reach full width. The stroke range is how it
+ * notices, and `settle()` is where the two are reconciled.
+ *
+ * Per stroke rather than per page on purpose: a page-long range is the union of
+ * every pen used since the page loaded, which is precisely the thing that
+ * cannot tell two pens apart.
  */
 interface Profile {
   /** Lowest and highest raw pressure observed. */
@@ -44,6 +55,12 @@ interface Profile {
   n: number;
   /** True once the device has shown a real range rather than a constant. */
   variable: boolean;
+  /** The stroke in flight: its range, its sample count, and whether its floor
+   *  has come back high enough to count. Never persisted. */
+  strokeLo: number;
+  strokeHi: number;
+  strokeN: number;
+  risen: number;
   /** The device has reported a non-zero tilt at least once. */
   tilt: boolean;
   /** The device has reported a non-zero twist at least once. */
@@ -64,8 +81,55 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
 
 const HALF_PI = Math.PI / 2;
 
+/**
+ * The smallest span that is a span at all.
+ *
+ * The old model drew its line at 0.06 and called anything narrower "no
+ * pressure data". That is the wrong test for a stylus. An XP-Pen whose driver
+ * hands the browser a compressed band, or any tablet that only exposes the top
+ * of its travel, still has pressure — it just needs stretching, which is
+ * precisely what `normalise` is for. A 0.06 floor threw those pens away and
+ * silently fell back to the speed model, which reads to the user as "it knows
+ * my pen is here but it will not use it".
+ *
+ * A device with *no* pressure support reports one constant value, so the real
+ * signature is a span of zero. That is what this detects.
+ */
+const FLAT = 1e-4;
+
+/**
+ * Samples a session needs before its range is trusted.
+ *
+ * One tap is two or three samples and describes almost none of the travel;
+ * a second of drawing describes nearly all of it.
+ */
+const SETTLE = 24;
+
+/**
+ * How far the floor has to rise before it counts as a different pen.
+ *
+ * Generous on purpose. A pen's own floor moves by a hundredth or two between
+ * sessions depending on the nib and the angle it lands at; a driver that
+ * compresses the band moves it by a quarter. Anything in between is left alone,
+ * because being wrong in that direction only costs a slightly flatter line,
+ * while being wrong the other way rescales the pen under the user's hand.
+ */
+const FLOOR_RISE = 0.15;
+
 function blank(): Profile {
-  return { lo: 1, hi: 0, n: 0, variable: false, tilt: false, twist: false, altitude: false };
+  return {
+    lo: 1,
+    hi: 0,
+    n: 0,
+    variable: false,
+    strokeLo: 1,
+    strokeHi: 0,
+    strokeN: 0,
+    risen: 0,
+    tilt: false,
+    twist: false,
+    altitude: false,
+  };
 }
 
 function kindOf(e: PointerEvent): Kind {
@@ -91,6 +155,9 @@ const profiles: Record<Kind, Profile> = { pen: blank(), mouse: blank(), touch: b
  *
  * Keyed per device class. A pen and a mouse on the same machine have nothing in
  * common, and a bucket they share is a bucket that is wrong for both.
+ *
+ * Only the committed half is restored; the session range starts empty, because
+ * the whole point of it is to describe *this* pen rather than the last one.
  */
 function loadProfiles() {
   try {
@@ -106,6 +173,10 @@ function loadProfiles() {
         hi: p.hi,
         n: Number(p.n) || 0,
         variable: !!p.variable,
+        strokeLo: 1,
+        strokeHi: 0,
+        strokeN: 0,
+        risen: 0,
         tilt: !!p.tilt,
         twist: !!p.twist,
         altitude: !!p.altitude,
@@ -122,7 +193,19 @@ function saveProfilesSoon() {
   saveTimer = window.setTimeout(() => {
     saveTimer = 0;
     try {
-      localStorage.setItem(PRESSURE_KEY, JSON.stringify({ pen: profiles.pen, mouse: profiles.mouse }));
+      const keep = (p: Profile) => ({
+        lo: p.lo,
+        hi: p.hi,
+        n: p.n,
+        variable: p.variable,
+        tilt: p.tilt,
+        twist: p.twist,
+        altitude: p.altitude,
+      });
+      localStorage.setItem(
+        PRESSURE_KEY,
+        JSON.stringify({ pen: keep(profiles.pen), mouse: keep(profiles.mouse) })
+      );
     } catch {
       /* private mode: the range just recalibrates next session */
     }
@@ -132,10 +215,14 @@ function saveProfilesSoon() {
 /**
  * Fold one sample into a device's range.
  *
- * The range only ever grows. Shrinking it — which the old code did with a
- * `max * .9998` decay on every event — makes the span collapse *while you are
- * drawing*, so the stroke gets thinner and thicker for no reason the user can
- * see. Growing only is monotonic, stable, and converges after a few strokes.
+ * Within a session the committed range only ever grows. Shrinking it — which
+ * the old code did with a `max * .9998` decay on every event — makes the span
+ * collapse *while you are drawing*, so the stroke gets thinner and thicker for
+ * no reason the user can see. Growing only is monotonic, stable, and converges
+ * after a few strokes.
+ *
+ * The stroke range is folded in at the same time and under the same rule. It is
+ * the only part that can be replaced, and only between strokes.
  */
 const lastLearned: Record<Kind, number> = { pen: -1, touch: -1, mouse: -1 };
 
@@ -153,7 +240,10 @@ function learn(kind: Kind, e: PointerEvent) {
   if (p < prof.lo) prof.lo = p;
   if (p > prof.hi) prof.hi = p;
   prof.n++;
-  if (!prof.variable && prof.n > 6 && prof.hi - prof.lo > 0.06) prof.variable = true;
+  if (p < prof.strokeLo) prof.strokeLo = p;
+  if (p > prof.strokeHi) prof.strokeHi = p;
+  prof.strokeN++;
+  if (!prof.variable && prof.hi - prof.lo > FLAT) prof.variable = true;
 
   const tiltX = Number((e as any).tiltX) || 0;
   const tiltY = Number((e as any).tiltY) || 0;
@@ -164,17 +254,81 @@ function learn(kind: Kind, e: PointerEvent) {
   saveProfilesSoon();
 }
 
+/** A new stroke begins: forget the last one's range, keep everything else. */
+function begin(kind: Kind) {
+  const prof = profiles[kind];
+  prof.strokeLo = 1;
+  prof.strokeHi = 0;
+  prof.strokeN = 0;
+}
+
 /**
- * Raw pressure → 0…1 against a known range, with no side effects.
+ * Reconcile the stroke's range with the committed one, once the pen lifts.
+ *
+ * Called between strokes and never during one: a range that changed mid-stroke
+ * would rescale the half already drawn.
+ *
+ * The rule keys on the **floor**, not on the width of the band, and that is the
+ * whole trick. How low a pen reads is a property of the pen — its activation
+ * force, the bottom of its travel, what the driver chooses to report. How high
+ * it reads is a property of the user — how hard they happen to press today. A
+ * light stroke from the usual pen still starts at the usual floor, because the
+ * nib is touching the glass either way; a *different* pen, one whose driver
+ * compresses the band or whose travel begins high, cannot reach that floor at
+ * all, and says so on the very first touch.
+ *
+ * So a floor that stays well above the stored one, stroke after stroke, means
+ * the stored range describes a pen that is no longer on the desk. The stroke's
+ * range replaces it — ceiling included, because a pen that cannot reach the old
+ * floor cannot reach the old ceiling either. One stroke is not enough: a nib
+ * landing at a shallow angle can skip the bottom of its own travel, and a range
+ * that lurches is worse than one that is slightly stale.
+ */
+function settle(kind: Kind) {
+  const prof = profiles[kind];
+  if (prof.strokeN < SETTLE) {
+    prof.risen = 0;
+    return;
+  }
+  const ss = prof.strokeHi - prof.strokeLo;
+  const cs = prof.hi - prof.lo;
+
+  // Nothing stored yet: the stroke is the best description there is.
+  if (cs <= FLAT) {
+    if (ss > FLAT) {
+      prof.lo = prof.strokeLo;
+      prof.hi = prof.strokeHi;
+      prof.variable = true;
+      saveProfilesSoon();
+    }
+    prof.risen = 0;
+    return;
+  }
+
+  if (ss <= FLAT || prof.strokeLo <= prof.lo + FLOOR_RISE) {
+    prof.risen = 0;
+    return;
+  }
+
+  prof.risen++;
+  if (prof.risen < 2) return;
+
+  prof.lo = prof.strokeLo;
+  prof.hi = prof.strokeHi;
+  prof.risen = 0;
+  saveProfilesSoon();
+}
+
+/**
+ * Raw pressure → 0…1 against the range in force, with no side effects.
  *
  * Split out from `pressureOf` so tests — and any future calibration UI — can
  * ask "what would 0.6 read as?" without that question changing the answer.
  */
 function normalise(kind: Kind, raw: number): number {
   const prof = profiles[kind];
-  if (!prof.variable) return clamp01(raw);
   const span = prof.hi - prof.lo;
-  if (span < 1e-6) return clamp01(raw);
+  if (span <= FLAT) return clamp01(raw);
   return clamp01((raw - prof.lo) / span);
 }
 
@@ -202,20 +356,30 @@ function pressureOf(e: PointerEvent): number {
  * The tricky case is the first stroke. Nothing has been learned yet, and
  * answering "no" would flatten the first thing the user draws. So an
  * uncalibrated pen is given the benefit of the doubt and only demoted once
- * there is enough evidence — 24 samples of a constant value.
+ * there is enough evidence — 24 samples that never moved at all.
+ *
+ * Two things this deliberately does not do any more:
+ *
+ *  - It does not read the palm-rejection mode. That setting says what to do
+ *    with a *touch*; wiring it to pressure meant choosing "Palm rejection: off"
+ *    silently turned the pen into a speed-only brush, with nothing on screen to
+ *    connect the two.
+ *  - It does not demote a pen for having a *narrow* range. Narrow is what
+ *    `normalise` stretches; only a device pinned to one value has nothing to
+ *    stretch.
  */
 function hasPressure(e: PointerEvent): boolean {
-  if (mode === 'off') return false;
   const kind = kindOf(e);
   if (kind === 'touch') return false;
   const prof = profiles[kind];
+  const span = Math.max(prof.hi - prof.lo, prof.strokeHi - prof.strokeLo);
   if (kind === 'mouse') {
     // A plain mouse is constant 0.5 and must never drive width; a tablet that
     // presents as a mouse but reports a range is allowed through.
-    return prof.variable;
+    return span > FLAT;
   }
-  if (prof.n < 24) return true;
-  return prof.variable;
+  if (prof.n < SETTLE) return true;
+  return span > FLAT;
 }
 
 /* ------------------------------------------------------------------ */
@@ -566,10 +730,15 @@ function boot() {
       penNear = true;
       lastContact = performance.now();
       lastKind = 'pen';
+      // A stroke starts here, so its range starts empty here too.
+      begin('pen');
     } else if (e.type === 'pointerup' || e.type === 'pointercancel') {
       penDown = false;
       lastContact = performance.now();
       lastKind = 'pen';
+      // The only safe moment to reconsider the range: no stroke is in flight,
+      // so nothing already drawn is rescaled underneath the user.
+      settle('pen');
     } else {
       // move without a button is hover
       penNear = e.buttons === 0;
@@ -632,7 +801,15 @@ function boot() {
     api.accept = accept;
     api.samples = samples;
     api.pressure = pressureOf;
-    api.pressureRaw = (p: number) => pressureOf({ pressure: p, pointerType: 'pen' } as any);
+    /**
+     * Scale a bare number without learning it.
+     *
+     * This used to call `pressureOf` with a synthetic event, which folded the
+     * number into the pen's profile — so a caller asking "what would 1.0 read
+     * as?" quietly widened the pen's range to include 1.0. A question must not
+     * change the answer it is asking about.
+     */
+    api.pressureRaw = (p: number) => normalise('pen', Number(p) || 0);
     api.tilt = tiltOf;
     api.hasPressure = hasPressure;
     api.twist = twistOf;
@@ -655,6 +832,13 @@ function boot() {
     hasPressure,
     palmSized,
     note,
+    /** The range actually in force, so the panel can say what it is stretching. */
+    range: () => {
+      const p = profiles.pen;
+      return p.hi - p.lo > FLAT ? { lo: p.lo, hi: p.hi } : null;
+    },
+    /** Fold the session's range into the stored one. Called on pen lift. */
+    settle: () => settle('pen'),
     /** Current palm state, for probes and for the pen test panel. */
     state: () => ({
       mode,

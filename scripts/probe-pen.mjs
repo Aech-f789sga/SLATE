@@ -439,7 +439,150 @@ ok('the canvas takes the gesture back', ta2 === 'none', String(ta2));
 await page.screenshot({ path: shot('pen-panel.png') });
 
 /* ---------------------------------------------------------------- */
-console.log('\n== 11. No page errors');
+console.log('\n== 11. A narrow pressure band is stretched, not thrown away');
+/* ---------------------------------------------------------------- */
+
+// A driver that hands the browser a compressed band — 0.46…0.50 here, a fifth
+// of the travel a full-scale pen reports — is the shape an XP-Pen can take.
+// The old model called anything narrower than 0.06 "no pressure data", switched
+// to the speed model and never came back, which is what "it detects my stylus
+// but will not adapt to it" looks like from the outside.
+// The pen sheet from section 10 is still open and would swallow every stroke.
+await E(`(function(){var m=document.getElementById('pen-md');if(m)m.classList.remove('on')})()`);
+await page.waitForTimeout(120);
+
+await E(`window.__slatePen.reset();pg().strokes=[];undo=[];tool='pen';draw()`);
+
+const band = [];
+for (let i = 0; i <= 30; i++) {
+  const [x, y] = T(120 + i * 10, 640);
+  band.push([x, y, 0.46 + (i / 30) * 0.04]);
+}
+await stroke(band);
+await page.waitForTimeout(250);
+
+const wide = await E(`window.__slatePen.profile().pen`);
+ok('a narrow band is still recorded as a range', wide.variable === true, `span=${(wide.hi - wide.lo).toFixed(3)}`);
+ok('the recorded range is the narrow one', wide.hi - wide.lo < 0.06, `${wide.lo.toFixed(2)}–${wide.hi.toFixed(2)}`);
+
+// The decisive case: a second stroke, once the range is known and the old
+// code's 24-sample window has closed.
+await E(`pg().strokes=[];draw()`);
+await stroke(band);
+await page.waitForTimeout(250);
+
+const narrow = await lastStroke();
+ok('pressure is still on for the second stroke', narrow && narrow.pr === 1, `pr=${narrow?.pr}`);
+const nw = (narrow?.p || []).filter((v) => typeof v === 'number');
+ok(
+  'the narrow band still varies the width',
+  nw.length > 1 && Math.max(...nw) - Math.min(...nw) > 0.25,
+  nw.length ? `${Math.min(...nw).toFixed(2)} … ${Math.max(...nw).toFixed(2)}` : 'no widths'
+);
+
+/* ---------------------------------------------------------------- */
+console.log('\n== 12. Palm rejection does not switch pressure off');
+/* ---------------------------------------------------------------- */
+
+// The palm select and the pressure select are two settings. They used to share
+// a variable, so choosing "Off" for palm rejection silently made the pen a
+// speed-only brush with nothing on screen connecting the two.
+await E(`window.__slatePen.reset();window.__slatePen.setPalmMode('off');pg().strokes=[];draw()`);
+const full = [];
+for (let i = 0; i <= 16; i++) {
+  const [x, y] = T(120 + i * 20, 760);
+  full.push([x, y, 0.1 + (i / 16) * 0.85]);
+}
+await stroke(full);
+await page.waitForTimeout(250);
+const off = await lastStroke();
+ok('pressure survives palm rejection being off', off && off.pr === 1, `pr=${off?.pr}`);
+ok('palm mode really is off', (await E(`window.__slatePen.palmMode()`)) === 'off');
+await E(`window.__slatePen.setPalmMode('auto')`);
+
+/* ---------------------------------------------------------------- */
+console.log('\n== 13. Barrel buttons map the way the spec numbers them');
+/* ---------------------------------------------------------------- */
+
+// For a pen: button 0 is the tip, 1 the first barrel button, 2 the second, 5
+// the eraser end; buttons carries the same as bits 1, 4, 2 and 32. The two
+// barrel tests were swapped, so the upper button — the one a two-button pen
+// has and the one people press — was wired to the slot that defaults to
+// Nothing, and the app looked like it ignored the stylus.
+const btns = await E(`(function(){
+  function ev(b,btn){return {pointerType:'pen',buttons:b,button:btn}}
+  var out={
+    first:penBtn(ev(4,1)),
+    second:penBtn(ev(2,2)),
+    eraser:penBtn(ev(32,5)),
+    tip:penBtn(ev(1,0)),
+    firstBit:penBtn(ev(4,0)),
+    secondBit:penBtn(ev(2,0))
+  };
+  penCfgSet('side2','hl');
+  out.secondMapped=penBtn(ev(2,2));
+  penCfgSet('side2','none');
+  out.eraserMapped=penBtn(ev(32,5));
+  return out;
+})()`);
+ok('the first barrel button is the mapped one', btns.first === 'er', `got "${btns.first}"`);
+ok('the second barrel button defaults to nothing', btns.second === '', `got "${btns.second}"`);
+ok('the eraser end is mapped', btns.eraser === 'er', `got "${btns.eraser}"`);
+ok('the tip alone maps to no tool', btns.tip === '', `got "${btns.tip}"`);
+ok('the bitmask alone identifies both barrel buttons', btns.firstBit === 'er' && btns.secondBit === '', `${btns.firstBit} / ${btns.secondBit}`);
+ok('the second barrel button can be mapped', btns.secondMapped === 'hl', `got "${btns.secondMapped}"`);
+ok('mapping the second button leaves the eraser end alone', btns.eraserMapped === 'er', `got "${btns.eraserMapped}"`);
+
+/* ---------------------------------------------------------------- */
+console.log('\n== 14. A stored range from another pen is replaced, not kept');
+/* ---------------------------------------------------------------- */
+
+// The other half of "adapt to my stylus". A range that only ever grows keeps
+// the last pen's extremes on record forever, so a pen with a higher floor can
+// never reach full width — it tops out part-way and stays there. The floor is a
+// property of the pen, so a floor that will not come back down is the signal
+// that the pen has changed.
+await E(`window.__slatePen.reset();pg().strokes=[];undo=[];tool='pen';draw()`);
+
+// A wide pen first: floor 0.10, ceiling 0.95.
+const widePen = [];
+for (let i = 0; i <= 20; i++) {
+  const [x, y] = T(120 + i * 16, 820);
+  widePen.push([x, y, 0.1 + (i / 20) * 0.85]);
+}
+await stroke(widePen);
+await page.waitForTimeout(200);
+const seeded = await E(`window.__slatePen.profile().pen`);
+ok('the wide pen sets the stored range', seeded.lo < 0.15 && seeded.hi > 0.9, `${seeded.lo.toFixed(2)}–${seeded.hi.toFixed(2)}`);
+
+// Then the narrow pen takes over the desk. Its floor is 0.46 and it never gets
+// near the stored ceiling.
+await E(`pg().strokes=[];draw()`);
+const narrowAgain = [];
+for (let i = 0; i <= 30; i++) {
+  const [x, y] = T(120 + i * 10, 860);
+  narrowAgain.push([x, y, 0.46 + (i / 30) * 0.04]);
+}
+for (let k = 0; k < 3; k++) {
+  await stroke(narrowAgain);
+  await page.waitForTimeout(120);
+}
+await page.waitForTimeout(250);
+
+const swapped = await E(`(function(){var p=window.__slatePen.profile().pen,r=window.__slatePen.range();return {lo:p.lo,hi:p.hi,strokeN:p.strokeN,strokeLo:p.strokeLo,range:r}})()`);
+ok('the narrow pen moved the floor up', swapped.lo > 0.4, `lo=${swapped.lo.toFixed(2)} (stroke floor ${swapped.strokeLo.toFixed(2)}, ${swapped.strokeN} samples)`);
+ok('the stored ceiling came down with it', swapped.hi < 0.6, `hi=${swapped.hi.toFixed(2)}`);
+
+await E(`pg().strokes=[];draw()`);
+await stroke(narrowAgain);
+await page.waitForTimeout(200);
+const adapted = await lastStroke();
+const aw = (adapted?.p || []).filter((v) => typeof v === 'number');
+ok('the narrow pen now reaches full width', aw.length > 1 && Math.max(...aw) > 1, aw.length ? `max ${Math.max(...aw).toFixed(2)}` : 'no widths');
+ok('and still starts thin', aw.length > 1 && Math.min(...aw) < 0.5, aw.length ? `min ${Math.min(...aw).toFixed(2)}` : 'no widths');
+
+/* ---------------------------------------------------------------- */
+console.log('\n== 15. No page errors');
 /* ---------------------------------------------------------------- */
 
 ok('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
