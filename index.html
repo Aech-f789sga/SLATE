@@ -543,33 +543,35 @@ function fit(){fitting=1;cv.style.aspectRatio=W+'/'+H;layout();const d=cvD=wantD
 function pos(e){const r=cv.getBoundingClientRect(),p=[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];return SNAPON?gSnap(p):p}
 function snap(){undo.push(JSON.stringify(pg().strokes));if(undo.length>60)undo.shift();redo=[]}
 function eraseAt(x,y){if(cur&&cur.pe)return partial(x,y);const s=pg().strokes,n=s.length,r=12+size;pg().strokes=s.filter(k=>{if(k.t==="ers"||frH(k))return true;if(!k.p){if(k.fl)return true;const b=bb(k);return !(x>b[0]-r&&x<b[2]+r&&y>b[1]-r&&y<b[3]+r)}return !k.p.some(q=>Math.hypot(q[0]-x,q[1]-y)<r+(k.t==="hl"?k.w*2:k.w/2))});if(pg().strokes.length!==n)return true;let fc=false;for(const k of pg().strokes)if(k.fl&&fillCut(k,x,y))fc=true;return fc}
-cv.addEventListener("pointerdown",e=>{if(flipping)return;if(penLike(e)&&!penSeen){penSeen=1;try{window.__slatePen&&window.__slatePen.firstPen&&window.__slatePen.firstPen()}catch(x){}}if(!PENAPI.accept(e))return;if(penLike(e)){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}
- /* A tablet with Windows Ink off sends its barrel button as a right click, so
-    on the canvas the right button is that barrel button. Mapping it here means
-    the button does the job it was mapped to even when the driver will not tell
-    the browser that a pen is what pressed it. A real mouse gets the same deal,
-    which is the point: right-drag to erase is what the button is for. */
- else if(e.pointerType==='mouse'&&(e.button===2||(e.buttons&2))){const bt=PENCFG.side==='none'?'':PENCFG.side;if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}
- e.preventDefault();cv.setPointerCapture(e.pointerId);
+function startPtr(e){if(flipping)return;if(PBHOLD){if(!pt0)pt0=PBHOLD;PBHOLD=null}if(penLike(e)&&!penSeen){penSeen=1;try{window.__slatePen&&window.__slatePen.firstPen&&window.__slatePen.firstPen()}catch(x){}}if(!PENAPI.accept(e))return;if(penLike(e)){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){if(!pt0)pt0=tool;tool=bt;syncTools()}}
+ /* A tablet with Windows Ink off sends its barrel button as a right/middle click, so
+    on the canvas the right/middle button acts as that barrel button. */
+ else if(e.pointerType==='mouse'){try{PENAPI.note(e)}catch(_){}penInfo(e);const bt=(e.button===2||(e.buttons&2))?(PENCFG.side==='none'?'':PENCFG.side):(e.button===1||(e.buttons&4))?(PENCFG.side2==='none'?'':PENCFG.side2):'';if(bt&&tool!==bt){if(!pt0)pt0=tool;tool=bt;syncTools()}}
+ try{e.preventDefault()}catch(_){}
+ try{cv.setPointerCapture(e.pointerId)}catch(_){}
  /* Pan is a view gesture, not an edit: it starts before the guided-drawing and
     locked-layer guards, which would otherwise swallow it, and it touches
     neither the stroke list nor the undo stack. */
  if(tool==="pan"){const s=$("#stage");panDrag={id:e.pointerId,x:e.clientX,y:e.clientY,sl:s?s.scrollLeft:0,st:s?s.scrollTop:0,px:panX,py:panY};cv.style.cursor="grabbing";return}
- {const r0=pos(e);if(gdDown(r0[0],r0[1]))return;if(lyBlock())return;SNAPON=gdTool()}const[x,y]=pos(e);commitText();if(tool==="text"&&!textSel(x,y)){openText(x,y);return}if(tool==="bk"){bucket(x,y);return}if(tool==="laser"){cur={t:"laser",s:{p:[[x,y,performance.now()]],rt:0,l:[x,y],m:LM}};trail.push(cur.s);laserLoop();return}if(tool==="sel"||tool==="text"){snap();cur=null;sel=sel.filter(lyOn);const k=W/cv.getBoundingClientRect().width;
+ {const r0=pos(e);if(gdDown(r0[0],r0[1]))return;if(lyBlock()){if(pt0){tool=pt0;pt0=null;syncTools()}return}SNAPON=gdTool()}const[x,y]=pos(e);commitText();if(tool==="text"&&!textSel(x,y)){if(pt0){tool=pt0;pt0=null;syncTools()}openText(x,y);return}if(tool==="bk"){bucket(x,y);if(pt0){tool=pt0;pt0=null;syncTools()}return}if(tool==="laser"){cur={t:"laser",pid:e.pointerId,s:{p:[[x,y,performance.now()]],rt:0,l:[x,y],m:LM}};trail.push(cur.s);laserLoop();return}if(tool==="sel"||tool==="text"){snap();cur=null;sel=sel.filter(lyOn);const k=W/cv.getBoundingClientRect().width;
  if(sel.length){const b=selBox(),C=cor(b);let h=-1;C.forEach((c,i)=>{if(Math.hypot(x-c[0],y-c[1])<16*k)h=i});
-  if(Math.hypot(x-(b[0]+b[2])/2,y-b[1]+34)<16*k){const cx=(b[0]+b[2])/2,cy=(b[1]+b[3])/2;cur={t:"sel",rot:1,cx,cy,a0:Math.atan2(y-cy,x-cx),o:sel.map(s=>JSON.parse(JSON.stringify(s)))}}else if(h>=0){const c=C[h],a=C[3-h];cur={t:"sel",rs:1,a,w0:Math.abs(c[0]-a[0])||1,h0:Math.abs(c[1]-a[1])||1,sx:Math.sign(c[0]-a[0])||1,sy:Math.sign(c[1]-a[1])||1,o:sel.map(s=>JSON.parse(JSON.stringify(s)))}}
-  else if(sel.length===1&&sel[0].t==="text"&&Math.hypot(x-(b[2]+6),y-(b[1]+b[3])/2)<16*k)cur={t:"sel",tw:1,it:sel[0]};else if(x>b[0]-6&&x<b[2]+6&&y>b[1]-6&&y<b[3]+6)cur={t:"sel",mv:1,l:[x,y],tap:tool==="text"?wasSel:null}}
- if(!cur){sel=[];cur={t:"sel",lp:[[x,y]],rect:lassoRect,lp0:[x,y]}}draw();return}snap();sStart(tool==="pen"?$("#pt").value:tool==="pe"?"er":tool);lastP=[x,y,e.timeStamp];
- if(tool==="er"){const it={t:"ers",ts:Date.now(),w:2*(8+size*1.2),p:[[x,y]]};pg().strokes.push(it);cur={t:"er",it,changed:true};draw()}else if(tool==="pe"){cur={t:"er",changed:false};if(eraseAt(x,y))cur.changed=true;draw()}
- else if(["line","rect","ell","arrow","hid","ax2","ax3"].includes(tool)){cur={t:"shape",k:tool,c:color,w:size,ds:tool==="hid"||dashOn,ac:[...axc],a:[x,y],b:[x,y]};draw()}
- else{cur={t:tool,c:color,w:size,v:$("#pt").value,op:((window.BROP||{})[tool==="pen"?$("#pt").value:tool])||1,sd:Math.random()*1e5|0,lt:performance.now(),pr:prOn(e)?1:0,p:[prOn(e)?[x,y,pw(e,0,null)]:[x,y]]};HA.begin(e);draw()}});
-cv.addEventListener("pointermove",e=>{if(panDrag){if(e.pointerId!==panDrag.id)return;panTo(e.clientX-panDrag.x,e.clientY-panDrag.y);return}if(!cur)return;const ev=PENAPI.samples(e);
- for(const q of ev){const[x,y]=pos(q);if(sn&&lastP){const dt=Math.max(1,q.timeStamp-lastP[2]);sMove(Math.hypot(x-lastP[0],y-lastP[1])/dt);lastP=[x,y,q.timeStamp]}if(cur.t==="laser"){cur.s.p.push([x,y,performance.now()]);cur.s.l=[x,y]}else if(cur.t==="er"){if(cur.it){const l=cur.it.p[cur.it.p.length-1];if(Math.hypot(x-l[0],y-l[1])>1.5)cur.it.p.push([x,y])}else if(eraseAt(x,y))cur.changed=true}else if(cur.t==="shape")cur.b=[x,y];else if(cur.t==="sel"){if(cur.mv){cur.m=(cur.m||0)+Math.hypot(x-cur.l[0],y-cur.l[1]);mv(sel,x-cur.l[0],y-cur.l[1]);cur.l=[x,y]}else if(cur.rot){const d=Math.atan2(y-cur.cy,x-cur.cx)-cur.a0;sel.forEach((s,i)=>rotApply(s,cur.o[i],cur.cx,cur.cy,d))}else if(cur.tw){cur.it.w=Math.max(40,x-cur.it.x)}else if(cur.rs){const f=Math.max(.1,Math.max((x-cur.a[0])*cur.sx/cur.w0,(y-cur.a[1])*cur.sy/cur.h0));sel.forEach((s,i)=>tf(s,cur.o[i],cur.a[0],cur.a[1],f))}else if(cur.rect){const a=cur.lp0;cur.lp=[[a[0],a[1]],[x,a[1]],[x,y],[a[0],y]]}else cur.lp.push([x,y])}else{const l=cur.p[cur.p.length-1],S2=smx(cur,x,y),x2=S2[0],y2=S2[1];cur.rx=x;cur.ry=y;if(Math.hypot(x2-l[0],y2-l[1])>1.2){const t=performance.now(),sp=Math.hypot(x2-l[0],y2-l[1])/Math.max(1,t-(cur.lt||t));cur.p.push([x2,y2,cur.pr?pw(q,sp,l):(l[2]||1)*.7+Math.max(.45,Math.min(1.2,1.3-sp*.5))*.3]);cur.lt=t;HA.tick(q,sp)}}}drawSoon()});
+  if(Math.hypot(x-(b[0]+b[2])/2,y-b[1]+34)<16*k){const cx=(b[0]+b[2])/2,cy=(b[1]+b[3])/2;cur={t:"sel",pid:e.pointerId,rot:1,cx,cy,a0:Math.atan2(y-cy,x-cx),o:sel.map(s=>JSON.parse(JSON.stringify(s)))}}else if(h>=0){const c=C[h],a=C[3-h];cur={t:"sel",pid:e.pointerId,rs:1,a,w0:Math.abs(c[0]-a[0])||1,h0:Math.abs(c[1]-a[1])||1,sx:Math.sign(c[0]-a[0])||1,sy:Math.sign(c[1]-a[1])||1,o:sel.map(s=>JSON.parse(JSON.stringify(s)))}}
+  else if(sel.length===1&&sel[0].t==="text"&&Math.hypot(x-(b[2]+6),y-(b[1]+b[3])/2)<16*k)cur={t:"sel",pid:e.pointerId,tw:1,it:sel[0]};else if(x>b[0]-6&&x<b[2]+6&&y>b[1]-6&&y<b[3]+6)cur={t:"sel",pid:e.pointerId,mv:1,l:[x,y],tap:tool==="text"?wasSel:null}}
+ if(!cur){sel=[];cur={t:"sel",pid:e.pointerId,lp:[[x,y]],rect:lassoRect,lp0:[x,y]}}draw();return}snap();sStart(tool==="pen"?$("#pt").value:tool==="pe"?"er":tool);lastP=[x,y,e.timeStamp];
+ if(tool==="er"){const it={t:"ers",ts:Date.now(),w:2*(8+size*1.2),p:[[x,y]]};pg().strokes.push(it);cur={t:"er",pid:e.pointerId,it,changed:true};draw()}else if(tool==="pe"){cur={t:"er",pid:e.pointerId,changed:false};if(eraseAt(x,y))cur.changed=true;draw()}
+ else if(["line","rect","ell","arrow","hid","ax2","ax3"].includes(tool)){cur={t:"shape",pid:e.pointerId,k:tool,c:color,w:size,ds:tool==="hid"||dashOn,ac:[...axc],a:[x,y],b:[x,y]};draw()}
+ else{cur={t:tool,pid:e.pointerId,c:color,w:size,v:$("#pt").value,op:((window.BROP||{})[tool==="pen"?$("#pt").value:tool])||1,sd:Math.random()*1e5|0,lt:performance.now(),pr:prOn(e)?1:0,p:[prOn(e)?[x,y,pw(e,0,null)]:[x,y]]};HA.begin(e);draw()}}
+cv.addEventListener("pointerdown",startPtr);
+cv.addEventListener("pointermove",e=>{if(panDrag){if(e.pointerId!==panDrag.id)return;panTo(e.clientX-panDrag.x,e.clientY-panDrag.y);return}
+ if(!cur){if(!GDR&&!flipping&&(e.pointerType==="pen"||e.pointerType==="eraser")&&((e.buttons&1)||(e.buttons&32))){const mdOn=document.querySelector("#pen-md.on,#md.on,#auth-md.on,#cloud-md.on");if(!mdOn&&(!DRW||DRW.style.display==="none")&&!te)startPtr(e)}if(!cur)return}
+ if(cur.pid!=null&&e.pointerId!==cur.pid)return;
+ const ev=PENAPI.samples(e);
+ for(const q of ev){const[x,y]=pos(q);if(sn&&lastP){const dt=Math.max(1,q.timeStamp-lastP[2]);sMove(Math.hypot(x-lastP[0],y-lastP[1])/dt);lastP=[x,y,q.timeStamp]}if(cur.t==="laser"){cur.s.p.push([x,y,performance.now()]);cur.s.l=[x,y]}else if(cur.t==="er"){if(cur.it){const l=cur.it.p[cur.it.p.length-1];if(Math.hypot(x-l[0],y-l[1])>1.5)cur.it.p.push([x,y])}else if(eraseAt(x,y))cur.changed=true}else if(cur.t==="shape")cur.b=[x,y];else if(cur.t==="sel"){if(cur.mv){cur.m=(cur.m||0)+Math.hypot(x-cur.l[0],y-cur.l[1]);mv(sel,x-cur.l[0],y-cur.l[1]);cur.l=[x,y]}else if(cur.rot){const d=Math.atan2(y-cur.cy,x-cur.cx)-cur.a0;sel.forEach((s,i)=>rotApply(s,cur.o[i],cur.cx,cur.cy,d))}else if(cur.tw){cur.it.w=Math.max(40,x-cur.it.x)}else if(cur.rs){const f=Math.max(.1,Math.max((x-cur.a[0])*cur.sx/cur.w0,(y-cur.a[1])*cur.sy/cur.h0));sel.forEach((s,i)=>tf(s,cur.o[i],cur.a[0],cur.a[1],f))}else if(cur.rect){const a=cur.lp0;cur.lp=[[a[0],a[1]],[x,a[1]],[x,y],[a[0],y]]}else cur.lp.push([x,y])}else{if(cur.pr&&!prOn(q)&&window.__slatePen&&window.__slatePen.isZeroPressureFallback&&window.__slatePen.isZeroPressureFallback()){cur.pr=0;for(let i=0;i<cur.p.length;i++){if(cur.p[i].length>2&&cur.p[i][2]<0.3)cur.p[i][2]=0.85}}const l=cur.p[cur.p.length-1],S2=smx(cur,x,y),x2=S2[0],y2=S2[1];cur.rx=x;cur.ry=y;if(Math.hypot(x2-l[0],y2-l[1])>1.2){const t=performance.now(),sp=Math.hypot(x2-l[0],y2-l[1])/Math.max(1,t-(cur.lt||t));cur.p.push([x2,y2,cur.pr?pw(q,sp,l):(l[2]||1)*.7+Math.max(.45,Math.min(1.2,1.3-sp*.5))*.3]);cur.lt=t;HA.tick(q,sp)}}}drawSoon()});
 function end(e){SNAPON=false;
- /* A pan never opened a stroke, so there is nothing to finish or push; it only
-    has to hand back a tool it borrowed from a barrel button. */
- if(panDrag){if(e&&e.pointerId!==panDrag.id)return;panDrag=null;if(pt0){tool=pt0;pt0=null}syncTools();return}
- if(!cur)return;if(pt0){tool=pt0;pt0=null;syncTools()}if(cur.t==="laser"){cur.s.rt=performance.now();cur=null;laserLoop();return}sStop();if(cur.t==="er"){if(!cur.changed)undo.pop();else{flushRas();if(cur.it)splitAll(cur.it);else splitCF()}}
+ if(panDrag){if(e&&e.pointerId!==panDrag.id)return;try{if(e&&e.pointerId!=null&&cv.hasPointerCapture&&cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId)}catch(_){}panDrag=null;if(pt0){tool=pt0;pt0=null}syncTools();return}
+ if(e&&cur&&cur.pid!=null&&e.pointerId!==cur.pid)return;
+ try{if(e&&e.pointerId!=null&&cv.hasPointerCapture&&cv.hasPointerCapture(e.pointerId))cv.releasePointerCapture(e.pointerId)}catch(_){}
+ if(!cur){if(pt0&&!GDR){tool=pt0;pt0=null;syncTools()}return}if(pt0){tool=pt0;pt0=null;syncTools()}if(cur.t==="laser"){cur.s.rt=performance.now();cur=null;laserLoop();return}sStop();if(cur.t==="er"){if(!cur.changed)undo.pop();else{flushRas();if(cur.it)splitAll(cur.it);else splitCF()}}
  else if(cur.t==="sel"){if(cur.lp){const P=cur.lp;{const X=P.map(q=>q[0]),Y=P.map(q=>q[1]);if(Math.max(...X)-Math.min(...X)<8&&Math.max(...Y)-Math.min(...Y)<8){const h=tapSel(P[0][0],P[0][1]);sel=h?[h]:[]}else if(P.length>2)sel=pg().strokes.filter(s=>!frH(s)&&lyOn(s)&&inFrac(s,P)>=.85)}undo.pop()}else if(cur.tap&&(cur.m||0)<4){undo.pop();const it=cur.tap;cur=null;sel=[];openText(0,0,it);return}else if(cur.mv&&(cur.m||0)<4&&sel.length===1&&sel[0].t==='vid'){vToggle(sel[0]);undo.pop()}}
  else if(cur.t==="shape"){if(Math.hypot(cur.b[0]-cur.a[0],cur.b[1]-cur.a[1])>3){const o={t:"shape",k:cur.k,c:cur.c,w:cur.w,ds:cur.ds,ac:cur.ac,a:cur.a,b:cur.b};for(const q of["r","q","poly","el","pb","hb","v","dm","ho","hl","fc","fop"])if(cur[q]!==undefined)o[q]=cur[q];pg().strokes.push(o);symAdd(o)}else undo.pop()}
  else{finSmooth(cur);let o={t:cur.t,c:cur.c,w:cur.w,v:cur.v,sd:cur.sd,pr:cur.pr,op:cur.op,p:cur.p},p=o.p,L=0;for(let i=1;i<p.length;i++)L+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);
@@ -578,6 +580,9 @@ function end(e){SNAPON=false;
   else if(d<L*.2&&L>120){const B=bb(o);o={t:"shape",k:"ell",c:cur.c,w:cur.w,a:[B[0],B[1]],b:[B[2],B[3]]}}}
  pg().strokes.push(o);symAdd(o)}HA.end();cur=null;draw();save();thumbs()}
 cv.addEventListener("pointerup",end);cv.addEventListener("pointercancel",end);
+cv.addEventListener("pointerleave",()=>{if(!cur&&PBHOLD){tool=PBHOLD;PBHOLD=null;syncTools()}});
+window.addEventListener("pointerup",e=>{if((panDrag&&e.pointerId===panDrag.id)||(cur&&cur.pid===e.pointerId))end(e)});
+window.addEventListener("pointercancel",e=>{if((panDrag&&e.pointerId===panDrag.id)||(cur&&cur.pid===e.pointerId))end(e)});
 function load(){if((pg().pw||800)!==W||(pg().ph||1100)!==H){W=pg().pw||800;H=pg().ph||1100;fit()}$("#title").value=nb.name;$("#tpl").value=pg().tpl;$("#pc").value=pg().col||"";$("#pn").textContent=`Page ${pi+1} of ${nb.pages.length}`;undo=[];redo=[];sel=[];lyInit(pg());bakeAll(pg());commitText();draw();thumbs()}
 $("#undo").onclick=()=>{if(!undo.length)return;redo.push(JSON.stringify(pg().strokes));pg().strokes=JSON.parse(undo.pop());sel=[];draw();save();thumbs()};
 $("#redo").onclick=()=>{if(!redo.length)return;undo.push(JSON.stringify(pg().strokes));pg().strokes=JSON.parse(redo.pop());sel=[];draw();save();thumbs()};
@@ -835,7 +840,7 @@ function goPageOld(n){if(!nb||n<0||n>=nb.pages.length||n===pi||flipping)return;i
 function fillSet(d){hd(d,'Page turning');[[false,'Classic (instant)'],[true,'Flip animation']].forEach(([v,t])=>{const l=el('label','display:flex;gap:8px;align-items:center;padding:4px 0'),r=el('input');r.type='radio';r.name='flip';r.checked=FLIP===v;r.onchange=()=>{FLIP=v;saveSet()};l.append(r,t);d.append(l)});
  const l=el('label','display:flex;gap:8px;align-items:center;padding:4px 0;max-width:300px'),c=el('input');c.type='checkbox';c.checked=SCRL;c.onchange=()=>{SCRL=c.checked;saveSet()};l.append(c,'Scroll to turn pages (keep scrolling past the end of a page)');d.append(l);
  const l2=el('label','display:flex;gap:8px;align-items:center;padding:4px 0'),c2=el('input');c2.type='checkbox';c2.checked=SFLIP;c2.onchange=()=>{SFLIP=c2.checked;saveSet();if(SFLIP)flipSound(.5)};l2.append(c2,'Page-flip sound');d.append(l2);
- hd(d,'Stylus');const l3=el('label','display:flex;gap:8px;align-items:center;padding:4px 0','Pen side button:'),s3=el('select');PEN_TOOLS.forEach(([v,t])=>{const o=el('option',0,t);o.value=v;s3.append(o)});s3.value=PENCFG.side;s3.onchange=()=>{SIDE=s3.value;saveSet();penCfgSet('side',s3.value)};l3.append(s3);d.append(l3);d.append(el('div','color:var(--mu);font-size:12px;max-width:290px',penStatus()))}
+ hd(d,'Stylus');const l3=el('label','display:flex;gap:8px;align-items:center;padding:4px 0','Pen side button:'),s3=el('select');PEN_TOOLS.forEach(([v,t])=>{const o=el('option',0,t);o.value=v;s3.append(o)});s3.value=PENCFG.side;s3.onchange=()=>{SIDE=s3.value;saveSet();penCfgSet('side',s3.value)};l3.append(s3);d.append(l3);d.append(el('div','color:var(--mu);font-size:12px;max-width:290px',penStatus()));const pb=el('button','margin-top:6px;font-size:12px;padding:5px 10px','✒️ Stylus & pen setup…');pb.type='button';pb.onclick=()=>{closeDr();openPenPanel()};d.append(pb)}
 function render(c,page,live){const w0=W,h0=H;W=page.pw||800;H=page.ph||1100;try{render0(c,page,live)}finally{W=w0;H=h0}}
 let curlCol='#f4f2ec';const pcOf=p=>p.pp?(p.pp.bg||'#fff'):(p.col||'#f4f2ec');
 function bgPP(c,p){c.fillStyle=p.bg||'#fff';c.fillRect(0,0,W,H);const g=p.gap||32,lw=p.lw||1,k=p.k;c.strokeStyle=c.fillStyle=p.ln||'rgba(120,140,170,.4)';c.lineWidth=lw;const L=(x0,y0,x1,y1)=>{c.beginPath();c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke()};
@@ -1008,14 +1013,20 @@ function setBrush(v,fromNum){size=v;if(!fromNum&&$('#sizen'))$('#sizen').value=(
  * from the pad — so the numbers froze the moment you left the panel and drew on
  * the page, which is precisely when you were trying to watch them. */
 function penInfo(e){
-  PENI.seen=1;
-  if(e.pressure>0&&e.pressure!==.5)PENI.p=1;
-  if(e.tiltX||e.tiltY||(e.altitudeAngle!==undefined&&e.altitudeAngle<1.5))PENI.t=1;
+  var like=penLike(e);
+  if(like){
+    PENI.seen=1;
+    if(e.pressure>0&&e.pressure!==.5)PENI.p=1;
+    if(e.tiltX||e.tiltY||(e.altitudeAngle!==undefined&&e.altitudeAngle<1.5))PENI.t=1;
+  }
   PENLIVE.seen=1;PENLIVE.type=e.pointerType||'-';
-  var p=(typeof e.pressure==='number')?e.pressure:0;
-  if(e.type!=='pointerup'&&p>0){PENLIVE.pr=p;if(p<PENLIVE.prMin)PENLIVE.prMin=p;if(p>PENLIVE.prMax)PENLIVE.prMax=p}
+  var p=(typeof e.pressure==='number')?e.pressure:0,B=e.buttons||0;
+  if(e.type!=='pointerup'&&(p>0||e.type==='pointerdown'||(B&1)||(B&32))){
+    PENLIVE.pr=p;
+    if(p>0){if(p<PENLIVE.prMin)PENLIVE.prMin=p;if(p>PENLIVE.prMax)PENLIVE.prMax=p}
+  }
   PENLIVE.tilt=Math.max(Math.abs(e.tiltX||0),Math.abs(e.tiltY||0));
-  var s=penSlot(e),B=e.buttons||0;
+  var s=penSlot(e);
   if(s==='eraser')PENLIVE.eraser=1;
   if(s==='barrel1')PENLIVE.side=1;
   if(s==='barrel2')PENLIVE.side2=1;
@@ -1235,7 +1246,7 @@ function lsPv(c,fade){c.lineCap='round';[[7,'#ff1f2d',6],[2.6,'#fff0f0',0]].forE
 function fillLaser(d){hd(d,'Laser pointer style');const g=gr(d);[['hold','Stays while pressed',0],['fade','Fades as you draw',1]].forEach(([v,n,f])=>bi(g,(LM===v?'\u2713 ':'')+n,()=>{LM=v;try{localStorage.setItem('inkpad-laser',v)}catch(e){}tool='laser'},c=>lsPv(c,f)))}
 Object.entries(G).forEach(([k,v])=>{$(`[data-t="${k}"]`).dataset.g=v});
 $('[data-t="line"]').innerHTML=ico("<path d='M4 18L10 6l6 12z'/><circle cx='17' cy='7' r='3.5'/>");$('[data-t="line"]').title='Shapes, arrows and axes';$('[data-t="pen"]').title='Brushes';$('[data-t="sel"]').title='Lasso';$('[data-t="er"]').title='Erasers';
-document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{commitText();const g=(b.dataset.g||'').split(',');if(!g.includes(tool))tool=b.dataset.t;if(tool!=='sel'){sel=[];draw()}syncTools();const F=FILL[b.dataset.t];if(F)openDr(b,F);else closeDr()});
+document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{PBHOLD=null;pt0=null;commitText();const g=(b.dataset.g||'').split(',');if(!g.includes(tool))tool=b.dataset.t;if(tool!=='sel'){sel=[];draw()}syncTools();const F=FILL[b.dataset.t];if(F)openDr(b,F);else closeDr()});
 {const sb=el('button','line-height:1;font-size:18px','\u03a3');sb.className='ic';sb.title='Engineering symbols';sb.onclick=()=>openDr(sb,fillSym);const lb=el('button');lb.className='ic';lb.title='Figure library';lb.innerHTML=ico("<path d='M4 5h4v14H4zM10 5h4v14h-4zM16 6l4-1 3 13-4 1z'/>");lb.onclick=()=>openDr(lb,fillLib);$('#img').after(sb,lb);
  const ds=el('select');ds.title='Page resolution';[[1,'100 dpi'],[1.5,'150 dpi'],[2,'200 dpi'],[3,'300 dpi'],[4,'400 dpi'],[5,'500 dpi'],[6,'600 dpi'],[8,'800 dpi'],[10,'1000 dpi'],[12,'1200 dpi']].forEach(([v,t])=>{const o=el('option');o.value=v;o.textContent=t;ds.append(o)});ds.value=DPI;ds.onchange=()=>{DPI=+ds.value;try{localStorage.setItem('inkpad-dpi',DPI)}catch(e){}toast('The screen preview adapts to your display. Exports and printing use '+DPI*100+' dpi.');if(nb&&$('#ed').style.display==='flex')fit()};$('#pc').after(ds);
  const SB=el('div','position:fixed;bottom:58px;left:50%;transform:translateX(-50%);display:none;gap:6px;background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:6px 8px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:7');SB.id='sbar';[['Duplicate',dupSel],['Save to notebook',()=>saveFig('n')],['Save to general library',()=>saveFig('g')],['Delete',delSel]].forEach(([t,f])=>{const b=el('button','',t);b.onclick=f;SB.append(b)});anSB(SB);document.body.append(SB);
@@ -1470,7 +1481,7 @@ function frDo(){if(!FB){FB=el('div','display:none;gap:8px;align-items:center;pad
   mk=(t,ti,css,fn)=>{const x=el('button','position:absolute;padding:0;min-height:0;width:20px;height:20px;line-height:18px;font-size:12px;background:rgba(255,255,255,.94);color:#223;border:1px solid #ccd;border-radius:5px;'+css,t);x.title=ti;x.onclick=e=>{e.stopPropagation();fn()};w.append(x)};
   c.style.display='block';w.append(c,el('span','position:absolute;left:3px;bottom:1px;font-size:10px;color:#556;background:rgba(255,255,255,.85);padding:0 3px;border-radius:3px',i+1));
   const gp=el('div','position:absolute;left:0;top:0;width:100%;height:16px;cursor:grab;touch-action:none;background:linear-gradient(rgba(255,255,255,.9),rgba(255,255,255,0));text-align:center;font-size:10px;line-height:12px;color:#778;letter-spacing:2px','\u2022\u2022\u2022');gp.title='Drag to rearrange';gp.onclick=e=>e.stopPropagation();
-  gp.onpointerdown=e=>{e.preventDefault();e.stopPropagation();gp.setPointerCapture(e.pointerId);const x0=e.clientX,ws=[...st.children];w.style.zIndex=3;w.style.opacity=.75;
+  gp.onpointerdown=e=>{e.preventDefault();e.stopPropagation();try{gp.setPointerCapture(e.pointerId)}catch(_){}const x0=e.clientX,ws=[...st.children];w.style.zIndex=3;w.style.opacity=.75;
    gp.onpointermove=ev=>{w.style.transform='translateX('+(ev.clientX-x0)+'px)'};
    gp.onpointerup=ev=>{gp.onpointermove=gp.onpointerup=null;const dx=ev.clientX-x0,r=w.getBoundingClientRect(),cx=r.left+r.width/2;let to=0;ws.forEach(n=>{if(n===w)return;const q=n.getBoundingClientRect();if(q.left+q.width/2<cx)to++});w.style.transform='';w.style.opacity='';
     if(Math.abs(dx)>6){if(to!==i){snap();const[mv]=p.frs.splice(i,1);p.frs.splice(to,0,mv);draw();save()}frRefresh(1)}else pick()}};
@@ -1757,8 +1768,9 @@ function penMeta(){
    * keeps its range in the mouse bucket, because that is the class its events
    * arrive under. */
   var act=prof?((mPen&&PENLIVE.type==='mouse')?prof.mouse:prof.pen):null;
+  var zeroFb=!!(window.__slatePen&&window.__slatePen.isZeroPressureFallback&&window.__slatePen.isZeroPressureFallback());
   var flat=!!(act&&act.n>40&&(act.hi-act.lo)<=1e-4);
-  var prs=!isPen?'-':(rg&&span>1e-4)?(span<.25?'on, narrow band stretched':'on'):flat?'driver sends none':'waiting for a stroke';
+  var prs=!isPen?'-':(rg&&span>1e-4)?(span<.25?'on, narrow band stretched':'on'):zeroFb?'driver sends 0 pressure (speed width)':flat?'driver sends none':'waiting for a stroke';
 
   // Tilt is a live angle. A pen held upright reads 0°, which is not the same as
   // a pen that cannot report tilt — but both look like "no" in a capability
@@ -1790,10 +1802,14 @@ function penMeta(){
    * both are `pointerType: 'mouse'`, and only the person holding it knows. */
   var st=(window.__slatePen&&window.__slatePen.state)?window.__slatePen.state():null;
   var sawPen=!!(st&&st.penSeen);
-  if(PENLIVE.seen&&PENLIVE.type==='mouse'&&!mPen&&!sawPen)
+  if(st&&st.lastReason==='touch:pen-only')
+    m.innerHTML+='<div class="pen-hint">Touch input is currently blocked because <b>Palm rejection</b> is set to <b>Pen only</b>. If your tablet sends touch events instead of stylus events, switch Palm rejection to <b>Automatic</b> or <b>Off</b> above.</div>';
+  else if(PENLIVE.seen&&PENLIVE.type==='mouse'&&!mPen&&!sawPen)
     m.innerHTML+='<div class="pen-hint">Drawing with a pen but getting no pressure, no tilt and no barrel buttons? Then the pen is arriving as a plain mouse: the driver\'s <b>Windows Ink</b> box is off, and Windows Ink is what carries pressure and tilt to the browser. Tick it in XP-Pen\'s Pen settings, then reload this page. Leaving <b>Pressure</b> and <b>Tilt</b> ticked as well is right — they say what the tablet measures, Windows Ink says how it is delivered.</div>';
   else if(PENLIVE.seen&&mPen&&PENLIVE.type==='mouse')
     m.innerHTML+='<div class="pen-hint">Your tablet is in mouse mode. The barrel buttons are mapped and the pen is being treated as a pen, but pressure and tilt are not reaching the browser — that is the driver\'s <b>Windows Ink</b> box, which is off. Tick it in XP-Pen\'s Pen settings and reload to get them.</div>';
+  else if(zeroFb)
+    m.innerHTML+='<div class="pen-hint">Your stylus is sending 0 pressure on contact, so Slate switched to speed-based stroke width to keep ink visible. For pressure sensitivity on XP-Pen Deco 640, turn on <b>Windows Ink</b> in Pentablet (Windows) or use Chrome over USB-C OTG (Android).</div>';
   // A pen with two barrel buttons and no eraser end is the common case, and the
   // second button defaults to Nothing. Saying which one is free beats a row
   // that reads "not seen" forever.

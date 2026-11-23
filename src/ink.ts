@@ -1349,7 +1349,11 @@ function buildWheel(cur: string): HTMLElement {
     commit();
   };
   cv.addEventListener('pointerdown', (e) => {
-    cv.setPointerCapture(e.pointerId);
+    try {
+      cv.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore transient pointer capture errors */
+    }
     ringPick(e);
     const mv = (m: PointerEvent) => ringPick(m);
     const up = () => {
@@ -1370,7 +1374,11 @@ function buildWheel(cur: string): HTMLElement {
     commit();
   };
   sq.addEventListener('pointerdown', (e) => {
-    sq.setPointerCapture(e.pointerId);
+    try {
+      sq.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore transient pointer capture errors */
+    }
     sqPick(e);
     const mv = (m: PointerEvent) => sqPick(m);
     const up = () => {
