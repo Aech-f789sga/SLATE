@@ -203,13 +203,33 @@ function slotOf(e: PointerEvent): Slot {
  * is indistinguishable from a bug in this file — so it gets detected rather
  * than guessed at.
  *
- * The tell is pressure that moves, because a real mouse cannot vary it. Tilt is
- * the second tell, for the drivers that still forward the sensor.
+ * There are three tells, and they are not equally available. Pressure that
+ * moves is the strongest, but with Windows Ink off there is no pressure to
+ * move — that is the whole problem — so the third one matters most in practice.
  */
 function mouseIsPen(): boolean {
   const m = profiles.mouse;
-  return m.hi - m.lo > FLAT || m.tilt;
+  return m.hi - m.lo > FLAT || m.tilt || hoverButtons;
 }
+
+/**
+ * Did a mouse stream change a button without a press?
+ *
+ * A mouse cannot: `buttons` only goes non-zero after a `pointerdown`, because
+ * pressing a button *is* the pointerdown. A pen can, in principle, change a
+ * button while the nib is above the tablet — and some drivers report exactly
+ * that, as a `pointermove` carrying `buttons` with no press behind it.
+ *
+ * This is a fallback, not the main path, and it is worth being honest about
+ * why: Windows turns a mouse-mode tablet's barrel button into a genuine
+ * right-click, which arrives as a real `pointerdown`, so on most drivers this
+ * will never fire. It costs six lines and covers the drivers that do report the
+ * change directly, but it is not what makes a mislabelled pen work — Windows
+ * Ink is.
+ */
+let hoverButtons = false;
+/** Is a mouse button currently held, from a press we actually saw? */
+let mousePressed = false;
 
 function stylusLike(): boolean {
   return penSeen || mouseIsPen();
@@ -820,13 +840,29 @@ function boot() {
   const track = (e: PointerEvent) => {
     const kind = kindOf(e);
     if (kind !== 'pen') {
-      /**
-       * A tablet in mouse mode is still a pen for diagnostics. Without this the
-       * panel would freeze on whatever the last tip-down reported, which looks
-       * exactly like a broken pressure model: the number is there, it is just
-       * never updated while you draw.
-       */
-      if (kind === 'mouse' && mouseIsPen()) note(e);
+      if (kind === 'mouse') {
+        const bits = Number((e as any).buttons) || 0;
+        if (e.type === 'pointerdown') {
+          mousePressed = true;
+        } else if (e.type === 'pointerup' || e.type === 'pointercancel') {
+          mousePressed = false;
+        } else if (bits !== 0 && !mousePressed) {
+          /**
+           * A button appeared without a press. A mouse cannot do that; a pen
+           * with Windows Ink off does it every time a barrel button goes down
+           * while the nib is hovering. This is the only pen tell left once the
+           * driver has thrown the pressure away, so it is worth the one line.
+           */
+          hoverButtons = true;
+        }
+        /**
+         * A tablet in mouse mode is still a pen for diagnostics. Without this
+         * the panel would freeze on whatever the last tip-down reported, which
+         * looks exactly like a broken pressure model: the number is there, it
+         * is just never updated while you draw.
+         */
+        if (mouseIsPen()) note(e);
+      }
       return;
     }
     penSeen = true;
@@ -960,10 +996,16 @@ function boot() {
      * reads as broken.
      */
     range: () => {
-      const p = profiles.pen;
-      if (p.hi - p.lo > FLAT) return { lo: p.lo, hi: p.hi };
-      if (p.strokeHi - p.strokeLo > FLAT) return { lo: p.strokeLo, hi: p.strokeHi };
-      return null;
+      const pick = (p: Profile) => {
+        if (p.hi - p.lo > FLAT) return { lo: p.lo, hi: p.hi };
+        if (p.strokeHi - p.strokeLo > FLAT) return { lo: p.strokeLo, hi: p.strokeHi };
+        return null;
+      };
+      // A pen that is being reported as a mouse keeps its range in the mouse
+      // bucket, because that is the device class the events arrive under. Asking
+      // only about the pen bucket would show "none yet" for a pen whose pressure
+      // is working perfectly well.
+      return pick(profiles.pen) || (mouseIsPen() ? pick(profiles.mouse) : null);
     },
     /** Fold the session's range into the stored one. Called on pen lift. */
     settle: () => settle('pen'),
@@ -977,6 +1019,8 @@ function boot() {
       sinceContact: performance.now() - lastContact,
       lastKind,
       lastReason,
+      /** A mouse stream has changed a button without a press. */
+      hoverButtons,
     }),
     /** What has been learned about each device class. */
     profile: () => ({
@@ -997,6 +1041,9 @@ function boot() {
     reset: () => {
       profiles.pen = blank();
       profiles.mouse = blank();
+      // Recalibrating is for pressure, not for what the hardware is: a pen that
+      // has already shown it can change a button while hovering will show it
+      // again on the next press, so the answer does not need forgetting.
       try {
         localStorage.removeItem(PRESSURE_KEY);
       } catch {

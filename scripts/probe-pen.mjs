@@ -622,9 +622,9 @@ ok('a reset mouse goes back to being a mouse', mouseMode.likeReset === false, `g
 const latch = await E(`(function(){
   cur=null;PBHOLD=null;tool='pen';syncTools();
   var before=tool;
-  window.dispatchEvent(new PointerEvent('pointermove',{pointerType:'pen',buttons:2,button:1,clientX:420,clientY:420,bubbles:true}));
+  document.body.dispatchEvent(new PointerEvent('pointermove',{pointerType:'pen',buttons:2,button:1,clientX:420,clientY:420,bubbles:true}));
   var pressed=tool;
-  window.dispatchEvent(new PointerEvent('pointermove',{pointerType:'pen',buttons:0,button:-1,clientX:420,clientY:420,bubbles:true}));
+  document.body.dispatchEvent(new PointerEvent('pointermove',{pointerType:'pen',buttons:0,button:-1,clientX:420,clientY:420,bubbles:true}));
   var released=tool;
   return {before:before,pressed:pressed,released:released};
 })()`);
@@ -635,7 +635,7 @@ ok('and releasing it gives the tool back', latch.released === 'pen', `${latch.pr
 // "my pen is being reported as a mouse" are the same event stream.
 const mousePanel = await E(`(function(){
   openPenPanel();
-  window.dispatchEvent(new PointerEvent('pointermove',{pointerType:'mouse',buttons:0,button:-1,clientX:300,clientY:300,bubbles:true}));
+  document.body.dispatchEvent(new PointerEvent('pointermove',{pointerType:'mouse',buttons:0,button:-1,clientX:300,clientY:300,bubbles:true}));
   return new Promise(function(res){setTimeout(function(){
     var meta=document.getElementById('pen-meta');
     var dot=document.getElementById('pen-dot');
@@ -646,6 +646,44 @@ const mousePanel = await E(`(function(){
 })()`);
 ok('the panel names a mouse a mouse', /Device\s*\n?\s*mouse/i.test(mousePanel.text), mousePanel.text.split('\n').slice(0, 2).join(' '));
 ok('and does not draw a fake pressure reading for it', mousePanel.dot === '8px', `dot=${mousePanel.dot || 'missing'}`);
+
+// With Windows Ink off the barrel button arrives as a right click, so the right
+// button has to be that barrel button on the canvas — otherwise the pen has a
+// button that the app can see and refuses to use.
+const R = T(200, 300);
+await E(`tool='pen';syncTools();cur=null`);
+await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: R[0], y: R[1], button: 'right', buttons: 2, clickCount: 1 });
+await page.waitForTimeout(60);
+const rightTool = await E(`tool`);
+await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: R[0], y: R[1], button: 'right', buttons: 0, clickCount: 1 });
+await page.waitForTimeout(60);
+const backTool = await E(`tool`);
+ok('the right button erases on the canvas', rightTool === 'er', `tool=${rightTool}`);
+ok('and the previous tool comes back when it is released', backTool === 'pen', `tool=${backTool}`);
+
+// The case that actually happens: Windows Ink off, so there is no pressure to
+// move and no tilt to see. The only tell left is that a button can change
+// without a press — which a mouse cannot do and a pen does every time you press
+// a barrel button over a hovering nib. Without it, the buttons stay dead.
+const inkOff = await E(`(function(){
+  window.__slatePen.reset();
+  // A press we saw, then a release: no promotion, this is just a mouse.
+  document.body.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'mouse',buttons:2,button:2,bubbles:true}));
+  document.body.dispatchEvent(new PointerEvent('pointerup',{pointerType:'mouse',buttons:0,button:2,bubbles:true}));
+  var afterPress=window.__slatePen.mousePen();
+  // A button that appeared with no press behind it.
+  document.body.dispatchEvent(new PointerEvent('pointermove',{pointerType:'mouse',buttons:2,button:-1,bubbles:true}));
+  return {
+    afterPress:afterPress,
+    hover:window.__slatePen.state().hoverButtons,
+    after:window.__slatePen.mousePen(),
+    like:penLike({pointerType:'mouse'}),
+    mapped:penBtn({pointerType:'mouse',buttons:2,button:2})
+  };
+})()`);
+ok('a real press and release does not promote a mouse', inkOff.afterPress === false, `mousePen=${inkOff.afterPress}`);
+ok('a button with no press behind it does', inkOff.hover === true && inkOff.after === true, `hoverButtons=${inkOff.hover} mousePen=${inkOff.after}`);
+ok('and its barrel buttons are then mapped', inkOff.like === true && inkOff.mapped === 'er', `like=${inkOff.like} tool="${inkOff.mapped}"`);
 
 /* ---------------------------------------------------------------- */
 console.log('\n== 16. A pasted image lands on the page');

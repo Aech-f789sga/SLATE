@@ -79,8 +79,11 @@ html[data-bar=compact] #bar{padding-right:0}
    it grow, which answers "is pressure working?" in one glance instead of in a
    row of two decimal places. */
 #pen-dot{position:absolute;left:50%;top:54%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:var(--ac);opacity:.55;pointer-events:none}
-.pen-raw{grid-column:1/-1;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--mu);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:2px}
-.pen-meta .pen-hint{grid-column:1/-1;line-height:1.45}
+.pen-raw{grid-column:1/-1;display:block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--mu);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:2px}
+/* `display:block` is load-bearing: the grid's own `>div{display:flex}` would
+   turn every word of the hint into a flex item and lay the sentence out in
+   columns. */
+.pen-meta .pen-hint{grid-column:1/-1;display:block;line-height:1.45;text-align:left}
 .pen-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12px;color:var(--mu)}
 .pen-meta>div{display:flex;justify-content:space-between;gap:6px;min-width:0}
 .pen-meta i{color:var(--tx);font-style:normal;font-weight:600;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -540,7 +543,14 @@ function fit(){fitting=1;cv.style.aspectRatio=W+'/'+H;layout();const d=cvD=wantD
 function pos(e){const r=cv.getBoundingClientRect(),p=[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];return SNAPON?gSnap(p):p}
 function snap(){undo.push(JSON.stringify(pg().strokes));if(undo.length>60)undo.shift();redo=[]}
 function eraseAt(x,y){if(cur&&cur.pe)return partial(x,y);const s=pg().strokes,n=s.length,r=12+size;pg().strokes=s.filter(k=>{if(k.t==="ers"||frH(k))return true;if(!k.p){if(k.fl)return true;const b=bb(k);return !(x>b[0]-r&&x<b[2]+r&&y>b[1]-r&&y<b[3]+r)}return !k.p.some(q=>Math.hypot(q[0]-x,q[1]-y)<r+(k.t==="hl"?k.w*2:k.w/2))});if(pg().strokes.length!==n)return true;let fc=false;for(const k of pg().strokes)if(k.fl&&fillCut(k,x,y))fc=true;return fc}
-cv.addEventListener("pointerdown",e=>{if(flipping)return;if(penLike(e)&&!penSeen){penSeen=1;try{window.__slatePen&&window.__slatePen.firstPen&&window.__slatePen.firstPen()}catch(x){}}if(!PENAPI.accept(e))return;if(penLike(e)){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}e.preventDefault();cv.setPointerCapture(e.pointerId);
+cv.addEventListener("pointerdown",e=>{if(flipping)return;if(penLike(e)&&!penSeen){penSeen=1;try{window.__slatePen&&window.__slatePen.firstPen&&window.__slatePen.firstPen()}catch(x){}}if(!PENAPI.accept(e))return;if(penLike(e)){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}
+ /* A tablet with Windows Ink off sends its barrel button as a right click, so
+    on the canvas the right button is that barrel button. Mapping it here means
+    the button does the job it was mapped to even when the driver will not tell
+    the browser that a pen is what pressed it. A real mouse gets the same deal,
+    which is the point: right-drag to erase is what the button is for. */
+ else if(e.pointerType==='mouse'&&(e.button===2||(e.buttons&2))){const bt=PENCFG.side==='none'?'':PENCFG.side;if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}
+ e.preventDefault();cv.setPointerCapture(e.pointerId);
  /* Pan is a view gesture, not an edit: it starts before the guided-drawing and
     locked-layer guards, which would otherwise swallow it, and it touches
     neither the stroke list nor the undo stack. */
@@ -1741,8 +1751,13 @@ function penMeta(){
 
   /* Pressure has four honest answers, and they need four different sentences.
    * "not reported" used to cover all of them, which told the user nothing about
-   * whether to fix the app or the driver. */
-  var flat=!!(prof&&prof.pen&&prof.pen.n>40&&(prof.pen.hi-prof.pen.lo)<=1e-4);
+   * whether to fix the app or the driver.
+   *
+   * The profile to read depends on the device class: a pen reported as a mouse
+   * keeps its range in the mouse bucket, because that is the class its events
+   * arrive under. */
+  var act=prof?((mPen&&PENLIVE.type==='mouse')?prof.mouse:prof.pen):null;
+  var flat=!!(act&&act.n>40&&(act.hi-act.lo)<=1e-4);
   var prs=!isPen?'-':(rg&&span>1e-4)?(span<.25?'on, narrow band stretched':'on'):flat?'driver sends none':'waiting for a stroke';
 
   // Tilt is a live angle. A pen held upright reads 0°, which is not the same as
@@ -1776,9 +1791,9 @@ function penMeta(){
   var st=(window.__slatePen&&window.__slatePen.state)?window.__slatePen.state():null;
   var sawPen=!!(st&&st.penSeen);
   if(PENLIVE.seen&&PENLIVE.type==='mouse'&&!mPen&&!sawPen)
-    m.innerHTML+='<div class="pen-hint">Drawing with a pen but getting no pressure, no tilt and no barrel buttons? Then your pen is arriving as a plain mouse. Switch on <b>Windows Ink</b> in the XP-Pen driver (Deco 640: Pen settings \u2192 Windows Ink), then reload this page. A mouse reports this way by design.</div>';
+    m.innerHTML+='<div class="pen-hint">Drawing with a pen but getting no pressure, no tilt and no barrel buttons? Then the pen is arriving as a plain mouse: the driver\'s <b>Windows Ink</b> box is off, and Windows Ink is what carries pressure and tilt to the browser. Tick it in XP-Pen\'s Pen settings, then reload this page. Leaving <b>Pressure</b> and <b>Tilt</b> ticked as well is right — they say what the tablet measures, Windows Ink says how it is delivered.</div>';
   else if(PENLIVE.seen&&mPen&&PENLIVE.type==='mouse')
-    m.innerHTML+='<div class="pen-hint">Your tablet is in mouse mode, but its pressure is moving, so the pen path is on: strokes taper and the barrel buttons are mapped. Tilt and the second button will stay missing until Windows Ink is enabled in the driver.</div>';
+    m.innerHTML+='<div class="pen-hint">Your tablet is in mouse mode. The barrel buttons are mapped and the pen is being treated as a pen, but pressure and tilt are not reaching the browser — that is the driver\'s <b>Windows Ink</b> box, which is off. Tick it in XP-Pen\'s Pen settings and reload to get them.</div>';
   // A pen with two barrel buttons and no eraser end is the common case, and the
   // second button defaults to Nothing. Saying which one is free beats a row
   // that reads "not seen" forever.
