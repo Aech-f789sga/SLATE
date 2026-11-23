@@ -505,22 +505,25 @@ console.log('\n== 13. Barrel buttons map the way the spec numbers them');
 /* ---------------------------------------------------------------- */
 
 // For a pen: button 0 is the tip, 1 the first barrel button, 2 the second, 5
-// the eraser end; buttons carries the same as bits 1, 4, 2 and 32. The two
-// barrel tests were swapped, so the upper button — the one a two-button pen
-// has and the one people press — was wired to the slot that defaults to
-// Nothing, and the app looked like it ignored the stylus.
+// the eraser end. `buttons` carries the same four as bits 2, 4 and 32 — the
+// index and the bit are not the same number, and pairing bit 4 with index 1 is
+// exactly the mistake that wired the two barrel slots to each other's button.
+// Both fields are checked separately, because a driver that sends only one of
+// them must still land in the right slot.
 const btns = await E(`(function(){
   function ev(b,btn){return {pointerType:'pen',buttons:b,button:btn}}
   var out={
-    first:penBtn(ev(4,1)),
-    second:penBtn(ev(2,2)),
+    first:penBtn(ev(2,1)),
+    second:penBtn(ev(4,2)),
     eraser:penBtn(ev(32,5)),
     tip:penBtn(ev(1,0)),
-    firstBit:penBtn(ev(4,0)),
-    secondBit:penBtn(ev(2,0))
+    firstBit:penBtn(ev(2,0)),
+    secondBit:penBtn(ev(4,0)),
+    firstIdx:penBtn(ev(0,1)),
+    secondIdx:penBtn(ev(0,2))
   };
   penCfgSet('side2','hl');
-  out.secondMapped=penBtn(ev(2,2));
+  out.secondMapped=penBtn(ev(4,2));
   penCfgSet('side2','none');
   out.eraserMapped=penBtn(ev(32,5));
   return out;
@@ -530,6 +533,7 @@ ok('the second barrel button defaults to nothing', btns.second === '', `got "${b
 ok('the eraser end is mapped', btns.eraser === 'er', `got "${btns.eraser}"`);
 ok('the tip alone maps to no tool', btns.tip === '', `got "${btns.tip}"`);
 ok('the bitmask alone identifies both barrel buttons', btns.firstBit === 'er' && btns.secondBit === '', `${btns.firstBit} / ${btns.secondBit}`);
+ok('the button index alone identifies both barrel buttons', btns.firstIdx === 'er' && btns.secondIdx === '', `${btns.firstIdx} / ${btns.secondIdx}`);
 ok('the second barrel button can be mapped', btns.secondMapped === 'hl', `got "${btns.secondMapped}"`);
 ok('mapping the second button leaves the eraser end alone', btns.eraserMapped === 'er', `got "${btns.eraserMapped}"`);
 
@@ -582,7 +586,110 @@ ok('the narrow pen now reaches full width', aw.length > 1 && Math.max(...aw) > 1
 ok('and still starts thin', aw.length > 1 && Math.min(...aw) < 0.5, aw.length ? `min ${Math.min(...aw).toFixed(2)}` : 'no widths');
 
 /* ---------------------------------------------------------------- */
-console.log('\n== 15. No page errors');
+console.log('\n== 15. A tablet in mouse mode is still a pen');
+/* ---------------------------------------------------------------- */
+
+// With Windows Ink off, the driver reports the stylus as `pointerType: 'mouse'`
+// with pressure pinned at 0.5, no tilt, and the barrel buttons as right and
+// middle click. The old code refused to map buttons for anything that was not
+// literally a pen, which on those tablets means refusing to map the pen.
+const mouseMode = await E(`(function(){
+  window.__slatePen.reset();
+  var out={};
+  out.slotRight=penSlot({pointerType:'mouse',buttons:2,button:2});
+  out.slotMiddle=penSlot({pointerType:'mouse',buttons:4,button:1});
+  out.likeBefore=penLike({pointerType:'mouse'});
+  // A mouse cannot vary pressure; a pen in mouse mode can, on some drivers.
+  window.__slatePen.pressure({pointerType:'mouse',pressure:0.3,timeStamp:1});
+  window.__slatePen.pressure({pointerType:'mouse',pressure:0.8,timeStamp:2});
+  out.mousePen=window.__slatePen.mousePen();
+  out.likeAfter=penLike({pointerType:'mouse'});
+  out.slotMapped=penBtn({pointerType:'mouse',buttons:2,button:2});
+  window.__slatePen.reset();
+  out.likeReset=penLike({pointerType:'mouse'});
+  return out;
+})()`);
+ok('a mouse-mode tablet still reaches the barrel slot', mouseMode.slotRight === 'barrel1', `got "${mouseMode.slotRight}"`);
+ok('and the second button reaches the second slot', mouseMode.slotMiddle === 'barrel2', `got "${mouseMode.slotMiddle}"`);
+ok('a plain mouse is not treated as a pen', mouseMode.likeBefore === false, `got ${mouseMode.likeBefore}`);
+ok('pressure that moves marks the mouse stream as a pen', mouseMode.mousePen === true, `got ${mouseMode.mousePen}`);
+ok('and the button mapping then applies to it', mouseMode.likeAfter === true && mouseMode.slotMapped === 'er', `like=${mouseMode.likeAfter} tool="${mouseMode.slotMapped}"`);
+ok('a reset mouse goes back to being a mouse', mouseMode.likeReset === false, `got ${mouseMode.likeReset}`);
+
+// Pressing a barrel button while hovering produces pointermove, never
+// pointerdown — there is no new contact, only a button change. The mapping used
+// to run only on pointerdown, which is the one moment a button is not pressed.
+const latch = await E(`(function(){
+  cur=null;PBHOLD=null;tool='pen';syncTools();
+  var before=tool;
+  window.dispatchEvent(new PointerEvent('pointermove',{pointerType:'pen',buttons:2,button:1,clientX:420,clientY:420,bubbles:true}));
+  var pressed=tool;
+  window.dispatchEvent(new PointerEvent('pointermove',{pointerType:'pen',buttons:0,button:-1,clientX:420,clientY:420,bubbles:true}));
+  var released=tool;
+  return {before:before,pressed:pressed,released:released};
+})()`);
+ok('a button pressed while hovering borrows the tool', latch.pressed === 'er', `${latch.before} -> ${latch.pressed}`);
+ok('and releasing it gives the tool back', latch.released === 'pen', `${latch.pressed} -> ${latch.released}`);
+
+// The panel has to be able to name a mouse, because "my pen is not working" and
+// "my pen is being reported as a mouse" are the same event stream.
+const mousePanel = await E(`(function(){
+  openPenPanel();
+  window.dispatchEvent(new PointerEvent('pointermove',{pointerType:'mouse',buttons:0,button:-1,clientX:300,clientY:300,bubbles:true}));
+  return new Promise(function(res){setTimeout(function(){
+    var meta=document.getElementById('pen-meta');
+    var dot=document.getElementById('pen-dot');
+    var out={text:meta.innerText,dot:dot?dot.style.width:'',open:document.getElementById('pen-md').classList.contains('on')};
+    document.getElementById('pen-md').classList.remove('on');
+    res(out);
+  },150)});
+})()`);
+ok('the panel names a mouse a mouse', /Device\s*\n?\s*mouse/i.test(mousePanel.text), mousePanel.text.split('\n').slice(0, 2).join(' '));
+ok('and does not draw a fake pressure reading for it', mousePanel.dot === '8px', `dot=${mousePanel.dot || 'missing'}`);
+
+/* ---------------------------------------------------------------- */
+console.log('\n== 16. A pasted image lands on the page');
+/* ---------------------------------------------------------------- */
+
+// One pixel, but a real PNG: the insertion path decodes it, so a fake header
+// would prove nothing.
+const pasted = await E(`(async function(){
+  pg().strokes=[];
+  var b64='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  var bin=atob(b64),u=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
+  var dt=new DataTransfer();
+  dt.items.add(new File([u],'shot.png',{type:'image/png'}));
+  var ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});
+  document.dispatchEvent(ev);
+  for(var k=0;k<80;k++){
+    await new Promise(r=>setTimeout(r,50));
+    var s=pg().strokes.find(x=>x.t==='img');
+    if(s)return {ok:true,prevented:ev.defaultPrevented,x:s.x,y:s.y,w:s.w,h:s.h,src:String(s.src||'').slice(0,22),n:pg().strokes.length};
+  }
+  return {ok:false,prevented:ev.defaultPrevented};
+})()`);
+ok('a pasted screenshot becomes an image stroke', pasted.ok === true, pasted.ok ? '' : 'no stroke appeared');
+ok('the paste is claimed, not left to the browser', pasted.prevented === true, `defaultPrevented=${pasted.prevented}`);
+ok('it is centred on the page', pasted.ok && Math.abs(pasted.x - (800 - pasted.w) / 2) < 2, pasted.ok ? `x=${pasted.x} w=${pasted.w}` : '');
+ok('it keeps its pixels, with a real data URL', pasted.ok && pasted.src.startsWith('data:image/'), pasted.src || '');
+
+// The one place pasting must not be intercepted.
+const inField = await E(`(async function(){
+  pg().strokes=[];
+  var t=document.createElement('textarea');document.body.appendChild(t);t.focus();
+  var dt=new DataTransfer();
+  dt.items.add(new File([new Uint8Array([137,80,78,71])],'x.png',{type:'image/png'}));
+  document.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));
+  await new Promise(r=>setTimeout(r,300));
+  var active=document.activeElement.tagName;
+  t.remove();
+  return {n:pg().strokes.length,active:active};
+})()`);
+ok('a paste into a text field is left alone', inField.n === 0 && inField.active === 'TEXTAREA', `strokes=${inField.n} focus=${inField.active}`);
+
+/* ---------------------------------------------------------------- */
+console.log('\n== 17. No page errors');
 /* ---------------------------------------------------------------- */
 
 ok('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));

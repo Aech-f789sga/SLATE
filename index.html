@@ -72,8 +72,15 @@ html[data-bar=compact] #bar{padding-right:0}
 #pen-md .row,#cloud-md .row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
 #pen-md .row select,#cloud-md select{font:inherit;font-size:13px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;max-width:170px}
 #pen-md h4{margin:2px 0 0;font-size:12px;font-weight:600;color:var(--mu);text-transform:uppercase;letter-spacing:.04em}
-#pen-pad{height:92px;border:1px dashed var(--bd);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;color:var(--mu);font-size:12px;touch-action:none;background:var(--bg);user-select:none;-webkit-user-select:none;cursor:crosshair}
-#pen-pad b{font-size:20px;color:var(--tx);font-weight:600}
+#pen-pad{position:relative;flex:none;height:116px;border:1px dashed var(--bd);border-radius:12px;display:block;color:var(--mu);font-size:12px;touch-action:none;background:var(--bg);user-select:none;-webkit-user-select:none;cursor:crosshair;overflow:hidden}
+#pen-pad b{position:absolute;left:0;right:0;top:9px;text-align:center;font-size:13px;color:var(--tx);font-weight:600}
+#pen-pad span{position:absolute;left:10px;right:10px;bottom:7px;text-align:center;font-size:11px;line-height:1.3}
+/* The nib, at the size the brush would actually draw it. Pressing harder makes
+   it grow, which answers "is pressure working?" in one glance instead of in a
+   row of two decimal places. */
+#pen-dot{position:absolute;left:50%;top:54%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:var(--ac);opacity:.55;pointer-events:none}
+.pen-raw{grid-column:1/-1;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--mu);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:2px}
+.pen-meta .pen-hint{grid-column:1/-1;line-height:1.45}
 .pen-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12px;color:var(--mu)}
 .pen-meta>div{display:flex;justify-content:space-between;gap:6px;min-width:0}
 .pen-meta i{color:var(--tx);font-style:normal;font-weight:600;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -129,6 +136,7 @@ html[data-bar=compact] #bar{padding-right:0}
 <script type="module" src="/src/nav-collapse.ts"></script>
 <script type="module" src="/src/mod-panel.ts"></script>
 <script type="module" src="/src/pen-input.ts"></script>
+<script type="module" src="/src/paste-media.ts"></script>
 <script type="module" src="/src/haptics.ts"></script>
 <script type="module" src="/src/pen-dock.ts"></script>
 <script type="module" src="/src/focus.ts"></script>
@@ -532,7 +540,7 @@ function fit(){fitting=1;cv.style.aspectRatio=W+'/'+H;layout();const d=cvD=wantD
 function pos(e){const r=cv.getBoundingClientRect(),p=[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];return SNAPON?gSnap(p):p}
 function snap(){undo.push(JSON.stringify(pg().strokes));if(undo.length>60)undo.shift();redo=[]}
 function eraseAt(x,y){if(cur&&cur.pe)return partial(x,y);const s=pg().strokes,n=s.length,r=12+size;pg().strokes=s.filter(k=>{if(k.t==="ers"||frH(k))return true;if(!k.p){if(k.fl)return true;const b=bb(k);return !(x>b[0]-r&&x<b[2]+r&&y>b[1]-r&&y<b[3]+r)}return !k.p.some(q=>Math.hypot(q[0]-x,q[1]-y)<r+(k.t==="hl"?k.w*2:k.w/2))});if(pg().strokes.length!==n)return true;let fc=false;for(const k of pg().strokes)if(k.fl&&fillCut(k,x,y))fc=true;return fc}
-cv.addEventListener("pointerdown",e=>{if(flipping)return;if(e.pointerType==="pen"&&!penSeen){penSeen=1;try{window.__slatePen&&window.__slatePen.firstPen&&window.__slatePen.firstPen()}catch(x){}}if(!PENAPI.accept(e))return;if(e.pointerType==="pen"||e.pointerType==="eraser"){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}e.preventDefault();cv.setPointerCapture(e.pointerId);
+cv.addEventListener("pointerdown",e=>{if(flipping)return;if(penLike(e)&&!penSeen){penSeen=1;try{window.__slatePen&&window.__slatePen.firstPen&&window.__slatePen.firstPen()}catch(x){}}if(!PENAPI.accept(e))return;if(penLike(e)){penInfo(e);const bt=penBtn(e);if(bt&&tool!==bt){pt0=tool;tool=bt;syncTools()}}e.preventDefault();cv.setPointerCapture(e.pointerId);
  /* Pan is a view gesture, not an edit: it starts before the guided-drawing and
     locked-layer guards, which would otherwise swallow it, and it touches
     neither the stroke list nor the undo stack. */
@@ -620,7 +628,20 @@ var PENAPI={
 var HA={begin:function(){},tick:function(){},end:function(){}};
 function normP(p){if(p>0){PC.min=Math.min(PC.min,p);PC.max=Math.max(PC.max,p);if(++PC.n%40===0)try{localStorage.setItem("inkpad-pc",JSON.stringify(PC))}catch(e){}}const r=PC.max-PC.min;return r<.08?p:Math.max(0,Math.min(1,(p-PC.min)/r))}
 function prOn(e){return $("#prs").value!=="off"&&PENAPI.hasPressure(e)}
-function pw(q,sp,l){const g=+$("#prs").value||1,pr=PENAPI.pressure(q),tl=PENAPI.tilt(q),v=$("#pt").value,sh=v==="pencil"||v==="crayon"||v==="marker"||v==="brush";const PK={ball:.95,fountain:1.05,brush:1.55,pencil:.62,crayon:1.25,marker:1.2}[v]||1;const f=(.18+Math.pow(pr,g)*PK)*(1+tl*(sh?1.4:.22));return l&&l[2]?l[2]*.55+f*.45:f}
+/* Nib width for one sample: a multiplier on the brush size.
+ *
+ * The range is deliberately wide. `pr` is already normalised to 0…1 by the pen
+ * layer, so this only decides how much of the brush's width that 0…1 is allowed
+ * to cover. At 0.18…1.13 the lightest stroke was 6× narrower than the heaviest,
+ * which sounds like plenty and reads as "the line is a bit uneven" — the taper
+ * is there, it is just too small to see at a 3 px nib. 0.12…1.35 makes the same
+ * hand movement roughly twice as visible without changing what a full-pressure
+ * stroke looks like.
+ *
+ * `g` is the user's Pressure response setting, applied as an exponent: below 1
+ * it pushes the curve toward the top (soft, wide range at light pressure),
+ * above 1 it compresses it (firm, you have to lean on it). */
+function pw(q,sp,l){const g=+$("#prs").value||1,pr=PENAPI.pressure(q),tl=PENAPI.tilt(q),v=$("#pt").value,sh=v==="pencil"||v==="crayon"||v==="marker"||v==="brush";const PK={ball:.95,fountain:1.05,brush:1.55,pencil:.62,crayon:1.25,marker:1.2}[v]||1;const f=(.12+Math.pow(pr,g)*1.3*PK)*(1+tl*(sh?1.4:.22));return l&&l[2]?l[2]*.55+f*.45:f}
 $("#prs").onchange=()=>{PC={min:1,max:0,n:0};try{localStorage.removeItem("inkpad-pc")}catch(e){}};
 function dens(p,st){const o=[p[0]];for(let i=1;i<p.length;i++){const a=p[i-1],b=p[i],d=Math.hypot(b[0]-a[0],b[1]-a[1]),n=Math.ceil(d/st);for(let k=1;k<n;k++){const t=k/n;o.push(b.length>2&&a.length>2?[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]:[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t])}o.push(b)}return o}
 function shapePts(s){const a=s.a,b=s.b,L=[],line=(u,v)=>{const n=Math.max(1,Math.ceil(Math.hypot(v[0]-u[0],v[1]-u[1])/6));for(let i=0;i<=n;i++)L.push([u[0]+(v[0]-u[0])*i/n,u[1]+(v[1]-u[1])*i/n])};
@@ -842,6 +863,88 @@ function vPut(id,blob){return idb(db=>db.transaction('v','readwrite').objectStor
 function vGet(id){return idb(db=>new Promise(r=>{const q=db.transaction('v').objectStore('v').get(id);q.onsuccess=()=>r(q.result);q.onerror=()=>r(null)})).catch(()=>null)}
 function vLoop(){if(VP)return;VP=1;(function f(){const any=Object.values(VM).some(v=>!v.paused&&!v.ended);if(nb&&$('#ed').style.display==='flex')draw();if(any)requestAnimationFrame(f);else VP=0})()}
 function vEl(id){let v=VM[id];if(v)return v;v=VM[id]=document.createElement('video');v.playsInline=true;v.loop=true;v.preload='auto';v.onloadeddata=()=>draw();v.onplay=vLoop;vGet(id).then(b=>{if(b)v.src=URL.createObjectURL(b)});return v}
+
+/* One picture, one clip, one way in.
+ *
+ * The toolbar's file picker, a drag-and-drop and a paste all end here, so a
+ * screenshot copied out of a viewer lands exactly like a chosen file: same
+ * downscale, same centred placement, same single undo step. Three copies of
+ * "make a stroke out of this blob" would drift the moment one of them learned
+ * about transparency or a new container format.
+ *
+ * Both return the stroke they created, or null, so a caller can tell whether to
+ * say anything about it.
+ */
+function placeOnPage(w,h){
+  const maxW=Math.min(400,W-60),k=Math.min(1,maxW/w);
+  const ww=Math.round(w*k),hh=Math.round(h*k);
+  return {x:Math.round((W-ww)/2),y:Math.max(20,Math.round((H-hh)/2)),w:ww,h:hh};
+}
+/* A file that neither loads nor errors — a truncated download, a codec the
+ * browser has no decoder for — would leave the caller waiting forever and the
+ * paste reporting nothing at all. The timeout turns silence into a message. */
+function insertImageFile(f){
+  return new Promise(resolve=>{
+    let done=false,timer=0;
+    const settle=o=>{if(done)return;done=true;clearTimeout(timer);resolve(o)};
+    timer=setTimeout(()=>settle(null),10000);
+    const r=new FileReader();
+    r.onerror=()=>settle(null);
+    r.onload=()=>{
+      const i=new Image();
+      i.onerror=()=>settle(null);
+      i.onload=()=>{
+        const m=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');
+        c.width=Math.max(1,Math.round(i.width*m));c.height=Math.max(1,Math.round(i.height*m));
+        const g=c.getContext('2d');
+        /* A screenshot has no alpha and wants a white backing so it does not
+         * turn black on a dark page. A PNG sticker does have alpha, and painting
+         * white behind it would put a rectangle around it — so the backing is
+         * only drawn when the source cannot have transparency. */
+        const alpha=!/^image\/(jpeg|jpg|bmp)$/i.test(f.type||'');
+        if(!alpha){g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height)}
+        g.drawImage(i,0,0,c.width,c.height);
+        const R=placeOnPage(c.width,c.height);
+        const o={t:'img',src:c.toDataURL(alpha?'image/png':'image/jpeg',.9),x:R.x,y:R.y,w:R.w,h:R.h};
+        snap();pg().strokes.push(o);sel=[o];tool='sel';syncTools();draw();save();thumbs();
+        settle(o);
+      };
+      i.src=r.result;
+    };
+    r.readAsDataURL(f);
+  });
+}
+function insertVideoFile(f){
+  return new Promise(resolve=>{
+    let done=false,timer=0;
+    const settle=o=>{if(done)return;done=true;clearTimeout(timer);resolve(o)};
+    timer=setTimeout(()=>settle(null),15000);
+    const id='v'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+    vPut(id,f);
+    const v=document.createElement('video');
+    v.playsInline=true;v.loop=true;v.preload='auto';
+    v.src=URL.createObjectURL(f);VM[id]=v;
+    v.onerror=()=>settle(null);
+    v.onloadeddata=()=>{
+      // Hand the element over to the engine's own playback loop, exactly as the
+      // toolbar's video picker does, so play/pause and the frame loop agree.
+      v.onloadeddata=()=>draw();
+      v.onplay=vLoop;
+      const R=placeOnPage(v.videoWidth||16,v.videoHeight||9);
+      const o={t:'vid',id,x:R.x,y:R.y,w:R.w,h:R.h};
+      snap();pg().strokes.push(o);sel=[o];tool='sel';syncTools();draw();save();thumbs();
+      settle(o);
+    };
+  });
+}
+/* The bridge src/paste-media.ts talks to. It exists so the clipboard module can
+ * stay a clipboard module: it decides *what* was pasted and this decides what
+ * that means on a page. */
+window.SLATE_MEDIA={
+  img:insertImageFile,
+  vid:insertVideoFile,
+  toast:function(m){toast(m)}
+};
 function vToggle(s){const v=vEl(s.id);if(v.paused){v.muted=false;v.play().catch(()=>{})}else v.pause();draw();vLoop()}
 function drawVid(c,s){const v=vEl(s.id);c.save();c.fillStyle='#111';c.fillRect(s.x,s.y,s.w,s.h);if(v.readyState>=2)c.drawImage(v,s.x,s.y,s.w,s.h);if(v.paused){const cx=s.x+s.w/2,cy=s.y+s.h/2,r=Math.min(s.w,s.h)*.06+5;c.fillStyle='rgba(0,0,0,.45)';c.beginPath();c.arc(cx,cy,r*1.9,0,7);c.fill();c.fillStyle='#fff';c.beginPath();c.moveTo(cx-r*.6,cy-r);c.lineTo(cx+r,cy);c.lineTo(cx-r*.6,cy+r);c.fill()}c.restore()}
 const SIZES=[['Letter',800,1035],['A4',800,1131],['A5',566,800],['A3',1131,1600],['Square',900,900],['Landscape A4',1131,800],['Wide 16:9',1280,720]],
@@ -889,7 +992,42 @@ function finSmooth(c){const s=SMO/100;if(s<=0||c.t==='er'||!c.p||c.p.length<3)re
  if(c.rx!==undefined){for(let i=0;i<10;i++){const q=smx(c,c.rx,c.ry),l=c.p[c.p.length-1];if(Math.hypot(q[0]-l[0],q[1]-l[1])>1.2)c.p.push([q[0],q[1],l[2]])}c.p.push([c.rx,c.ry,c.p[c.p.length-1][2]])}
  const r=Math.min(8,Math.round(s*8)),P=c.p,n=P.length;if(r<1)return;c.p=P.map((q,i)=>{if(i===0||i===n-1)return q;let sx=0,sy=0,sw=0;for(let d=-r;d<=r;d++){const j=i+d;if(j<0||j>=n)continue;const w=r+1-Math.abs(d);sx+=P[j][0]*w;sy+=P[j][1]*w;sw+=w}return q.length>2?[sx/sw,sy/sw,q[2]]:[sx/sw,sy/sw]})}
 function setBrush(v,fromNum){size=v;if(!fromNum&&$('#sizen'))$('#sizen').value=(+v).toFixed(1);$('#size').value=Math.min(24,v);if(tool==='sel'&&sel.length)sel.forEach(s=>{if(s.t==='text')s.s=10+size*3;else if((s.p&&s.t!=='ers')||s.t==='shape')s.w=size});if(sel.length){draw();save()}}
-function penInfo(e){PENI.seen=1;if(e.pressure>0&&e.pressure!==.5)PENI.p=1;if(e.tiltX||e.tiltY||(e.altitudeAngle!==undefined&&e.altitudeAngle<1.5))PENI.t=1}
+/* Everything the panel and the status line know about the pen comes through
+ * here, so a live pointermove, the test pad and a tip-down all report the same
+ * way. It used to be two copies of the same code, and the panel was only fed
+ * from the pad — so the numbers froze the moment you left the panel and drew on
+ * the page, which is precisely when you were trying to watch them. */
+function penInfo(e){
+  PENI.seen=1;
+  if(e.pressure>0&&e.pressure!==.5)PENI.p=1;
+  if(e.tiltX||e.tiltY||(e.altitudeAngle!==undefined&&e.altitudeAngle<1.5))PENI.t=1;
+  PENLIVE.seen=1;PENLIVE.type=e.pointerType||'-';
+  var p=(typeof e.pressure==='number')?e.pressure:0;
+  if(e.type!=='pointerup'&&p>0){PENLIVE.pr=p;if(p<PENLIVE.prMin)PENLIVE.prMin=p;if(p>PENLIVE.prMax)PENLIVE.prMax=p}
+  PENLIVE.tilt=Math.max(Math.abs(e.tiltX||0),Math.abs(e.tiltY||0));
+  var s=penSlot(e),B=e.buttons||0;
+  if(s==='eraser')PENLIVE.eraser=1;
+  if(s==='barrel1')PENLIVE.side=1;
+  if(s==='barrel2')PENLIVE.side2=1;
+  /* Read the label off `buttons`, not `button`. A pointermove that does not
+   * change the button state reports `button === -1`, so a label derived from
+   * `button` says "b-1" during the exact motion you are watching. */
+  PENLIVE.btn=e.type==='pointerup'?'none':s==='eraser'?'eraser end':s==='barrel1'?'barrel 1':s==='barrel2'?'barrel 2':(B&1)?'tip':'none';
+  penMetaSoon();
+}
+/* The panel is redrawn from a pointermove, which can arrive 240 times a second.
+ * One paint per frame is plenty and keeps the drawing loop from competing with
+ * a table of text nodes for the main thread. */
+var penMetaQ=0;
+function penMetaSoon(){
+  if(penMetaQ)return;
+  penMetaQ=requestAnimationFrame(function(){
+    penMetaQ=0;
+    var md=document.getElementById('pen-md');
+    if(md&&!md.classList.contains('on'))return;
+    penMeta();
+  });
+}
 function penStatus(){return PENI.seen?'Stylus detected'+(PENI.p?': pressure on':': no pressure data, using speed instead')+(PENI.t?', tilt on.':'.'):'No stylus detected yet. Touch the canvas with your pen. It works with Apple Pencil, Samsung S Pen, XP-Pen, Wacom, Huion and other pens the browser reports as a pen. If a tablet only moves the mouse pointer, enable its Windows Ink or pen driver.'}
 function fname(){return(nb.name||'notebook').replace(/[^\w\- ]+/g,'').trim()||'notebook'}
 async function saveBlob(blob,name){if(DLC){try{await DLC.save({filename:name,data:blob});toast('Saved '+name)}catch(e){if(!e||e.code!=='declined')toast('Could not save: '+((e&&e.message)||'unavailable'))}}else{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.append(a);a.click();setTimeout(()=>{a.remove();URL.revokeObjectURL(a.href)},2000);toast('Download started')}}
@@ -1103,7 +1241,7 @@ document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{commitText();con
  {const pb=el('button',0,'Play / pause');pb.className='pp';pb.style.display='none';pb.onclick=()=>{sel.filter(s=>s.t==='vid').forEach(vToggle)};$('#sbar').prepend(pb);
   const pr=el('button');pr.className='ic';pr.title='Paper: size, ready-made and custom';pr.innerHTML=ico("<path d='M6 3h9l4 4v14H6z'/><path d='M15 3v4h4'/>");pr.onclick=()=>openDr(pr,fillPaper);$('#share').after(pr);
   const vb=el('button');vb.className='ic';vb.title='Insert video';vb.innerHTML=ico("<rect x='3' y='5' width='14' height='14' rx='2'/><path d='M17 10l4-3v10l-4-3z'/>");const vf=el('input');vf.type='file';vf.accept='video/*';vf.hidden=true;document.body.append(vf);vb.onclick=()=>vf.click();
-  vf.onchange=()=>{const f=vf.files[0];vf.value='';if(!f)return;const id='v'+Date.now();vPut(id,f);const v=document.createElement('video');v.playsInline=true;v.loop=true;v.preload='auto';v.src=URL.createObjectURL(f);VM[id]=v;v.onloadeddata=()=>{v.onloadeddata=()=>draw();v.onplay=vLoop;const w=Math.min(420,W-80),o={t:'vid',id,x:(W-w)/2,y:200,w,h:w*(v.videoHeight||9)/(v.videoWidth||16)};snap();pg().strokes.push(o);sel=[o];tool='sel';syncTools();draw();save();thumbs()}};$('#img').after(vb)}
+  vf.onchange=()=>{const f=vf.files[0];vf.value='';if(f)insertVideoFile(f)};$('#img').after(vb)}
  $('#stage').addEventListener('wheel',e=>{if(!SCRL||e.ctrlKey||!nb||flipping)return;const s=$('#stage'),bot=s.scrollTop+s.clientHeight>=s.scrollHeight-2,top=s.scrollTop<=0;if((e.deltaY>0&&bot)||(e.deltaY<0&&top)){wacc+=e.deltaY;clearTimeout(wlock);wlock=setTimeout(()=>wacc=0,300);if(Math.abs(wacc)>140){const dd=wacc>0?1:-1;wacc=0;goPage(pi+dd);setTimeout(()=>{s.scrollTop=dd>0?0:s.scrollHeight},740)}}else wacc=0},{passive:true});
  {let y0=null;const s=$('#stage');s.addEventListener('touchstart',e=>{y0=e.touches[0].clientY},{passive:true});s.addEventListener('touchend',e=>{if(y0===null||!SCRL||flipping||!$('#po').checked)return;const dy=y0-e.changedTouches[0].clientY;y0=null;const bot=s.scrollTop+s.clientHeight>=s.scrollHeight-2,top=s.scrollTop<=0;if(dy>90&&bot)goPage(pi+1);else if(dy<-90&&top)goPage(pi-1)},{passive:true})}}
 let te=null,z=1,tt;const tx=$("#tx");
@@ -1201,8 +1339,7 @@ $("#po").onchange=e=>cv.style.touchAction=e.target.checked?"pan-x pan-y pinch-zo
 function thumbs(){clearTimeout(tt);tt=setTimeout(()=>{const s=$("#side");if(s.style.display!=="block"||!nb)return;s.innerHTML="";nb.pages.forEach((p,i)=>{const c=document.createElement("canvas");c.width=160;c.height=Math.round(160*(p.ph||1100)/(p.pw||800));c.className=i===pi?"on":"";const x=c.getContext("2d");x.scale(160/(p.pw||800),160/(p.pw||800));render(x,p);c.onclick=()=>goPage(i);s.append(c)})},150)}
 $("#side-t").onclick=()=>{const s=$("#side");s.style.display=s.style.display==="block"?"none":"block";thumbs();layout()};
 $("#img").onclick=()=>$("#file").click();
-$("#file").onchange=e=>{const f=e.target.files[0];e.target.value="";if(!f)return;const r=new FileReader();r.onload=()=>{const i=new Image();i.onload=()=>{const m=Math.min(1,700/Math.max(i.width,i.height)),c=document.createElement("canvas");c.width=i.width*m;c.height=i.height*m;const g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);g.drawImage(i,0,0,c.width,c.height);
- const w=Math.min(400,c.width),o={t:"img",src:c.toDataURL("image/jpeg",.85),x:(W-w)/2,y:200,w,h:w*c.height/c.width};snap();pg().strokes.push(o);sel=[o];tool="sel";syncTools();draw();save();thumbs()};i.src=r.result};r.readAsDataURL(f)};
+$("#file").onchange=e=>{const f=e.target.files[0];e.target.value="";if(f)insertImageFile(f)};
 
 /* ===== Animation: per-object flag s.an, toggle for new drawings, playback ===== */
 var ANON=false,ANTG=false,PB=null,ANK=new WeakSet();
@@ -1514,20 +1651,78 @@ function penCfgSet(k,v){
 }
 /* Which button is which, from the spec rather than from guesswork.
  *
- * For a pen, `button` is 0 for the tip, 1 for the first barrel button, 2 for the
- * second, 5 for the eraser end; `buttons` carries the same four as bits 1, 4, 2
- * and 32. The two barrel tests used to be the other way round, so the button
- * most people reach for — the upper one, `button===1` — was wired to the second
- * slot, which defaults to Nothing, while the lower one erased. On a pen with two
- * buttons and no eraser that reads as "the app ignores my stylus": press the
- * button you always press and nothing happens. */
-function penBtn(e){
-  if(e.pointerType!=='pen'&&e.pointerType!=='eraser')return '';
-  if((e.buttons&32)||e.button===5||e.pointerType==='eraser')return PENCFG.eraser==='none'?'':PENCFG.eraser;
-  if((e.buttons&4)||e.button===1)return PENCFG.side==='none'?'':PENCFG.side;
-  if((e.buttons&2)||e.button===2)return PENCFG.side2==='none'?'':PENCFG.side2;
+ * A pen numbers its barrel buttons one way and a mouse numbers them the other:
+ * on a pen `button 1` is the first barrel (bit 2), while on a mouse `button 1`
+ * is the middle button (bit 4) and the right button is `button 2` (bit 2). The
+ * index flips between the two, the bitmask does not. Pairing bit 4 with index 1
+ * — which this used to do — therefore matched the wrong slot for both devices at
+ * once, which is why a two-button pen could erase with the button it had mapped
+ * to Nothing.
+ *
+ * That rule now lives in one place, src/pen-input.ts, and this only decides what
+ * the slot *does*. The fallback below states the same rule for the case where
+ * the module failed to load, so the two cannot drift apart. */
+function penSlotFallback(e){
+  var b=e.button||0,B=e.buttons||0,isPen=e.pointerType==='pen'||e.pointerType==='eraser';
+  if(isPen){
+    if(e.pointerType==='eraser'||(B&32)||b===5)return 'eraser';
+    if((B&2)||b===1)return 'barrel1';
+    if((B&4)||b===2)return 'barrel2';
+    return '';
+  }
+  if((B&2)||b===2)return 'barrel1';
+  if((B&4)||b===1)return 'barrel2';
   return '';
 }
+function penSlot(e){
+  return (window.__slatePen&&window.__slatePen.slot)?window.__slatePen.slot(e):penSlotFallback(e);
+}
+/* Is this pointer a pen, whatever the browser calls it?
+ *
+ * A tablet whose driver has Windows Ink switched off reports itself as a mouse:
+ * pressure pinned at 0.5, no tilt, barrel buttons arriving as right and middle
+ * click. Refusing to map buttons for a `mouse` therefore refuses to map them for
+ * a pen that is merely mislabelled. `mousePen()` only turns true once the mouse
+ * stream has actually shown pen-like behaviour, so a real mouse stays a mouse. */
+function penLike(e){
+  if(e.pointerType==='pen'||e.pointerType==='eraser')return true;
+  if(e.pointerType!=='mouse')return false;
+  return !!(window.__slatePen&&window.__slatePen.mousePen&&window.__slatePen.mousePen());
+}
+function penBtn(e){
+  var s=penSlot(e);
+  if(s==='eraser')return PENCFG.eraser==='none'?'':PENCFG.eraser;
+  if(s==='barrel1')return PENCFG.side==='none'?'':PENCFG.side;
+  if(s==='barrel2')return PENCFG.side2==='none'?'':PENCFG.side2;
+  return '';
+}
+/* A barrel button pressed while the nib is above the glass produces
+ * `pointermove`, never `pointerdown` — there is no new contact, only a button
+ * change. The mapping above used to run only on pointerdown, which is the one
+ * moment a barrel button is *not* being pressed, so a pen whose buttons were
+ * meant to be pressed before touching down appeared to have no buttons at all.
+ *
+ * Latching here restores the tool on the move that reports the button released,
+ * which is the same "hold to borrow a tool" behaviour a tip-down already gets. */
+var PBHOLD=null;
+addEventListener('pointermove',function(e){
+  if(e.pointerType==='mouse'&&!penLike(e)){
+    /* A plain mouse is not pen input, but the panel has to be able to say so.
+     * "It detects my pen but nothing adapts" and "my pen is being reported as a
+     * mouse" look identical from the outside, and only one of them is fixable
+     * by the driver — so the mouse is fed to the panel while it is open, and
+     * nowhere else. A tablet in mouse mode falls through instead, because its
+     * buttons are worth latching like any other pen's. */
+    var md=document.getElementById('pen-md');
+    if(md&&md.classList.contains('on'))penInfo(e);
+    return;
+  }
+  if(!penLike(e))return;
+  penInfo(e);
+  var bt=penBtn(e);
+  if(bt&&!cur&&!PBHOLD){PBHOLD=tool;tool=bt;syncTools()}
+  else if(!bt&&PBHOLD&&!cur){tool=PBHOLD;PBHOLD=null;syncTools()}
+},true);
 function penMeta(){
   var m=document.getElementById('pen-meta');if(!m)return;
   var L=(window.__slatePen&&window.__slatePen.last())||null;
@@ -1537,50 +1732,85 @@ function penMeta(){
   // once it has drawn enough to prove it, and this is where that shows up.
   var rg=(window.__slatePen&&window.__slatePen.range)?window.__slatePen.range():null;
   var span=rg?rg.hi-rg.lo:0;
-  var kind=PENLIVE.type==='pen'?'stylus':PENLIVE.type==='eraser'?'eraser':PENLIVE.type==='touch'?'finger':PENLIVE.seen?'mouse':'waiting';
-  // "Tilt" and "Twist" report capability, not the last sample: a pen sitting
-  // upright at this instant is not a pen that cannot tilt. The live angle is
-  // shown when there is one, so the row is still a live readout.
-  var tl=(prof&&prof.pen.tilt)?(PENLIVE.tilt?PENLIVE.tilt+'\u00b0':'yes'):'no';
+  var mPen=!!(window.__slatePen&&window.__slatePen.mousePen&&window.__slatePen.mousePen());
+  // "Is a pen" is a question about the hardware, not about `pointerType`. A
+  // tablet with Windows Ink off is a pen that the browser calls a mouse, and
+  // every row below would otherwise read "-" for it.
+  var isPen=PENLIVE.type==='pen'||PENLIVE.type==='eraser'||(PENLIVE.type==='mouse'&&mPen);
+  var kind=!PENLIVE.seen?'waiting':PENLIVE.type==='pen'?'stylus':PENLIVE.type==='eraser'?'eraser':PENLIVE.type==='touch'?'finger':mPen?'stylus (mouse mode)':'mouse';
+
+  /* Pressure has four honest answers, and they need four different sentences.
+   * "not reported" used to cover all of them, which told the user nothing about
+   * whether to fix the app or the driver. */
+  var flat=!!(prof&&prof.pen&&prof.pen.n>40&&(prof.pen.hi-prof.pen.lo)<=1e-4);
+  var prs=!isPen?'-':(rg&&span>1e-4)?(span<.25?'on, narrow band stretched':'on'):flat?'driver sends none':'waiting for a stroke';
+
+  // Tilt is a live angle. A pen held upright reads 0°, which is not the same as
+  // a pen that cannot report tilt — but both look like "no" in a capability
+  // column, so the number is shown and the raw line below says which it is.
+  var tiltNow=L?Math.max(Math.abs(L.tiltX||0),Math.abs(L.tiltY||0)):0;
+  var tl=!isPen?'-':tiltNow>0?tiltNow+'\u00b0':'0\u00b0';
   var tw=(prof&&prof.pen.twist)?((L&&L.twist)?Math.round(L.twist*180/Math.PI)+'\u00b0':'yes'):'no';
   var barrels=(PENLIVE.side?1:0)+(PENLIVE.side2?1:0);
   var btns=!PENLIVE.seen?'-':(barrels?barrels===1?'1 barrel button':barrels+' barrel buttons':'none seen');
-  var prs=!rg?'not reported, using speed':(span<.25?'on (narrow range, stretched)':'on');
   m.innerHTML='<div>Device <i>'+kind+'</i></div>'+
-    '<div>Pressure <i>'+(PENLIVE.type==='pen'?prs:'-')+'</i></div>'+
+    '<div>Pressure <i>'+prs+'</i></div>'+
     '<div>Range <i>'+(rg?rg.lo.toFixed(2)+'\u2013'+rg.hi.toFixed(2):'none yet')+'</i></div>'+
     '<div>Tilt <i>'+tl+'</i></div>'+
     '<div>Twist <i>'+tw+'</i></div>'+
     '<div>Last button <i>'+PENLIVE.btn+'</i></div>'+
     '<div>Barrel <i>'+btns+'</i></div>'+
     '<div>Eraser end <i>'+(PENLIVE.seen?(PENLIVE.eraser?'detected':'not seen'):'-')+'</i></div>';
+  // The verbatim numbers. Every "my pen does not work" is either a wrong
+  // interpretation of these or a driver that never sent them, and there is no
+  // way to tell which from a summary — so the summary is here too.
+  if(L){
+    var raw='p '+L.pressure.toFixed(2)+'  \u00b7  buttons '+L.buttons+'  \u00b7  button '+L.button+'  \u00b7  tilt '+L.tiltX+'/'+L.tiltY;
+    if(L.altitude!=null)raw+='  \u00b7  alt '+Math.round(L.altitude*180/Math.PI)+'\u00b0';
+    m.innerHTML+='<div class="pen-raw">'+L.pointerType+'  \u00b7  '+raw+'</div>';
+  }
+  /* The single most common cause of "it detects my pen but nothing adapts", and
+   * the only one the user can fix without touching the code. Phrased as a
+   * question because the panel cannot tell a pen in mouse mode from a mouse:
+   * both are `pointerType: 'mouse'`, and only the person holding it knows. */
+  var st=(window.__slatePen&&window.__slatePen.state)?window.__slatePen.state():null;
+  var sawPen=!!(st&&st.penSeen);
+  if(PENLIVE.seen&&PENLIVE.type==='mouse'&&!mPen&&!sawPen)
+    m.innerHTML+='<div class="pen-hint">Drawing with a pen but getting no pressure, no tilt and no barrel buttons? Then your pen is arriving as a plain mouse. Switch on <b>Windows Ink</b> in the XP-Pen driver (Deco 640: Pen settings \u2192 Windows Ink), then reload this page. A mouse reports this way by design.</div>';
+  else if(PENLIVE.seen&&mPen&&PENLIVE.type==='mouse')
+    m.innerHTML+='<div class="pen-hint">Your tablet is in mouse mode, but its pressure is moving, so the pen path is on: strokes taper and the barrel buttons are mapped. Tilt and the second button will stay missing until Windows Ink is enabled in the driver.</div>';
   // A pen with two barrel buttons and no eraser end is the common case, and the
   // second button defaults to Nothing. Saying which one is free beats a row
   // that reads "not seen" forever.
-  if(PENLIVE.seen&&!PENLIVE.eraser&&PENCFG.side2==='none')
+  else if(PENLIVE.seen&&!PENLIVE.eraser&&PENCFG.side2==='none')
     m.innerHTML+='<div class="pen-hint">This pen has no eraser end, so the second barrel button is free: map it to Eraser or any tool above.</div>';
+  /* A mouse reports a constant 0.5, which is not a pressure reading and must
+   * not be drawn as one — a bar stuck at half and a nib stuck at half size
+   * would claim a measurement that was never taken. */
+  var live=isPen?Math.max(0,Math.min(1,PENLIVE.pr)):0;
   var bar=document.querySelector('#pen-bar>i');
-  if(bar)bar.style.width=Math.round(Math.max(0,Math.min(1,PENLIVE.pr))*100)+'%';
+  if(bar)bar.style.width=Math.round(live*100)+'%';
+  var dot=document.getElementById('pen-dot');
+  if(dot){
+    var d=8+live*54;
+    dot.style.width=d+'px';dot.style.height=d+'px';
+  }
 }
 function penPad(){
   var pad=document.getElementById('pen-pad');if(!pad)return;
   function note(e){
-    PENLIVE.seen=1;PENLIVE.type=e.pointerType||'-';
+    // One implementation, shared with the canvas. This used to be a second
+    // copy of penInfo that had already drifted: it tested `button === 1` for
+    // the first barrel button while `buttons & 4` guarded the same branch, so
+    // the pad and the page could disagree about which button was pressed.
     try{PENAPI.note(e)}catch(x){}
-    var p=(typeof e.pressure==='number')?e.pressure:0;
-    if(e.type!=='pointerup'&&p>0){PENLIVE.pr=p;if(p<PENLIVE.prMin)PENLIVE.prMin=p;if(p>PENLIVE.prMax)PENLIVE.prMax=p}
-    PENLIVE.tilt=Math.max(Math.abs(e.tiltX||0),Math.abs(e.tiltY||0));
-    if((e.buttons&32)||e.button===5)PENLIVE.eraser=1;
-    if((e.buttons&4)||e.button===1)PENLIVE.side=1;
-    if((e.buttons&2)||e.button===2)PENLIVE.side2=1;
-    PENLIVE.btn=e.type==='pointerup'?'none':(e.button===0?'tip':e.button===5?'eraser':e.button===1?'barrel':e.button===2?'barrel 2':'b'+e.button);
-    penMeta();
+    penInfo(e);
     var s=pad.querySelector('span');
     if(s&&e.type!=='pointerup'){
       var L=(window.__slatePen&&window.__slatePen.last())||null;
-      var out=['pressure '+p.toFixed(2)];
+      var out=['pressure '+(PENLIVE.pr||0).toFixed(2)];
       if(L){
-        out.push('tilt '+(L.tilt*100|0)+'%');
+        if(L.tiltX||L.tiltY)out.push('tilt '+L.tiltX+'\u00b0/'+L.tiltY+'\u00b0');
         if(L.altitude!=null)out.push('alt '+Math.round(L.altitude*180/Math.PI)+'\u00b0');
         if(L.twist!=null)out.push('twist '+Math.round(L.twist*180/Math.PI)+'\u00b0');
       }
@@ -1606,7 +1836,7 @@ function openPenPanel(){
         '<b style="font-size:17px">Stylus &amp; pen</b>'+
         '<button class="ic" id="pen-close" style="font-size:16px;padding:2px 6px" aria-label="Close">✕</button>'+
       '</div>'+
-      '<div id="pen-pad"><b>Try your pen here</b><span>Draw on this pad, or press a barrel button</span></div>'+
+      '<div id="pen-pad"><b>Try your pen here</b><i id="pen-dot"></i><span>Draw on this pad, or press a barrel button</span></div>'+
       '<div class="pen-meta" id="pen-meta"></div>'+
       '<div id="pen-bar"><i></i></div>'+
       '<h4>Button mapping</h4>'+

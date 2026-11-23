@@ -143,6 +143,79 @@ function kindOf(e: PointerEvent): Kind {
 }
 
 /* ------------------------------------------------------------------ */
+/* Which physical button is down                                      */
+/* ------------------------------------------------------------------ */
+
+/** The four physical controls a pen has, in the order people press them. */
+type Slot = '' | 'eraser' | 'barrel1' | 'barrel2';
+
+/**
+ * The control the pressed button belongs to, or '' for none.
+ *
+ * This mapping is the kind of thing that gets written twice, slightly
+ * differently, and then the two copies disagree. It is written once, here, and
+ * everything else asks.
+ *
+ * A pen, per the spec:
+ *
+ *     button 0  the tip           buttons bit 1
+ *     button 1  first barrel      buttons bit 2
+ *     button 2  second barrel     buttons bit 4
+ *     button 5  eraser end        buttons bit 32
+ *
+ * A mouse numbers its extra buttons differently, and the difference is not a
+ * detail — it is the whole bug. A mouse's *right* button is `button 2` and bit
+ * 2; its *middle* button is `button 1` and bit 4. So the index that means
+ * "first barrel" on a pen means "middle click" on a mouse, and the pairing is
+ * inverted between the two. A tablet in mouse mode sends the mouse numbering,
+ * because that is all Windows told it to send.
+ *
+ * The bitmask is the stable half: bit 2 is always the first extra button, bit 4
+ * always the second. The index is the half that flips, so it is only consulted
+ * when the bitmask is empty.
+ */
+function slotOf(e: PointerEvent): Slot {
+  const type = (e as any).pointerType;
+  const b = Number((e as any).button) || 0;
+  const bits = Number((e as any).buttons) || 0;
+
+  if (type === 'pen' || type === 'eraser') {
+    if (type === 'eraser' || bits & 32 || b === 5) return 'eraser';
+    if (bits & 2 || b === 1) return 'barrel1';
+    if (bits & 4 || b === 2) return 'barrel2';
+    return '';
+  }
+
+  // Mouse numbering: right click is the first extra button, middle the second.
+  if (bits & 2 || b === 2) return 'barrel1';
+  if (bits & 4 || b === 1) return 'barrel2';
+  return '';
+}
+
+/**
+ * Is the thing on the desk a pen, whatever the browser calls it?
+ *
+ * XP-Pen, Huion and Wacom tablets only speak pointer events while "Windows
+ * Ink" (sometimes "Windows Ink / pointer events") is enabled in their driver.
+ * With it off the tablet arrives as `pointerType: 'mouse'`: pressure pinned at
+ * 0.5, no tilt, and the two barrel buttons delivered as right and middle click.
+ * Every symptom of that is "it knows my pen is here and nothing adapts", which
+ * is indistinguishable from a bug in this file — so it gets detected rather
+ * than guessed at.
+ *
+ * The tell is pressure that moves, because a real mouse cannot vary it. Tilt is
+ * the second tell, for the drivers that still forward the sensor.
+ */
+function mouseIsPen(): boolean {
+  const m = profiles.mouse;
+  return m.hi - m.lo > FLAT || m.tilt;
+}
+
+function stylusLike(): boolean {
+  return penSeen || mouseIsPen();
+}
+
+/* ------------------------------------------------------------------ */
 /* Pressure                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -650,27 +723,51 @@ function samples(e: PointerEvent): PointerEvent[] {
 
 interface LastSample {
   kind: Kind;
+  pointerType: string;
+  /** Raw `pressure`, before normalisation. */
   pressure: number;
   normalised: number;
   tilt: number;
+  tiltX: number;
+  tiltY: number;
   altitude: number | null;
   azimuth: number | null;
   twist: number | null;
+  /** The `buttons` bitmask, verbatim. */
+  buttons: number;
+  /** The `button` index, verbatim. */
+  button: number;
+  slot: Slot;
   palm: boolean;
   at: number;
 }
 
 let last: LastSample | null = null;
 
+/**
+ * Record what the browser actually said, without interpreting it.
+ *
+ * The interpreted numbers above this are what the brush draws with; these are
+ * what the panel shows when the answer to "why is my pen not working" is a
+ * driver, not the app. A constant `pressure`, a `buttons` bitmask that never
+ * changes, a `pointerType` of `mouse` on a pen — each is one glance away
+ * instead of a guess.
+ */
 function note(e: PointerEvent) {
   last = {
     kind: kindOf(e),
+    pointerType: String((e as any).pointerType || ''),
     pressure: Number((e as any).pressure) || 0,
     normalised: pressureOf(e),
     tilt: tiltOf(e),
+    tiltX: Number((e as any).tiltX) || 0,
+    tiltY: Number((e as any).tiltY) || 0,
     altitude: altitudeOf(e),
     azimuth: azimuthOf(e),
     twist: twistOf(e),
+    buttons: Number((e as any).buttons) || 0,
+    button: Number((e as any).button) || 0,
+    slot: slotOf(e),
     palm: palmSized(e),
     at: performance.now(),
   };
@@ -722,7 +819,16 @@ function boot() {
    */
   const track = (e: PointerEvent) => {
     const kind = kindOf(e);
-    if (kind !== 'pen') return;
+    if (kind !== 'pen') {
+      /**
+       * A tablet in mouse mode is still a pen for diagnostics. Without this the
+       * panel would freeze on whatever the last tip-down reported, which looks
+       * exactly like a broken pressure model: the number is there, it is just
+       * never updated while you draw.
+       */
+      if (kind === 'mouse' && mouseIsPen()) note(e);
+      return;
+    }
     penSeen = true;
     note(e);
     if (e.type === 'pointerdown') {
@@ -817,6 +923,15 @@ function boot() {
     api.azimuth = azimuthOf;
     api.note = note;
     api.palmSized = palmSized;
+    /**
+     * The button and the device class, so the engine never has to re-derive
+     * either. Both used to be decided inline from `e.button` and
+     * `e.pointerType`, and both were wrong in the same way: the mapping was
+     * guessed per call site instead of stated once.
+     */
+    api.slot = slotOf;
+    api.stylusLike = stylusLike;
+    api.mousePen = mouseIsPen;
   }
 
   (window as any).__slatePen = {
@@ -832,10 +947,23 @@ function boot() {
     hasPressure,
     palmSized,
     note,
-    /** The range actually in force, so the panel can say what it is stretching. */
+    slot: slotOf,
+    stylusLike,
+    mousePen: mouseIsPen,
+    /**
+     * The range actually in force, so the panel can say what it is stretching.
+     *
+     * Before the first stroke has been settled there is no committed range, but
+     * the stroke in flight is already measuring one — and that is exactly the
+     * moment somebody opens this panel to ask whether pressure works at all.
+     * Reporting "none yet" while the answer is being written under their nib
+     * reads as broken.
+     */
     range: () => {
       const p = profiles.pen;
-      return p.hi - p.lo > FLAT ? { lo: p.lo, hi: p.hi } : null;
+      if (p.hi - p.lo > FLAT) return { lo: p.lo, hi: p.hi };
+      if (p.strokeHi - p.strokeLo > FLAT) return { lo: p.strokeLo, hi: p.strokeHi };
+      return null;
     },
     /** Fold the session's range into the stored one. Called on pen lift. */
     settle: () => settle('pen'),
