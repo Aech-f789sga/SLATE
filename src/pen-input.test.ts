@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BARREL_TAP_MS,
+  BarrelController,
   LIFT_GRACE,
   PenEngine,
   ZERO_PRESSURE_SAMPLES,
+  activeSlotOf,
   altitudeOf,
   filterCoalescedSamples,
   kindOf,
@@ -223,3 +226,88 @@ test('pen-only mode reports touch:pen-only when rejecting touch pointers', () =>
   assert.equal(engine.lastReason, 'touch:pen-only');
   assert.equal(engine.accept({ pointerType: 'pen', type: 'pointerdown', buttons: 1, pressure: 0.5 }, 510), true);
 });
+
+test('slotOf and activeSlotOf support XButton1/XButton2 and release events cleanly', () => {
+  assert.equal(slotOf({ pointerType: 'pen', buttons: 8, button: 3 }), 'barrel1');
+  assert.equal(slotOf({ pointerType: 'pen', buttons: 16, button: 4 }), 'barrel2');
+  assert.equal(slotOf({ pointerType: 'mouse', buttons: 8, button: 3 }), 'barrel1');
+  assert.equal(slotOf({ pointerType: 'mouse', buttons: 16, button: 4 }), 'barrel2');
+
+  // Released button should still report slotOf (for diagnostics) but activeSlotOf becomes ''
+  const upEvt = { pointerType: 'mouse', type: 'pointerup', buttons: 0, button: 2 };
+  assert.equal(slotOf(upEvt), 'barrel1');
+  assert.equal(activeSlotOf(upEvt), '');
+
+  // If another button remains held on pointerup, activeSlotOf keeps the remaining held bit
+  const chordUp = { pointerType: 'pen', type: 'pointerup', buttons: 4, button: 1 };
+  assert.equal(activeSlotOf(chordUp), 'barrel2');
+});
+
+test('BarrelController: hover quick-click toggles tool on/off while hold >= 350ms or hover+nib borrows and reverts', () => {
+  const b = new BarrelController();
+
+  // Quick-click Barrel 1 while hovering (< 350ms): toggles 'er' ON and stays 'er' after release
+  assert.deepEqual(b.onHover('barrel1', 'er', 'pen', 1000, false), { tool: 'er' });
+  assert.deepEqual(b.onHover('', '', 'er', 1120, false), {});
+  assert.equal(b.toggled?.tool, 'er');
+
+  // Nib stroke while toggled stays 'er' and reverts to nothing on up
+  assert.deepEqual(
+    b.onStrokeDown({ pointerType: 'pen', buttons: 1, button: 0, pressure: 0.6 }, '', '', 'er', 100, 100, 1200),
+    {}
+  );
+  assert.deepEqual(b.onStrokeUp('', 'er', 1300), {});
+
+  // Second quick-click Barrel 1 toggles back to 'pen'
+  assert.deepEqual(b.onHover('barrel1', 'er', 'er', 1400, false), {});
+  assert.deepEqual(b.onHover('', '', 'er', 1500, false), { tool: 'pen' });
+  assert.equal(b.toggled, null);
+
+  // Hold >= BARREL_TAP_MS in hover borrows and reverts on release
+  assert.deepEqual(b.onHover('barrel2', 'sel', 'pen', 2000, false), { tool: 'sel' });
+  assert.deepEqual(b.onHover('', '', 'sel', 2000 + BARREL_TAP_MS + 10, false), { tool: 'pen' });
+
+  // Hover press + nib down + release nib (barrel already released) -> reverts cleanly
+  assert.deepEqual(b.onHover('barrel1', 'er', 'pen', 3000, false), { tool: 'er' });
+  assert.deepEqual(
+    b.onStrokeDown({ pointerType: 'pen', buttons: 1, button: 0, pressure: 0.4 }, '', '', 'er', 50, 50, 3050),
+    {}
+  );
+  assert.deepEqual(b.onStrokeUp('', 'er', 3200), { tool: 'pen' });
+});
+
+test('BarrelController: mouse-mode barrel click toggles without drawing, whereas drag >= 5px borrows and reverts', () => {
+  const b = new BarrelController();
+  const rightDown = { pointerType: 'mouse', buttons: 2, button: 2 };
+
+  // Quick right-click (no drag): defers stroke on down, cancels stroke and keeps 'er' toggled on up
+  const d1 = b.onStrokeDown(rightDown, 'barrel1', 'er', 'pen', 200, 200, 1000);
+  assert.equal(d1.deferStroke, true);
+  assert.equal(d1.tool, 'er');
+  assert.deepEqual(b.onStrokeMove(202, 201), {}); // < 5px jitter ignored
+  const u1 = b.onStrokeUp('', 'er', 1100);
+  assert.equal(u1.cancelDeferredStroke, true);
+  assert.equal(u1.tool, undefined);
+
+  // Drag right-click >= 5px from 'pen': starts deferred stroke at down point and reverts on release
+  b.reset();
+  const d2 = b.onStrokeDown(rightDown, 'barrel1', 'er', 'pen', 300, 300, 2000);
+  assert.equal(d2.deferStroke, true);
+  assert.equal(d2.tool, 'er');
+  const mv = b.onStrokeMove(310, 300);
+  assert.deepEqual(mv, { startDeferredStroke: true, downX: 300, downY: 300 });
+  const u2 = b.onStrokeUp('', 'er', 2100);
+  assert.equal(u2.tool, 'pen');
+
+  // Button mapped to 'none' ignores non-primary click so it never draws with Pen
+  const ignored = b.onStrokeDown({ pointerType: 'mouse', buttons: 4, button: 1 }, 'barrel2', '', 'pen', 100, 100, 3000);
+  assert.equal(ignored.ignore, true);
+
+  // Button mapped to 'undo' fires once on rising hover press and ignores mouse stroke
+  assert.deepEqual(b.onHover('barrel2', 'undo', 'pen', 4000, false), { action: 'undo' });
+  assert.deepEqual(b.onHover('barrel2', 'undo', 'pen', 4020, false), {});
+  assert.deepEqual(b.onHover('', '', 'pen', 4080, false), {});
+  const undoDown = b.onStrokeDown({ pointerType: 'mouse', buttons: 4, button: 1 }, 'barrel2', 'undo', 'pen', 50, 50, 4200);
+  assert.deepEqual(undoDown, { action: 'undo', ignore: true });
+});
+

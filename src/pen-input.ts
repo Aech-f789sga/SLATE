@@ -8,9 +8,11 @@
  */
 
 import {
+  BarrelController,
   LIFT_GRACE,
   PALM_SIZE,
   PenEngine,
+  activeSlotOf,
   altitudeOf,
   azimuthOf,
   filterCoalescedSamples,
@@ -21,12 +23,14 @@ import {
   twistOf,
   type PalmMode,
   type Profile,
+  type Slot,
 } from './pen-logic';
 
 const PRESSURE_KEY = 'inkpad-prs-v2';
 const PALM_KEY = 'inkpad-palm-mode';
 
 const engine = new PenEngine();
+const barrel = new BarrelController();
 
 function loadProfiles() {
   try {
@@ -173,6 +177,7 @@ function boot() {
     const kind = kindOf(e);
     if (kind !== 'pen') {
       if (kind === 'mouse') {
+        const b = Number(e.button) || 0;
         const bits = Number((e as any).buttons) || 0;
         if (e.type === 'pointerdown') {
           engine.mousePressed = true;
@@ -181,7 +186,7 @@ function boot() {
         } else if (bits !== 0 && !engine.mousePressed) {
           engine.hoverButtons = true;
         }
-        if (engine.mouseIsPen()) note(e);
+        if (engine.mouseIsPen() || b >= 1 || (bits & ~1) !== 0) note(e);
       }
       return;
     }
@@ -268,6 +273,7 @@ function boot() {
     api.note = note;
     api.palmSized = palmSized;
     api.slot = slotOf;
+    api.activeSlot = activeSlotOf;
     api.stylusLike = () => engine.stylusLike();
     api.mousePen = () => engine.mouseIsPen();
   }
@@ -286,6 +292,34 @@ function boot() {
     palmSized,
     note,
     slot: slotOf,
+    activeSlot: activeSlotOf,
+    barrel: {
+      onHover: (slot: Slot, mapped: string, currentTool: string, strokeActive: boolean) =>
+        barrel.onHover(slot, mapped, currentTool, performance.now(), strokeActive),
+      onStrokeDown: (
+        e: PointerEvent,
+        slot: Slot,
+        mapped: string,
+        currentTool: string,
+        clientX: number,
+        clientY: number
+      ) => barrel.onStrokeDown(e, slot, mapped, currentTool, clientX, clientY, performance.now()),
+      onStrokeMove: (clientX: number, clientY: number) => barrel.onStrokeMove(clientX, clientY),
+      onStrokeUp: (remainingHeldSlot: Slot, currentTool: string) =>
+        barrel.onStrokeUp(remainingHeldSlot, currentTool, performance.now()),
+      releaseTemporary: (currentTool: string, clearToggle = false) =>
+        barrel.releaseTemporary(currentTool, clearToggle),
+      isPending: () => barrel.isPending(),
+      reset: () => barrel.reset(),
+      state: () => ({
+        heldSlot: barrel.heldSlot,
+        heldTool: barrel.heldTool,
+        prevTool: barrel.prevTool,
+        used: barrel.used,
+        toggled: barrel.toggled ? { ...barrel.toggled } : null,
+        pending: barrel.pending ? { ...barrel.pending } : null,
+      }),
+    },
     stylusLike: () => engine.stylusLike(),
     mousePen: () => engine.mouseIsPen(),
     range: () => engine.range(),

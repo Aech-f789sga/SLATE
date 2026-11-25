@@ -108,21 +108,346 @@ export function kindOf(e?: PointerLike | null): Kind {
 export function slotOf(e?: PointerLike | null): Slot {
   if (!e) return '';
   const type = e.pointerType;
-  const b = Number(e.button) || 0;
+  const b = Number(e.button);
+  const btn = Number.isFinite(b) ? b : -1;
   const bits = Number(e.buttons) || 0;
 
   if (type === 'pen' || type === 'eraser') {
-    if (type === 'eraser' || bits & 32 || b === 5) return 'eraser';
-    if (bits & 2 || b === 1) return 'barrel1';
-    if (bits & 4 || b === 2) return 'barrel2';
+    if (type === 'eraser' || (bits & 32) !== 0 || btn === 5) return 'eraser';
+    if ((bits & 2) !== 0 || btn === 1 || (bits & 8) !== 0 || btn === 3) return 'barrel1';
+    if ((bits & 4) !== 0 || btn === 2 || (bits & 16) !== 0 || btn === 4) return 'barrel2';
     return '';
   }
 
-  // Mouse numbering: right click (button 2, bit 2) is first barrel,
-  // middle click (button 1, bit 4) is second barrel.
-  if (bits & 2 || b === 2) return 'barrel1';
-  if (bits & 4 || b === 1) return 'barrel2';
+  // Mouse numbering: right click (button 2, bit 2) or XButton1 (button 3, bit 8)
+  // is first barrel; middle click (button 1, bit 4) or XButton2 (button 4, bit 16)
+  // is second barrel.
+  if ((bits & 2) !== 0 || btn === 2 || (bits & 8) !== 0 || btn === 3) return 'barrel1';
+  if ((bits & 4) !== 0 || btn === 1 || (bits & 16) !== 0 || btn === 4) return 'barrel2';
   return '';
+}
+
+/**
+ * Currently *held* barrel/eraser slot after the event takes effect.
+ * On `pointerup` or `pointercancel`, `e.button` still names the released button
+ * even though `e.buttons` already cleared its bit, so only `e.buttons` (plus
+ * `eraser` pointerType while still hovering an eraser) should count as active.
+ */
+export function activeSlotOf(e?: PointerLike | null): Slot {
+  if (!e) return '';
+  if (e.type === 'pointerup' || e.type === 'pointercancel') {
+    return slotOf({ pointerType: e.pointerType, buttons: Number(e.buttons) || 0, button: -1 });
+  }
+  return slotOf(e);
+}
+
+export const BARREL_TAP_MS = 350;
+export const BARREL_DRAG_PX = 5;
+export type BarrelAction = 'undo' | 'redo';
+
+export interface BarrelHoverResult {
+  tool?: string;
+  action?: BarrelAction;
+}
+
+export interface BarrelDownResult {
+  tool?: string;
+  action?: BarrelAction;
+  deferStroke?: boolean;
+  ignore?: boolean;
+}
+
+export interface BarrelMoveResult {
+  startDeferredStroke?: boolean;
+  downX?: number;
+  downY?: number;
+}
+
+export interface BarrelUpResult {
+  tool?: string;
+  cancelDeferredStroke?: boolean;
+}
+
+interface PendingBarrelClick {
+  slot: Slot;
+  mapped: string;
+  prevTool: string;
+  downX: number;
+  downY: number;
+  pressAt: number;
+  moved: boolean;
+}
+
+export class BarrelController {
+  heldSlot: Slot = '';
+  heldTool = '';
+  prevTool = '';
+  pressAt = 0;
+  used = false;
+  toggled: { slot: Slot; tool: string; prev: string } | null = null;
+  pending: PendingBarrelClick | null = null;
+
+  private isAction(mapped: string): mapped is BarrelAction {
+    return mapped === 'undo' || mapped === 'redo';
+  }
+
+  private canToggle(slot: Slot): boolean {
+    return slot === 'barrel1' || slot === 'barrel2';
+  }
+
+  isPending(): boolean {
+    return this.pending !== null;
+  }
+
+  /**
+   * Handle hover `pointermove` (or hover button change when no stroke is active).
+   */
+  onHover(
+    slot: Slot,
+    mapped: string,
+    currentTool: string,
+    now: number,
+    strokeActive: boolean
+  ): BarrelHoverResult {
+    if (strokeActive || this.pending) return {};
+
+    if (slot !== '') {
+      if (slot === this.heldSlot) return {};
+
+      // Transitioning directly from one held slot to another without releasing.
+      let baseTool = currentTool;
+      if (this.heldSlot !== '' && this.heldTool && !this.isAction(this.heldTool)) {
+        baseTool = this.prevTool || currentTool;
+      }
+
+      this.heldSlot = slot;
+      this.heldTool = mapped;
+      this.pressAt = now;
+      this.used = false;
+
+      if (!mapped) {
+        this.prevTool = '';
+        return baseTool !== currentTool ? { tool: baseTool } : {};
+      }
+      if (this.isAction(mapped)) {
+        this.prevTool = '';
+        return baseTool !== currentTool ? { action: mapped, tool: baseTool } : { action: mapped };
+      }
+
+      this.prevTool = baseTool;
+      return currentTool !== mapped ? { tool: mapped } : {};
+    }
+
+    // Released (`slot === ''`)
+    if (this.heldSlot === '') return {};
+
+    const prevSlot = this.heldSlot;
+    const prevHeldTool = this.heldTool;
+    const prevTool = this.prevTool;
+    const elapsed = now - this.pressAt;
+    const wasUsed = this.used;
+
+    this.heldSlot = '';
+    this.heldTool = '';
+    this.prevTool = '';
+    this.used = false;
+
+    if (!prevHeldTool || this.isAction(prevHeldTool)) return {};
+
+    if (this.canToggle(prevSlot) && !wasUsed && elapsed < BARREL_TAP_MS) {
+      if (this.toggled && this.toggled.tool === prevHeldTool) {
+        const back = this.toggled.prev;
+        this.toggled = null;
+        return back && back !== currentTool ? { tool: back } : {};
+      }
+      if (prevTool && prevTool !== prevHeldTool) {
+        this.toggled = { slot: prevSlot, tool: prevHeldTool, prev: prevTool };
+      }
+      return {};
+    }
+
+    // Held >= 350ms, used for drawing, or eraser tail -> revert to previous tool.
+    return prevTool && prevTool !== currentTool ? { tool: prevTool } : {};
+  }
+
+  /**
+   * Handle `pointerdown` on the canvas.
+   * Distinguishes pure barrel/mouse-mode clicks (deferred up to 5px drag so quick-clicks
+   * toggle cleanly without stray dots or accidental edits) from tip/nib/eraser strokes.
+   */
+  onStrokeDown(
+    e: PointerLike,
+    slot: Slot,
+    mapped: string,
+    currentTool: string,
+    clientX: number,
+    clientY: number,
+    now: number
+  ): BarrelDownResult {
+    const bits = Number(e.buttons) || 0;
+    const btn = Number(e.button);
+    const p = Number(e.pressure);
+    const isMouseNonPrimary =
+      e.pointerType === 'mouse' && (slot !== '' || (Number.isFinite(btn) && btn >= 1) || (bits & ~1) !== 0);
+    const isPurePenBarrel =
+      e.pointerType === 'pen' &&
+      (slot === 'barrel1' || slot === 'barrel2') &&
+      (bits & 1) === 0 &&
+      (bits & 32) === 0 &&
+      !(Number.isFinite(p) && p > 0);
+
+    if (isMouseNonPrimary || isPurePenBarrel) {
+      let baseTool = currentTool;
+      let alreadyFiredAction = false;
+      if (this.heldSlot === slot) {
+        if (this.heldTool && this.isAction(this.heldTool)) alreadyFiredAction = true;
+        else if (this.prevTool) baseTool = this.prevTool;
+        this.heldSlot = '';
+        this.heldTool = '';
+        this.prevTool = '';
+        this.used = false;
+      }
+
+      if (!mapped) {
+        this.pending = null;
+        return { ignore: true };
+      }
+      if (this.isAction(mapped)) {
+        this.pending = null;
+        return alreadyFiredAction ? { ignore: true } : { action: mapped, ignore: true };
+      }
+
+      this.pending = {
+        slot,
+        mapped,
+        prevTool: baseTool,
+        downX: clientX,
+        downY: clientY,
+        pressAt: now,
+        moved: false,
+      };
+      return {
+        deferStroke: true,
+        tool: currentTool !== mapped ? mapped : undefined,
+      };
+    }
+
+    this.pending = null;
+
+    if (this.heldSlot !== '') {
+      this.used = true;
+      return {};
+    }
+
+    if (slot !== '' && mapped && !this.isAction(mapped)) {
+      this.prevTool = currentTool;
+      this.heldSlot = slot;
+      this.heldTool = mapped;
+      this.pressAt = now;
+      this.used = true;
+      return { tool: currentTool !== mapped ? mapped : undefined };
+    }
+
+    return {};
+  }
+
+  onStrokeMove(clientX: number, clientY: number): BarrelMoveResult {
+    const pm = this.pending;
+    if (!pm || pm.moved) return {};
+    if (Math.hypot(clientX - pm.downX, clientY - pm.downY) >= BARREL_DRAG_PX) {
+      pm.moved = true;
+      this.used = true;
+      return {
+        startDeferredStroke: true,
+        downX: pm.downX,
+        downY: pm.downY,
+      };
+    }
+    return {};
+  }
+
+  onStrokeUp(remainingHeldSlot: Slot, currentTool: string, now: number): BarrelUpResult {
+    if (this.pending) {
+      const pm = this.pending;
+      this.pending = null;
+      if (pm.moved) {
+        if (remainingHeldSlot !== '' && remainingHeldSlot === pm.slot) {
+          this.heldSlot = pm.slot;
+          this.heldTool = pm.mapped;
+          this.prevTool = pm.prevTool;
+          this.pressAt = pm.pressAt;
+          this.used = true;
+          return {};
+        }
+        return { tool: pm.prevTool && pm.prevTool !== currentTool ? pm.prevTool : undefined };
+      }
+
+      const elapsed = now - pm.pressAt;
+      if (!this.canToggle(pm.slot) || elapsed >= BARREL_TAP_MS) {
+        return {
+          cancelDeferredStroke: true,
+          tool: pm.prevTool && pm.prevTool !== currentTool ? pm.prevTool : undefined,
+        };
+      }
+
+      if (this.toggled && this.toggled.tool === pm.mapped) {
+        const back = this.toggled.prev;
+        this.toggled = null;
+        return {
+          cancelDeferredStroke: true,
+          tool: back && back !== currentTool ? back : undefined,
+        };
+      }
+      if (pm.prevTool && pm.prevTool !== pm.mapped) {
+        this.toggled = { slot: pm.slot, tool: pm.mapped, prev: pm.prevTool };
+      }
+      return { cancelDeferredStroke: true };
+    }
+
+    if (this.heldSlot === '') return {};
+    if (remainingHeldSlot !== '') return {};
+
+    const prev = this.prevTool;
+    this.heldSlot = '';
+    this.heldTool = '';
+    this.prevTool = '';
+    this.used = false;
+    return { tool: prev && prev !== currentTool ? prev : undefined };
+  }
+
+  /**
+   * Release any temporary hold/pending state on blur/leave/cancel, restoring `prevTool`
+   * if a temporary borrow was active. Preserves sticky `toggled` state unless `clearToggle` is true.
+   */
+  releaseTemporary(currentTool: string, clearToggle = false): string | undefined {
+    let restore: string | undefined;
+    if (this.pending) {
+      if (this.pending.prevTool && this.pending.prevTool !== currentTool) {
+        restore = this.pending.prevTool;
+      }
+      this.pending = null;
+    } else if (this.heldSlot !== '') {
+      if (this.heldTool && !this.isAction(this.heldTool) && this.prevTool && this.prevTool !== currentTool) {
+        restore = this.prevTool;
+      }
+      this.heldSlot = '';
+      this.heldTool = '';
+      this.prevTool = '';
+      this.used = false;
+    }
+    if (clearToggle) this.toggled = null;
+    return restore;
+  }
+
+  reset(): void {
+    this.heldSlot = '';
+    this.heldTool = '';
+    this.prevTool = '';
+    this.pressAt = 0;
+    this.used = false;
+    this.toggled = null;
+    this.pending = null;
+  }
 }
 
 export function isContactSample(e?: PointerLike | null): boolean {
