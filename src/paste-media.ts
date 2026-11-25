@@ -29,13 +29,26 @@
 /* The engine's side of the deal                                      */
 /* ------------------------------------------------------------------ */
 
+import { canUseInternalFigFallback } from './strip-logic';
+
 interface MediaBridge {
   /** Place an image blob on the page. Resolves with the stroke, or null. */
   img(f: Blob): Promise<unknown>;
   /** Place a video blob on the page. Resolves with the stroke, or null. */
   vid(f: Blob): Promise<unknown>;
+  /** Copy current figure selection as a serialized JSON string, or null. */
+  copySel?: () => string | null;
+  /** Delete current figure selection (used by Ctrl+X cut). */
+  delSel?: () => void;
+  /** Paste a serialized copied figure payload onto the active page. */
+  fig?: (payload: string) => unknown;
+  /** Switch target page before inserting (e.g. drop directly onto a strip sheet). */
+  focusPage?: (idx: number) => void;
   toast(message: string): void;
 }
+
+const FIG_MIME = 'application/x-slate-fig';
+let lastCopiedFig: { payload: string; at: number } | null = null;
 
 function bridge(): MediaBridge | null {
   const b = (window as any).SLATE_MEDIA;
@@ -151,6 +164,39 @@ async function fromUrl(url: string, b: MediaBridge): Promise<boolean> {
 /* Events                                                             */
 /* ------------------------------------------------------------------ */
 
+function copyOrCut(e: ClipboardEvent, isCut: boolean): void {
+  if (inTextField(document.activeElement)) {
+    lastCopiedFig = null;
+    return;
+  }
+  const b = bridge();
+  if (!b || !editorVisible() || typeof b.copySel !== 'function') return;
+  const payload = b.copySel();
+  if (!payload) return;
+
+  lastCopiedFig = { payload, at: Date.now() };
+  try {
+    e.clipboardData?.setData(FIG_MIME, payload);
+  } catch {
+    /* ignore custom MIME restriction */
+  }
+  e.preventDefault();
+  if (isCut && typeof b.delSel === 'function') {
+    b.delSel();
+    b.toast('Cut figure');
+  } else {
+    b.toast('Copied figure');
+  }
+}
+
+function onCopy(e: ClipboardEvent): void {
+  copyOrCut(e, false);
+}
+
+function onCut(e: ClipboardEvent): void {
+  copyOrCut(e, true);
+}
+
 function onPaste(e: ClipboardEvent): void {
   const b = bridge();
   if (!b || !editorVisible()) return;
@@ -159,6 +205,13 @@ function onPaste(e: ClipboardEvent): void {
   const dt = e.clipboardData;
   if (!dt) return;
 
+  const figData = dt.getData(FIG_MIME);
+  if (figData && typeof b.fig === 'function') {
+    e.preventDefault();
+    if (b.fig(figData)) b.toast('Pasted figure');
+    return;
+  }
+
   const files = mediaIn(dt);
   if (files.length) {
     e.preventDefault();
@@ -166,17 +219,41 @@ function onPaste(e: ClipboardEvent): void {
     return;
   }
 
+  const svg = (dt.getData('image/svg+xml') || '').trim();
+  if (svg && /<svg[\s>]/i.test(svg)) {
+    e.preventDefault();
+    const f = new File([svg], 'pasted.svg', { type: 'image/svg+xml' });
+    void insertAll([f], b);
+    return;
+  }
+
+  const plainText = dt.getData('text/plain') || '';
+  const htmlText = dt.getData('text/html') || '';
   // No bytes, but possibly an address. A single token only: a paragraph of text
   // that happens to contain a URL is text, and belongs in the text tool.
-  const text = (dt.getData('text/uri-list') || dt.getData('text/plain') || '').trim();
-  if (!text || /\s/.test(text)) return;
-  if (!IMAGE_URL.test(text) && !VIDEO_URL.test(text)) return;
+  const text = (dt.getData('text/uri-list') || plainText).trim();
+  if (text && !/\s/.test(text) && (IMAGE_URL.test(text) || VIDEO_URL.test(text))) {
+    e.preventDefault();
+    void (async () => {
+      const ok = await fromUrl(text, b);
+      if (!ok) b.toast("That link can't be read from this page — save the file and paste it instead.");
+    })();
+    return;
+  }
 
-  e.preventDefault();
-  void (async () => {
-    const ok = await fromUrl(text, b);
-    if (!ok) b.toast("That link can't be read from this page — save the file and paste it instead.");
-  })();
+  if (
+    lastCopiedFig &&
+    typeof b.fig === 'function' &&
+    canUseInternalFigFallback({
+      hasCustomMime: !!figData,
+      hasMediaFiles: files.length > 0,
+      plainText,
+      htmlText,
+    })
+  ) {
+    e.preventDefault();
+    if (b.fig(lastCopiedFig.payload)) b.toast('Pasted figure');
+  }
 }
 
 /**
@@ -198,6 +275,12 @@ function onDrop(e: DragEvent): void {
   if (!b || !editorVisible() || !e.dataTransfer) return;
   const files = mediaIn(e.dataTransfer);
   if (!files.length) return;
+  const target = e.target as HTMLElement | null;
+  const sheetEl = target?.closest?.('.ps-sheet') as HTMLElement | null;
+  if (sheetEl && typeof b.focusPage === 'function') {
+    const idx = Number(sheetEl.dataset.i);
+    if (Number.isFinite(idx)) b.focusPage(idx);
+  }
   e.preventDefault();
   void insertAll(files, b);
 }
@@ -206,8 +289,10 @@ function install(): void {
   // A module can be evaluated twice in a hot-reload; two listeners would place
   // the same screenshot twice.
   if ((window as any).__slatePaste) return;
-  (window as any).__slatePaste = { onPaste, onDrop, mediaIn, fromUrl };
+  (window as any).__slatePaste = { onCopy, onCut, onPaste, onDrop, mediaIn, fromUrl };
   // Capture, so a handler on a focused element cannot consume the paste first.
+  document.addEventListener('copy', onCopy, true);
+  document.addEventListener('cut', onCut, true);
   document.addEventListener('paste', onPaste, true);
   document.addEventListener('dragover', onDragOver, true);
   document.addEventListener('drop', onDrop, true);
