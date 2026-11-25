@@ -194,3 +194,32 @@ test('tilt, altitude, twist, and kindOf match spec geometry', () => {
   assert.equal(twistOf({ pointerType: 'pen' }), null);
   assert.ok(Math.abs((twistOf({ pointerType: 'pen', twist: 90 }) ?? 0) - Math.PI / 2) < 1e-6);
 });
+
+test('short zero-pressure stroke triggers fallback within 4 samples and buttons:0 positive pressure counts as contact', () => {
+  assert.equal(ZERO_PRESSURE_SAMPLES, 4);
+  const engine = new PenEngine();
+  engine.begin('pen');
+  engine.pressureOf({ pointerType: 'pen', type: 'pointerdown', buttons: 1, pressure: 0, timeStamp: 1 });
+  for (let i = 1; i < ZERO_PRESSURE_SAMPLES; i++) {
+    engine.pressureOf({ pointerType: 'pen', type: 'pointermove', buttons: 1, pressure: 0, timeStamp: 1 + i * 8 });
+  }
+  assert.equal(engine.isZeroPressureFallback(), true);
+  assert.equal(engine.hasPressure({ pointerType: 'pen' }), false);
+
+  // Driver omits buttons bitmask during drag but sends real positive pressure -> still learns pressure
+  const noButtons = new PenEngine();
+  noButtons.begin('pen');
+  for (let i = 0; i < 6; i++) {
+    noButtons.pressureOf({ pointerType: 'pen', type: 'pointermove', buttons: 0, pressure: 0.2 + i * 0.1, timeStamp: 10 + i });
+  }
+  assert.equal(noButtons.profiles.pen.n, 6);
+  assert.equal(noButtons.hasPressure({ pointerType: 'pen' }), true);
+});
+
+test('pen-only mode reports touch:pen-only when rejecting touch pointers', () => {
+  const engine = new PenEngine();
+  engine.mode = 'pen';
+  assert.equal(engine.accept({ pointerType: 'touch', type: 'pointerdown', width: 10, height: 10 }, 500), false);
+  assert.equal(engine.lastReason, 'touch:pen-only');
+  assert.equal(engine.accept({ pointerType: 'pen', type: 'pointerdown', buttons: 1, pressure: 0.5 }, 510), true);
+});

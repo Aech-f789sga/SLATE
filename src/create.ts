@@ -1306,7 +1306,7 @@ function applySettings() {
   const nm = (document.getElementById('nn') as HTMLInputElement | null)?.value.trim();
   if (nm) n.name = nm;
 
-  const pages = state.scope === 'all' ? n.pages : n.pages.slice(0, 1);
+  const pages = Array.isArray(n.pages) ? (state.scope === 'all' ? n.pages : n.pages.slice(0, 1)) : [];
   pages.forEach((p: any) => {
     p.pw = w;
     p.ph = h;

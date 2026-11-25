@@ -60,7 +60,7 @@ export function initInkpadEngine() {
     }, 300);
   }
 
-  const pg = () => nb.pages[pi];
+  const pg = () => (nb && nb.pages ? nb.pages[pi] : null);
 
   function bg(c: CanvasRenderingContext2D, tpl: string, col?: string | null) {
     c.fillStyle = col || '#fff';
@@ -129,8 +129,12 @@ export function initInkpadEngine() {
     if (!i) {
       i = IM[s.src] = new Image();
       i.onload = () => {
-        draw();
-        thumbs();
+        if (nb && $('#ed')?.style.display === 'flex') {
+          draw();
+          thumbs();
+        } else {
+          showLib();
+        }
       };
       i.src = s.src;
     }
@@ -442,15 +446,18 @@ export function initInkpadEngine() {
       .filter((n: any) => (n.name || '').toLowerCase().includes(($('#find').value || '').toLowerCase()) && (flt === 'trash' ? n.del : !n.del && (flt !== 'fav' || n.fav)))
       .sort((a: any, b: any) => (b.upd || 0) - (a.upd || 0))
       .forEach((n: any) => {
+        const pc = Array.isArray(n.pages) ? n.pages.length : 0;
         const d = document.createElement('div');
         d.className = 'card';
-        d.innerHTML = `<div class="cv" style="--c:${n.cover}"><canvas width="240" height="330"></canvas></div><div class="nm"></div><div class="sub"><span>${n.pages.length} page${n.pages.length > 1 ? 's' : ''}</span><span><button class="fv"></button> <button class="dl"></button></span></div>`;
+        d.innerHTML = `<div class="cv" style="--c:${n.cover}"><canvas width="240" height="330"></canvas></div><div class="nm"></div><div class="sub"><span>${pc} page${pc === 1 ? '' : 's'}</span><span><button class="fv"></button> <button class="dl"></button></span></div>`;
         d.querySelector('.nm')!.textContent = n.name || 'Untitled';
         const c = d.querySelector('canvas')!.getContext('2d') as CanvasRenderingContext2D;
-        const p0 = n.pages[0];
-        const k = Math.min(240 / (p0.pw || 800), 330 / (p0.ph || 1100));
-        c.scale(k, k);
-        render(c, p0);
+        const p0 = n.pages?.[0];
+        if (p0) {
+          const k = Math.min(240 / (p0.pw || 800), 330 / (p0.ph || 1100));
+          c.scale(k, k);
+          render(c, p0);
+        }
         const fv = d.querySelector('.fv') as HTMLButtonElement;
         const bt = d.querySelector('.dl') as HTMLButtonElement;
         fv.textContent = n.fav ? '★' : '☆';

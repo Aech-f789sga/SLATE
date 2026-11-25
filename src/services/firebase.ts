@@ -18,6 +18,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  initializeFirestore,
   doc,
   setDoc,
   getDoc,
@@ -33,6 +34,7 @@ import {
   sum,
   deleteDoc,
   serverTimestamp,
+  type Firestore,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -40,12 +42,80 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Use custom firestoreDatabaseId if provisioned
-export const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Use custom firestoreDatabaseId if provisioned, with forced HTTP long polling
+// so buffering proxies, firewalls, or WebViews that stall streaming WebChannel
+// backchannels (CI=0) do not trigger the 10-second offline timeout.
+const firestoreDatabaseId =
+  firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+    ? firebaseConfig.firestoreDatabaseId
+    : undefined;
+
+function createFirestoreDb(): Firestore {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+        ignoreUndefinedProperties: true,
+      },
+      firestoreDatabaseId
+    );
+  } catch {
+    return firestoreDatabaseId ? getFirestore(app, firestoreDatabaseId) : getFirestore(app);
+  }
+}
+
+export const db = createFirestoreDb();
 
 export const googleProvider = new GoogleAuthProvider();
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo:
+        auth.currentUser?.providerData?.map((provider) => ({
+          providerId: provider.providerId,
+          email: provider.email,
+        })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 /**
  * Google sign-in that also works inside the Android app.
@@ -69,8 +139,14 @@ export async function signInWithGoogleAnywhere(): Promise<any> {
   return signInWithPopup(auth, googleProvider);
 }
 
-// Test connection on boot per Firebase skill guidelines
+// Test connection on boot per Firebase skill guidelines (skip until online if offline at launch)
 async function testConnection() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => { void testConnection(); }, { once: true });
+    }
+    return;
+  }
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
@@ -79,7 +155,7 @@ async function testConnection() {
     }
   }
 }
-testConnection();
+void testConnection();
 
 export {
   signInWithPopup,

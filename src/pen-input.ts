@@ -126,7 +126,27 @@ function samples(e: PointerEvent): PointerEvent[] {
   return filterCoalescedSamples(e, list);
 }
 
-const accept = (e: PointerEvent): boolean => engine.accept(e, performance.now());
+let lastPenOnlyToastAt = 0;
+const accept = (e: PointerEvent): boolean => {
+  const ok = engine.accept(e, performance.now());
+  if (
+    !ok &&
+    engine.lastReason === 'touch:pen-only' &&
+    e.type === 'pointerdown' &&
+    performance.now() - lastPenOnlyToastAt > 4000
+  ) {
+    lastPenOnlyToastAt = performance.now();
+    try {
+      const fn = (window as any).eval('typeof toast==="function"?toast:null');
+      if (typeof fn === 'function') {
+        fn('Pen only mode is blocking touch — uncheck "Pen only" or switch Palm rejection to Automatic');
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return ok;
+};
 const pressureOf = (e: PointerEvent): number => engine.pressureOf(e);
 const hasPressure = (e: PointerEvent): boolean => engine.hasPressure(e);
 const note = (e: PointerEvent) => engine.note(e, performance.now());
@@ -179,17 +199,31 @@ function boot() {
       engine.lastKind = 'pen';
       engine.settle('pen');
     } else {
-      engine.penNear = e.buttons === 0;
-      if (!engine.penNear) engine.lastContact = performance.now();
+      const p = Number(e.pressure);
+      const touching = e.buttons !== 0 || (Number.isFinite(p) && p > 0 && p !== 0.5);
+      engine.penNear = !engine.penDown && !touching;
+      if (engine.penDown || touching) engine.lastContact = performance.now();
     }
   };
 
   for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'] as const) {
     window.addEventListener(t, track, true);
   }
+  window.addEventListener('blur', () => {
+    if (engine.penDown) engine.settle('pen');
+    engine.penDown = false;
+    engine.penNear = false;
+    engine.mousePressed = false;
+  });
 
   const cv = document.getElementById('cv');
   if (cv) {
+    cv.addEventListener('lostpointercapture', () => {
+      if (engine.penDown) {
+        engine.penDown = false;
+        engine.settle('pen');
+      }
+    });
     cv.addEventListener('pointerenter', (e) => {
       if (kindOf(e as PointerEvent) === 'pen') engine.penNear = true;
     });

@@ -181,7 +181,8 @@ function decorate() {
     if (!sub) return;
     const first = sub.querySelector('span') as HTMLElement | null;
     if (first) {
-      const pages = `${n.pages.length} page${n.pages.length > 1 ? 's' : ''}`;
+      const pc = Array.isArray(n.pages) ? n.pages.length : 0;
+      const pages = `${pc} page${pc === 1 ? '' : 's'}`;
       const when = relTime(n.upd || 0);
       first.textContent = when ? `${pages} · ${when}` : pages;
     }

@@ -71,7 +71,7 @@ export interface LastSample {
 export const HALF_PI = Math.PI / 2;
 export const FLAT = 1e-4;
 export const SETTLE = 24;
-export const ZERO_PRESSURE_SAMPLES = 12;
+export const ZERO_PRESSURE_SAMPLES = 4;
 export const FLOOR_RISE = 0.15;
 export const PALM_SIZE = 44;
 export const LIFT_GRACE = 700;
@@ -128,7 +128,13 @@ export function slotOf(e?: PointerLike | null): Slot {
 export function isContactSample(e?: PointerLike | null): boolean {
   if (!e) return false;
   const bits = Number(e.buttons) || 0;
-  return e.type === 'pointerdown' || (bits & 1) !== 0 || (bits & 32) !== 0;
+  const p = Number(e.pressure);
+  return (
+    e.type === 'pointerdown' ||
+    (bits & 1) !== 0 ||
+    (bits & 32) !== 0 ||
+    (Number.isFinite(p) && p > 0 && p !== 0.5)
+  );
 }
 
 export function altitudeOf(e?: PointerLike | null): number | null {

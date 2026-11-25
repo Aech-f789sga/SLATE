@@ -409,8 +409,34 @@ export function initUpdateCheck(): void {
   if (typeof window === 'undefined') return;
 
   // A dev server has no version.json and no meaningful version, so stay out of
-  // the way entirely rather than showing a card that can never resolve.
-  if (import.meta.env.DEV) return;
+  // the way entirely rather than showing a card that can never resolve — and
+  // clear any stale dev service worker so live HTML edits are never shadowed.
+  if (import.meta.env.DEV) {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) =>
+          Promise.all(
+            regs
+              .filter((r) => {
+                const url = r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || '';
+                return url.includes('dev-sw');
+              })
+              .map((r) => r.unregister().catch(() => false))
+          )
+        )
+        .catch(() => {});
+    }
+    if (typeof caches !== 'undefined') {
+      caches
+        .keys()
+        .then((keys) =>
+          Promise.all(keys.filter((k) => k.includes('workbox') || k.includes('precache')).map((k) => caches.delete(k)))
+        )
+        .catch(() => {});
+    }
+    return;
+  }
 
   lastInput = Date.now();
 

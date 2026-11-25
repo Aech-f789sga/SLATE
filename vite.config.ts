@@ -36,6 +36,64 @@ function emitVersion(): Plugin {
   };
 }
 
+/**
+ * In Vite dev mode (`apply: 'serve'`), clears any stale `/dev-sw.js` Workbox
+ * precache worker so preview tabs always receive live edits to `index.html`
+ * instead of a cached shell. Production builds (`vite build`) are untouched.
+ */
+function cleanupDevServiceWorker(): Plugin {
+  const selfDestructSw = `
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.filter((k) => k.includes('workbox') || k.includes('precache')).map((k) => caches.delete(k)));
+    } catch {}
+    try { await self.registration.unregister(); } catch {}
+    try {
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach((client) => { if ('navigate' in client) client.navigate(client.url).catch(() => {}); });
+    } catch {}
+  })());
+});
+`;
+  const unregisterClient = `
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((r) => {
+      const url = (r.active && r.active.scriptURL) || (r.installing && r.installing.scriptURL) || (r.waiting && r.waiting.scriptURL) || '';
+      if (url.includes('dev-sw')) r.unregister().catch(() => {});
+    });
+  }).catch(() => {});
+}
+`;
+  return {
+    name: 'slate-cleanup-dev-sw',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathOnly = (req.url || '').split('?')[0];
+        if (pathOnly === '/dev-sw.js') {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          res.end(selfDestructSw);
+          return;
+        }
+        if (pathOnly === '/registerSW.js') {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          res.end(unregisterClient);
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig(() => {
   return {
     define: {
@@ -45,6 +103,7 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       emitVersion(),
+      cleanupDevServiceWorker(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'icon-maskable.svg'],
@@ -166,7 +225,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'module',
         },
       }),

@@ -113,7 +113,7 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 import {
-  getFirestore, doc, onSnapshot, setDoc, serverTimestamp,
+  getFirestore, initializeFirestore, doc, onSnapshot, setDoc, serverTimestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 
 const ADMIN_EMAIL = 'derrickdarrack@gmail.com';
@@ -132,7 +132,12 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app, 'ai-studio-slate-289ffd97-dd6b-4b1f-9f9d-93b8e9fea93e');
+let db;
+try {
+  db = initializeFirestore(app, { experimentalForceLongPolling: true }, DB_ID);
+} catch {
+  db = getFirestore(app, DB_ID);
+}
 const releaseRef = doc(db, 'app_config', 'release');
 
 const root = document.getElementById('app');
