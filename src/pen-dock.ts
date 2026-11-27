@@ -45,6 +45,7 @@ import {
   setWidth as setModelWidth,
   type InkTool,
 } from './widths';
+import { clampFillOpacity, formatOpacityPercent, normalizeHexColor } from './fill-logic';
 
 /* ------------------------------------------------------------------ */
 /* Engine access                                                       */
@@ -85,6 +86,8 @@ interface Slot {
   erase?: 'stroke' | 'pixel';
   /** Laser trail: stays while pressed, or fades behind the pointer. */
   laser?: 'hold' | 'fade';
+  /** Paint bucket fill opacity (0.05..1). */
+  opacity?: number;
 }
 
 /** Page units per millimetre: an A4 page is 800 × 1131 units for 210 × 297 mm. */
@@ -154,6 +157,7 @@ function load() {
             color: typeof s.color === 'string' ? s.color : '#111111',
             erase: (s.erase === 'pixel' ? 'pixel' : 'stroke') as Slot['erase'],
             laser: (s.laser === 'fade' ? 'fade' : 'hold') as Slot['laser'],
+            opacity: s.kind === 'bucket' ? clampFillOpacity(s.opacity, 1) : undefined,
           }))
           .slice(0, 8);
       }
@@ -250,6 +254,11 @@ function apply(s: Slot, opts: { keepSelection?: boolean } = {}) {
   // engine to stay honest, so writing it first would let them see the old width
   // and adopt it straight back over the new one.
   if (s.kind !== 'laser' && s.kind !== 'bucket') setModelWidth(slotTool(s), width, { apply: false });
+  if (s.kind === 'bucket') {
+    const fillApi = (window as any).__slateFill;
+    fillApi?.setColor?.(s.color, { fromDock: true });
+    fillApi?.setOpacity?.(clampFillOpacity(s.opacity, 1), { fromDock: true });
+  }
 
   paint();
 }
@@ -280,14 +289,15 @@ function penSvg(s: Slot): string {
   // cap end. Every part overlaps its neighbour — a 3 px seam at this size reads
   // as two separate objects, which is what makes an icon look like a block.
   if (s.kind === 'bucket') {
+    const fop = clampFillOpacity(s.opacity, 1);
     // a tin with a handle and a drip: the only tool here that is not a barrel
     return `${open}
-      <path d="M168 6.5h34l-4.6 14.5h-24.8z" fill="${body}"/>
-      <path d="M168 6.5h34l-1.5 4.4h-31z" fill="${light}" opacity=".7"/>
+      <path d="M168 6.5h34l-4.6 14.5h-24.8z" fill="${body}" fill-opacity="${fop}"/>
+      <path d="M168 6.5h34l-1.5 4.4h-31z" fill="${light}" opacity="${(0.7 * fop).toFixed(2)}"/>
       <path d="M172 6.5c0-6 26-6 26 0" fill="none" stroke="${metalDark}" stroke-width="2" stroke-linecap="round"/>
-      <path d="M201 9c4.4 1.4 7.8 3.8 10.2 7" fill="none" stroke="${body}" stroke-width="2.8" stroke-linecap="round"/>
-      <circle cx="214" cy="19" r="2.3" fill="${body}"/>
-      <path d="M176 12.5h17" stroke="${light}" stroke-width="1.6" opacity=".5" stroke-linecap="round"/>
+      <path d="M201 9c4.4 1.4 7.8 3.8 10.2 7" fill="none" stroke="${body}" stroke-opacity="${fop}" stroke-width="2.8" stroke-linecap="round"/>
+      <circle cx="214" cy="19" r="2.3" fill="${body}" fill-opacity="${fop}"/>
+      <path d="M176 12.5h17" stroke="${light}" stroke-width="1.6" opacity="${(0.5 * fop).toFixed(2)}" stroke-linecap="round"/>
     </svg>`;
   }
   if (s.kind === 'eraser') {
@@ -396,7 +406,7 @@ function kindName(s: Slot): string {
   if (s.kind === 'pen') return `${BRUSHES.find((b) => b.id === s.brush)?.name ?? 'Pen'} · ${mmLabel(s.mm)}`;
   if (s.kind === 'highlighter') return `Highlighter · ${mmLabel(s.mm)}`;
   if (s.kind === 'eraser') return `${s.erase === 'pixel' ? 'Pixel eraser' : 'Stroke eraser'} · ${mmLabel(s.mm)}`;
-  if (s.kind === 'bucket') return 'Bucket fill';
+  if (s.kind === 'bucket') return `Bucket fill · ${formatOpacityPercent(s.opacity ?? 1)}`;
   return `Pointer · ${s.laser === 'fade' ? 'fades' : 'stays'}`;
 }
 
@@ -570,8 +580,8 @@ function paint() {
       lastTap = { at: Date.now(), i };
       apply(s);
       // the toolbar is gone while the page is locked, and the pill is part of
-      // it — so picking a pen is what asks for the width and colour back
-      if (focus && s.kind !== 'laser' && s.kind !== 'bucket') {
+      // it — so picking a pen or bucket is what asks for width/colour/opacity back
+      if (focus && s.kind !== 'laser') {
         (window as any).__inkpad_ink?.peek?.();
       }
     };
@@ -1056,13 +1066,48 @@ function renderSheet() {
       b.onclick = () => {
         s.kind = k.id;
         if (k.id === 'highlighter' && s.mm < 1) s.mm = 4;
+        if (k.id === 'bucket' && s.opacity == null) s.opacity = 1;
         save();
         paint();
         renderSheet();
+        if (s.id === activeId) apply(s, { keepSelection: true });
       };
       kinds.append(b);
     });
     row.append(kinds);
+
+    if (s.kind === 'bucket') {
+      const opRow = el('div', '');
+      opRow.className = 'ps-thick ps-fill-op';
+      const lab = el('label', '', 'Opacity');
+      const opSl = el('input') as HTMLInputElement;
+      opSl.type = 'range';
+      opSl.min = '5';
+      opSl.max = '100';
+      opSl.step = '1';
+      const curOp = clampFillOpacity(s.opacity, 1);
+      opSl.value = String(Math.round(curOp * 100));
+      opSl.setAttribute('aria-label', 'Fill opacity');
+      const opOut = el('code', '', formatOpacityPercent(curOp));
+      opOut.className = 'ps-op-out';
+
+      const updateBucketOpacity = (pct: number, commit: boolean) => {
+        const next = clampFillOpacity(pct / 100, 1);
+        s.opacity = next;
+        opOut.textContent = formatOpacityPercent(next);
+        name.textContent = kindName(s);
+        const art = dock?.querySelector<HTMLElement>(`.pd-slot[data-i="${i}"] .pd-art`);
+        if (art) art.innerHTML = penSvg(s);
+        if (s.id === activeId) {
+          (window as any).__slateFill?.setOpacity?.(next, { previewOnly: !commit, fromDock: true });
+        }
+        if (commit) save();
+      };
+      opSl.oninput = () => updateBucketOpacity(Number(opSl.value), false);
+      opSl.onchange = () => updateBucketOpacity(Number(opSl.value), true);
+      opRow.append(lab, opSl, opOut);
+      row.append(opRow);
+    }
 
     // brush engine (pens only)
     if (s.kind === 'pen') {
@@ -1469,6 +1514,7 @@ body[data-pd=right] #pen-sheet{left:auto;right:64px}
   border:1px solid var(--bd,#d9d9de);background:var(--bg,#e6e9ef);color:var(--tx,#1c1c1e);
 }
 #pen-sheet .ps-unit{font-size:10.5px;color:var(--mu,#6e6e73)}
+#pen-sheet .ps-op-out{font:600 11px/1 var(--slate-font-mono);color:var(--mu,#6e6e73);min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
 #pen-sheet .ps-presets{display:flex;gap:3px;flex-wrap:wrap}
 #pen-sheet .ps-presets button{
   border:0;background:color-mix(in srgb,var(--tx,#1c1c1e) 6%,transparent);border-radius:6px;
@@ -1578,6 +1624,30 @@ function boot() {
       slots.splice(Math.max(0, Math.min(slots.length, to)), 0, s);
       save();
       paint();
+    },
+    syncFill: (color: string, opacity: number) => {
+      const s = slots.find((x) => x.id === activeId);
+      if (!s || s.kind !== 'bucket') return;
+      const nextColor = normalizeHexColor(color, s.color);
+      const nextOp = clampFillOpacity(opacity, 1);
+      if (s.color.toLowerCase() === nextColor.toLowerCase() && Math.abs((s.opacity ?? 1) - nextOp) < 0.005) {
+        return;
+      }
+      s.color = nextColor;
+      s.opacity = nextOp;
+      save();
+      paint();
+      const row = sheet?.querySelector<HTMLElement>(`.ps-row[data-id="${s.id}"]`);
+      if (row) {
+        const chip = row.querySelector<HTMLElement>('.ps-chip');
+        if (chip) chip.style.background = s.color;
+        const opSl = row.querySelector<HTMLInputElement>('.ps-fill-op input[type=range]');
+        const opOut = row.querySelector<HTMLElement>('.ps-op-out');
+        const nm = row.querySelector<HTMLElement>('.ps-name');
+        if (opSl) opSl.value = String(Math.round(nextOp * 100));
+        if (opOut) opOut.textContent = formatOpacityPercent(nextOp);
+        if (nm) nm.textContent = kindName(s);
+      }
     },
     PX_PER_MM,
   };

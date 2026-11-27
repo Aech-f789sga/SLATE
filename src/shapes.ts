@@ -24,6 +24,13 @@ import {
   type Pt as GeoPt,
   type ShapeKind as GeoKind,
 } from './shapes-geometry';
+import {
+  applyShapeOpacityToSelection,
+  clampFillOpacity,
+  formatOpacityPercent,
+  isFillableShape,
+  normalizeHexColor,
+} from './fill-logic';
 
 /* ------------------------------------------------------------------ */
 /* Engine access                                                       */
@@ -1237,7 +1244,7 @@ function applyStyle(s: any, geometry: boolean) {
     pendingHandle = null;
   }
 
-  if (style.fill && (s.k === 'rect' || s.k === 'ell' || s.k === 'tri' || s.poly || s.el)) {
+  if (style.fill && isFillableShape(s)) {
     s.fc = style.fill;
     s.fop = style.opacity;
     changed = true;
@@ -1478,6 +1485,29 @@ function buildPanel() {
     fills.append(b);
   });
 
+  let fillPickerArmed = false;
+  const customWrap = el('label', '') as HTMLLabelElement;
+  customWrap.className = 'sh-fill-custom';
+  customWrap.title = 'Custom fill colour';
+  const customInput = el('input', '') as HTMLInputElement;
+  customInput.type = 'color';
+  customInput.value = style.fill && /^#[0-9a-f]{6}$/i.test(style.fill) ? style.fill : '#2f6df6';
+  customInput.setAttribute('aria-label', 'Custom fill colour');
+  customInput.oninput = () => {
+    setFill(customInput.value, { skipSnap: fillPickerArmed });
+    fillPickerArmed = true;
+  };
+  customInput.onchange = () => {
+    fillPickerArmed = false;
+    saveStyle();
+    repaint();
+  };
+  customWrap.append(customInput);
+  fills.append(customWrap);
+
+  let opArmed = false;
+  const opWrap = el('div', '');
+  opWrap.className = 'sh-op-wrap';
   const op = el('input', '') as HTMLInputElement;
   op.type = 'range';
   op.min = '5';
@@ -1485,12 +1515,30 @@ function buildPanel() {
   op.step = '1';
   op.className = 'sh-op';
   op.title = 'Fill opacity';
-  op.value = String(Math.round(style.opacity * 100));
+  op.setAttribute('aria-label', 'Shape fill opacity');
+  op.value = String(Math.round(clampFillOpacity(style.opacity, 0.35) * 100));
+  const opVal = el('span', '', formatOpacityPercent(style.opacity));
+  opVal.className = 'sh-op-val';
   op.oninput = () => {
-    style.opacity = Number(op.value) / 100;
+    style.opacity = clampFillOpacity(Number(op.value) / 100, style.opacity);
+    opVal.textContent = formatOpacityPercent(style.opacity);
+    const curSel = ev<any[]>('sel') || [];
+    if (curSel.some((s) => s && s.t === 'shape' && isFillableShape(s) && s.fc)) {
+      if (!opArmed) {
+        ev('try{ snap(); }catch(e){}');
+        opArmed = true;
+      }
+      if (applyShapeOpacityToSelection(curSel, style.opacity)) {
+        ev('try{ draw(); }catch(e){}');
+      }
+    }
+  };
+  op.onchange = () => {
+    opArmed = false;
     saveStyle();
     repaint();
   };
+  opWrap.append(op, opVal);
 
   // ---- dash: solid / ruled dash / dotted ----------------------------------
   const dashGroup = el('div', '');
@@ -1558,7 +1606,7 @@ function buildPanel() {
     axis.append(wrap);
   });
 
-  panel.append(fills, op, dashGroup, axis, rec);
+  panel.append(fills, opWrap, dashGroup, axis, rec);
   document.body.append(panel);
 
   hint = el('div', '');
@@ -1581,17 +1629,19 @@ function setDash(mode: Dash) {
   paint();
 }
 
-function setFill(c: string | null) {
-  style.fill = c;
+function setFill(c: string | null, opts: { skipSnap?: boolean } = {}) {
+  const next = c ? normalizeHexColor(c) : null;
+  style.fill = next;
   saveStyle();
   paint();
   // a shape is already selected? restyle it in place
   const sel = ev<any[]>('sel') || [];
-  const shapes = sel.filter((s) => s && s.t === 'shape');
+  const shapes = sel.filter((s) => s && s.t === 'shape' && isFillableShape(s));
   if (shapes.length) {
+    if (!opts.skipSnap) ev('try{ snap(); }catch(e){}');
     shapes.forEach((s) => {
-      if (c && (s.k === 'rect' || s.k === 'ell' || s.k === 'tri')) {
-        s.fc = c;
+      if (next) {
+        s.fc = next;
         s.fop = style.opacity;
       } else {
         delete s.fc;
@@ -1619,16 +1669,32 @@ function paint() {
 
   const kind = forced || ev<string>('tool') || '';
   const isAxis = kind === 'ax2' || kind === 'ax3';
-  const canFill = kind === 'rect' || kind === 'ell' || kind === 'tri' || kind === 'square' || kind === 'circle' || kind === 'rhomb' || kind === 'para' || kind === 'trap' || kind === 'poly';
+  const canFill = isFillableShape({ k: kind });
 
+  const normFill = style.fill ? style.fill.toLowerCase() : null;
   panel.querySelectorAll<HTMLElement>('.sh-fill').forEach((n) => {
-    n.classList.toggle('on', (n.dataset.fill ?? null) === style.fill);
+    const df = n.dataset.fill ? n.dataset.fill.toLowerCase() : null;
+    n.classList.toggle('on', df === normFill);
   });
+  const customWrap = panel.querySelector<HTMLElement>('.sh-fill-custom');
+  const customInput = customWrap?.querySelector<HTMLInputElement>('input[type=color]');
+  const isCustomFill = !!normFill && !FILLS.some((f) => f.toLowerCase() === normFill);
+  if (customWrap) {
+    customWrap.classList.toggle('on', isCustomFill);
+    customWrap.style.setProperty('--swc', normFill || '');
+    if (customInput && normFill && document.activeElement !== customInput) {
+      customInput.value = normFill;
+    }
+  }
 
   const fills = panel.querySelector<HTMLElement>('.sh-fills');
-  const op = panel.querySelector<HTMLElement>('.sh-op');
+  const opWrap = panel.querySelector<HTMLElement>('.sh-op-wrap');
+  const op = panel.querySelector<HTMLInputElement>('.sh-op');
+  const opVal = panel.querySelector<HTMLElement>('.sh-op-val');
   if (fills) fills.style.display = canFill ? '' : 'none';
-  if (op) op.style.display = canFill ? '' : 'none';
+  if (opWrap) opWrap.style.display = canFill ? '' : 'none';
+  if (op && document.activeElement !== op) op.value = String(Math.round(clampFillOpacity(style.opacity, 0.35) * 100));
+  if (opVal) opVal.textContent = formatOpacityPercent(style.opacity);
 
   panel.querySelectorAll<HTMLElement>('.sh-dashb').forEach((n) => {
     n.classList.toggle('on', n.dataset.dash === style.dash);
@@ -1881,6 +1947,7 @@ const CSS = `
   position:relative;background:
     linear-gradient(135deg,transparent 45%,#e2574c 45% 55%,transparent 55%) #fff!important;
 }
+#ink-shape .sh-op-wrap{display:flex;align-items:center;gap:5px}
 #ink-shape .sh-op{
   -webkit-appearance:none;appearance:none;width:66px;height:4px;border-radius:2px;
   background:#dfe4ec;outline:none;cursor:pointer;
@@ -1888,6 +1955,23 @@ const CSS = `
 #ink-shape .sh-op::-webkit-slider-thumb{
   -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
   background:var(--gn-acc,#2f6df6);box-shadow:0 1px 3px rgba(16,32,64,.3);cursor:pointer;
+}
+#ink-shape .sh-op-val{
+  font:600 11px/1 var(--slate-font-mono);color:#5b6673;min-width:34px;text-align:right;
+  font-variant-numeric:tabular-nums;
+}
+#ink-shape .sh-fill-custom{
+  position:relative;width:20px;height:20px;border-radius:6px;flex:none;cursor:pointer;overflow:hidden;
+  background:conic-gradient(#f66,#fc6,#6c6,#6cf,#c6f,#f66);
+  box-shadow:inset 0 0 0 2px #fff,0 0 0 1px #d7dce5;
+}
+#ink-shape .sh-fill-custom.on{
+  background:var(--swc,conic-gradient(#f66,#fc6,#6c6,#6cf,#c6f,#f66));
+  box-shadow:inset 0 0 0 1px rgba(16,32,64,.18),0 0 0 2px #fff,0 0 0 3.5px var(--gn-acc,#2f6df6);
+}
+#ink-shape .sh-fill-custom input{
+  position:absolute;inset:-6px;width:calc(100% + 12px);height:calc(100% + 12px);
+  border:0;padding:0;background:none;cursor:pointer;opacity:0;
 }
 #ink-shape .sh-tg{
   width:26px;height:26px;border-radius:8px;border:1px solid #e3e7ee;background:#f7f8fa;
@@ -1931,7 +2015,7 @@ const CSS = `
 @media(max-width:640px){
   #ink-shape{gap:6px;padding:6px 8px;border-radius:12px}
   #ink-shape .sh-op{width:48px}
-  #ink-shape .sh-fill{width:18px;height:18px}
+  #ink-shape .sh-fill,#ink-shape .sh-fill-custom{width:18px;height:18px}
 }
 
 #sh-trigger{

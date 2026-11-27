@@ -44,6 +44,21 @@ import {
   width,
   type InkTool,
 } from './widths';
+import {
+  FILL_STORAGE_KEY,
+  FILL_SWATCHES,
+  applyBucketOpacityToSelection,
+  clampFillOpacity,
+  formatOpacityPercent,
+  hexToRgba,
+  isFillableShape,
+  isFillStroke,
+  normalizeHexColor,
+  parseFillState,
+  recolorImageDataPreservingAlpha,
+  serializeFillState,
+  type FillState,
+} from './fill-logic';
 
 /* ------------------------------------------------------------------ */
 /* Engine access                                                       */
@@ -261,6 +276,124 @@ function pushList(key: string, hex: string, max: number) {
   lsSet(key, JSON.stringify(list.slice(0, max)));
 }
 
+/* ---- fill colour & opacity (Paint Bucket) --------------------------- */
+
+let fillState: FillState = { color: '#2f6df6', opacity: 1 };
+let fillLoaded = false;
+let fillSnapArmed = false;
+
+function loadFillState(): FillState {
+  if (fillLoaded) return fillState;
+  fillLoaded = true;
+  fillState = parseFillState(ls(FILL_STORAGE_KEY, ''), normalizeHexColor(currentColor(), '#2f6df6'));
+  return fillState;
+}
+
+function saveFillState() {
+  lsSet(FILL_STORAGE_KEY, serializeFillState(fillState));
+}
+
+function recolorSelectedFills(hex: string, takeSnap: boolean) {
+  ev(`(function(){
+    try {
+      if (typeof sel === 'undefined' || !sel || !sel.length) return;
+      var changed = false;
+      var snapped = false;
+      var wantSnap = ${takeSnap ? 'true' : 'false'};
+      sel.forEach(function(s){
+        if (!s) return;
+        if (s.t === 'img' && s.fl) {
+          if (wantSnap && !snapped) { try { snap(); } catch(e){} snapped = true; }
+          var cv = typeof ras === 'function' ? ras(s) : null;
+          if (cv) {
+            var g = cv.getContext('2d');
+            var id = g.getImageData(0, 0, cv.width, cv.height);
+            if (window.__slateRecolorFill && window.__slateRecolorFill(id.data, ${JSON.stringify(hex)})) {
+              g.putImageData(id, 0, 0);
+              s.src = cv.toDataURL('image/png');
+              var im = new Image(); im.src = s.src; IM[s.src] = im;
+            }
+          }
+          s.fc = ${JSON.stringify(hex)};
+          changed = true;
+        } else if (s.t === 'shape' && window.__slateIsFillableShape && window.__slateIsFillableShape(s) && s.fc) {
+          if (wantSnap && !snapped) { try { snap(); } catch(e){} snapped = true; }
+          s.fc = ${JSON.stringify(hex)};
+          changed = true;
+        }
+      });
+      if (changed) { draw(); save(); thumbs(); }
+    } catch(e){}
+  })()`);
+}
+
+function setFillColor(
+  hex: string,
+  opts: { fromEngine?: boolean; fromDock?: boolean; fromWheel?: boolean } = {},
+) {
+  loadFillState();
+  const norm = normalizeHexColor(hex, fillState.color);
+  fillState = { ...fillState, color: norm };
+  saveFillState();
+  pushList(RECENT_KEY, norm, 24);
+
+  if (!opts.fromEngine) {
+    ev(`(function(){ try { color=${JSON.stringify(norm)}; var c=document.getElementById('col'); if(c) c.value=${JSON.stringify(norm)}; } catch(e){} })()`);
+    recolorSelectedFills(norm, !fillSnapArmed);
+    if (opts.fromWheel) fillSnapArmed = true;
+  }
+  if (!opts.fromDock) {
+    (window as any).__inkpad_pen_dock?.syncFill?.(fillState.color, fillState.opacity);
+  }
+  paintPanel();
+  if (!opts.fromWheel) paintColorPop();
+}
+
+function setFillOpacity(
+  opacity: number,
+  opts: { previewOnly?: boolean; fromDock?: boolean; takeSnap?: boolean } = {},
+) {
+  loadFillState();
+  const clamped = clampFillOpacity(opacity, fillState.opacity);
+  fillState = { ...fillState, opacity: clamped };
+  if (!opts.previewOnly) saveFillState();
+
+  ev(`(function(){
+    try {
+      if (typeof sel === 'undefined' || !sel || !sel.length) return;
+      if (!window.__slateApplyFillOp) return;
+      var hasTarget = sel.some(function(s){
+        return s && ((s.t === 'img' && s.fl) || (s.t === 'shape' && window.__slateIsFillableShape && window.__slateIsFillableShape(s) && s.fc));
+      });
+      if (!hasTarget) return;
+      if (${opts.takeSnap && !fillSnapArmed ? 'true' : 'false'}) {
+        try { snap(); } catch(e){}
+      }
+      if (window.__slateApplyFillOp(sel, ${clamped})) {
+        draw();
+        ${opts.previewOnly ? '' : 'save(); thumbs();'}
+      }
+    } catch(e){}
+  })()`);
+
+  if (opts.previewOnly && opts.takeSnap) fillSnapArmed = true;
+  else if (!opts.previewOnly) fillSnapArmed = false;
+
+  if (!opts.fromDock) {
+    (window as any).__inkpad_pen_dock?.syncFill?.(fillState.color, fillState.opacity);
+  }
+
+  if (penPanel && penPanel.classList.contains('on')) {
+    const out = penPanel.querySelector<HTMLElement>('.bk-op-out');
+    const prevTint = penPanel.querySelector<HTMLElement>('.bk-prev i');
+    const prevBtn = penPanel.querySelector<HTMLElement>('.bk-prev');
+    const opLabel = formatOpacityPercent(fillState.opacity);
+    if (out) out.textContent = opLabel;
+    if (prevTint) prevTint.style.background = hexToRgba(fillState.color, fillState.opacity);
+    if (prevBtn) prevBtn.title = `Fill color & opacity (${opLabel})`;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Pen types                                                           */
 /* ------------------------------------------------------------------ */
@@ -310,9 +443,9 @@ let autoDeselect = ls('inkpad-auto-deselect', '0') === '1';
 const CSS = `
 #ink-pen{
   position:fixed;z-index:28;display:none;align-items:center;gap:2px;
-  padding:6px 7px;border-radius:16px;background:#fff;
+  padding:6px 7px;border-radius:16px;background:var(--sf,#fff);color:var(--tx,#1c2430);
   box-shadow:0 8px 26px rgba(8,20,38,.20),0 1px 3px rgba(8,20,38,.10);
-  border:1px solid #eef1f6;
+  border:1px solid var(--bd,#eef1f6);
 }
 #ink-pen.on{display:flex}
 #ink-pen .grp{display:flex;align-items:center;gap:2px}
@@ -341,16 +474,17 @@ const CSS = `
 #ink-pen .wsl{
   -webkit-appearance:none;appearance:none;flex:none;
   width:84px;height:3px;border-radius:2px;margin:0 3px;cursor:pointer;
-  background:color-mix(in srgb, currentColor 24%, transparent);
+  color:var(--tx,#1c2430);
+  background:color-mix(in srgb,var(--tx,#1c2430) 32%,transparent);
 }
 #ink-pen .wsl::-webkit-slider-thumb{
   -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
-  background:currentColor;border:2px solid #fff;
+  background:var(--tx,#1c2430);border:2px solid var(--sf,#fff);
   box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer;
 }
 #ink-pen .wsl::-moz-range-thumb{
-  width:13px;height:13px;border-radius:50%;background:currentColor;
-  border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer;
+  width:13px;height:13px;border-radius:50%;background:var(--tx,#1c2430);
+  border:2px solid var(--sf,#fff);box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer;
 }
 #ink-pen .sw{
   width:22px!important;height:22px!important;border-radius:50%!important;
@@ -358,6 +492,24 @@ const CSS = `
   box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);flex:none;
 }
 #ink-pen .sw.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12),0 0 0 2px #fff,0 0 0 3.5px #2f6df6}
+#ink-pen .bk-prev{
+  width:24px!important;height:24px!important;border-radius:8px!important;
+  position:relative;overflow:hidden;flex:none;
+  border:1px solid var(--bd,#d5dce6)!important;
+  background-image:conic-gradient(#e4e8ef 90deg,#ffffff 90deg 180deg,#e4e8ef 180deg 270deg,#ffffff 270deg)!important;
+  background-size:10px 10px!important;
+}
+#ink-pen .bk-prev i{
+  position:absolute;inset:0;display:block;pointer-events:none;border-radius:7px;
+}
+#ink-pen .bk-lbl{
+  font:600 11.5px/1 var(--slate-font);color:color-mix(in srgb,var(--tx,#1c2430) 78%,transparent);
+  margin:0 4px 0 2px;white-space:nowrap;
+}
+#ink-pen .bk-op-out{
+  font:600 11.5px/1 var(--slate-font-mono);color:var(--tx,#1c2430);min-width:36px;text-align:right;
+  font-variant-numeric:tabular-nums;margin-right:2px;
+}
 .ink-sheet .sw{
   width:22px!important;height:22px!important;border-radius:50%!important;padding:0!important;
   border:0!important;background:var(--swc,#111)!important;
@@ -625,6 +777,8 @@ html[data-inkpen="1"] #bar2{min-height:34px}
   #ink-pen button{width:28px;height:28px;border-radius:9px}
   #ink-pen button svg{width:17px;height:17px}
   #ink-pen .sw,#ink-pen .swplus{width:20px!important;height:20px!important}
+  #ink-pen .bk-prev{width:21px!important;height:21px!important;border-radius:7px!important}
+  #ink-pen .wsl{width:70px}
   .ink-sheet{width:min(92vw,300px)}
 }
 /* pre-empt the engine's brush drawer for the ink tools so it never flashes */
@@ -761,7 +915,11 @@ function setSizeLive(t: InkTool, v: number) {
   markLevels(t);
 }
 
-function setColor(hex: string) {
+function setColor(hex: string, opts: { fromWheel?: boolean } = {}) {
+  if ((ev<string>('tool') || '') === 'bk') {
+    setFillColor(hex, { fromWheel: opts.fromWheel });
+    return;
+  }
   ev(`(function(){ try { setCol(${JSON.stringify(hex)}); } catch(e){} })()`);
   const sws = document.querySelectorAll('#sws .sw');
   sws.forEach((n) => {
@@ -777,7 +935,7 @@ function setColor(hex: string) {
   });
   pushList(RECENT_KEY, hex, 24);
   paintPanel();
-  paintColorPop();
+  if (!opts.fromWheel) paintColorPop();
 }
 
 function setPredictive(v: number) {
@@ -977,7 +1135,8 @@ function paintPanel() {
   if (!penPanel) return;
   const tool = ev<string>('tool') || 'pen';
   const isEr = tool === 'er';
-  const inkTool = tool === 'pen' || tool === 'pe' || tool === 'hl' || isEr;
+  const isBk = tool === 'bk';
+  const inkTool = tool === 'pen' || tool === 'pe' || tool === 'hl' || isEr || isBk;
   const focusOn = document.documentElement.dataset.focus === '1';
   const show = editorOpen() && !panelLock && !drawerLock && inkTool && (!focusOn || peek);
   penPanel.classList.toggle('on', show);
@@ -993,6 +1152,79 @@ function paintPanel() {
     return;
   }
   penPanel.textContent = '';
+
+  if (isBk) {
+    const fs = loadFillState();
+    const curFill = fs.color.toLowerCase();
+    const opLabel = formatOpacityPercent(fs.opacity);
+
+    const prevWrap = el('div', '');
+    prevWrap.className = 'grp';
+    const prevBtn = el('button') as HTMLButtonElement;
+    prevBtn.type = 'button';
+    prevBtn.className = 'bk-prev';
+    prevBtn.title = `Fill color & opacity (${opLabel})`;
+    prevBtn.setAttribute('aria-label', `Fill color ${fs.color}, opacity ${opLabel}`);
+    const tint = el('i', '');
+    tint.style.background = hexToRgba(fs.color, fs.opacity);
+    prevBtn.append(tint);
+    prevBtn.onclick = () => openColorPopover(prevBtn);
+    prevWrap.append(prevBtn);
+    penPanel.append(prevWrap, divider());
+
+    const cols = el('div', '');
+    cols.className = 'grp';
+    FILL_SWATCHES.forEach((c) => {
+      const b = el('button') as HTMLButtonElement;
+      b.type = 'button';
+      b.className = 'sw';
+      b.style.setProperty('--swc', c);
+      b.title = `Fill colour ${c}`;
+      b.setAttribute('aria-label', `Fill colour ${c}`);
+      b.classList.toggle('on', c.toLowerCase() === curFill);
+      b.onclick = () => setFillColor(c);
+      cols.append(b);
+    });
+    const plus = el('button') as HTMLButtonElement;
+    plus.type = 'button';
+    plus.className = 'swplus slate-icon-center';
+    plus.dataset.slateIcon = 'plus';
+    plus.title = 'Fill colour';
+    plus.setAttribute('aria-label', 'Any fill colour');
+    plus.innerHTML = PLUS_SVG;
+    plus.onclick = () => openColorPopover(plus);
+    cols.append(plus);
+    penPanel.append(cols, divider());
+
+    const opGrp = el('div', '');
+    opGrp.className = 'grp bk-op-grp';
+    const lbl = el('span', '', 'Opacity');
+    lbl.className = 'bk-lbl';
+    const slider = el('input') as HTMLInputElement;
+    slider.type = 'range';
+    slider.className = 'wsl bk-op-sl';
+    slider.min = '5';
+    slider.max = '100';
+    slider.step = '1';
+    slider.value = String(Math.round(fs.opacity * 100));
+    slider.setAttribute('aria-label', 'Fill opacity');
+    slider.title = `Fill opacity — ${opLabel}`;
+    const out = el('code', '', opLabel);
+    out.className = 'bk-op-out';
+    slider.oninput = () => {
+      const k = Number(slider.value) / 100;
+      slider.title = `Fill opacity — ${formatOpacityPercent(k)}`;
+      setFillOpacity(k, { previewOnly: true, takeSnap: true });
+    };
+    slider.onchange = () => {
+      const k = Number(slider.value) / 100;
+      setFillOpacity(k, { previewOnly: false, takeSnap: true });
+    };
+    opGrp.append(lbl, slider, out);
+    penPanel.append(opGrp);
+    place();
+    return;
+  }
 
   if (isEr) {
     const grp = el('div', '');
@@ -1177,12 +1409,13 @@ function buildColorPopover() {
 
 function paintColorPop() {
   if (!colorPop) return;
-  const cur = currentColor().toLowerCase();
+  const isBk = (ev<string>('tool') || '') === 'bk';
+  const cur = (isBk ? loadFillState().color : currentColor()).toLowerCase();
   colorPop.textContent = '';
 
   const ttl = el('div', '');
   ttl.className = 'ttl';
-  ttl.innerHTML = '<b>Pen Color</b>';
+  ttl.innerHTML = isBk ? '<b>Fill Color</b>' : '<b>Pen Color</b>';
   const edit = el('a', '', 'Edit');
   edit.onclick = () => {
     setTab('custom');
@@ -1332,7 +1565,7 @@ function buildWheel(cur: string): HTMLElement {
   const commit = () => {
     const hex = hsbToHex(wheelHue, wheelSat, wheelBri);
     hexOut.textContent = hex.toUpperCase();
-    setColor(hex);
+    setColor(hex, { fromWheel: true });
   };
 
   // ring drag
@@ -1349,6 +1582,7 @@ function buildWheel(cur: string): HTMLElement {
     commit();
   };
   cv.addEventListener('pointerdown', (e) => {
+    fillSnapArmed = false;
     try {
       cv.setPointerCapture(e.pointerId);
     } catch {
@@ -1357,6 +1591,7 @@ function buildWheel(cur: string): HTMLElement {
     ringPick(e);
     const mv = (m: PointerEvent) => ringPick(m);
     const up = () => {
+      fillSnapArmed = false;
       cv.removeEventListener('pointermove', mv);
       cv.removeEventListener('pointerup', up);
     };
@@ -1374,6 +1609,7 @@ function buildWheel(cur: string): HTMLElement {
     commit();
   };
   sq.addEventListener('pointerdown', (e) => {
+    fillSnapArmed = false;
     try {
       sq.setPointerCapture(e.pointerId);
     } catch {
@@ -1382,6 +1618,7 @@ function buildWheel(cur: string): HTMLElement {
     sqPick(e);
     const mv = (m: PointerEvent) => sqPick(m);
     const up = () => {
+      fillSnapArmed = false;
       sq.removeEventListener('pointermove', mv);
       sq.removeEventListener('pointerup', up);
     };
@@ -2526,6 +2763,13 @@ function hookDrawer() {
       // never painted at all. Closing it a frame later (the old way) showed a
       // one-frame flash — that was the "brushes dropdown disappears quickly".
       const tool = hit.dataset.t || '';
+      if (tool === 'bk') {
+        window.setTimeout(() => {
+          closePopovers();
+          paintPanel();
+        }, 0);
+        return;
+      }
       if (tool !== 'pen' && tool !== 'pe' && tool !== 'hl') return;
       document.body.classList.add('ink-nodrw');
       window.setTimeout(() => document.body.classList.remove('ink-nodrw'), 320);
@@ -2562,7 +2806,7 @@ function tick() {
     if (isInkTool(tool)) applyActive();
     paintPanel();
     // switching inside the ink family must not close the settings you are in
-    const ink = tool === 'pen' || tool === 'pe' || tool === 'hl' || tool === 'er';
+    const ink = tool === 'pen' || tool === 'pe' || tool === 'hl' || tool === 'er' || tool === 'bk';
     if (!ink) {
       hidePop();
       hideSheets();
@@ -2586,6 +2830,18 @@ function boot() {
   document.head.append(style);
 
   markEngineControls();
+  loadFillState();
+  (window as any).__slateIsFillableShape = isFillableShape;
+  (window as any).__slateRecolorFill = recolorImageDataPreservingAlpha;
+  (window as any).__slateApplyFillOp = applyBucketOpacityToSelection;
+  (window as any).__slateFill = {
+    get: () => ({ ...loadFillState() }),
+    setColor: (hex: string, opts?: { fromEngine?: boolean; fromDock?: boolean }) =>
+      setFillColor(hex, opts),
+    setOpacity: (opacity: number, opts?: { previewOnly?: boolean; fromDock?: boolean }) =>
+      setFillOpacity(opacity, opts),
+  };
+
   buildPenPanel();
   hookEraser();
   hookDrawer();
