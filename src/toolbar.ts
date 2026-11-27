@@ -77,7 +77,7 @@ const TO_ROW2 = [
 ];
 
 /** Buttons our own modules create; they are insert tools, so row 1. */
-const TO_ROW1 = ['#gn-stk-btn', '#gn-note-btn', '#snap-btn'];
+const TO_ROW1 = ['#gn-stk-btn', '#gn-note-btn', '#snap-btn', '#gn-math-btn'];
 
 /* ------------------------------------------------------------------ */
 /* Layout                                                              */
@@ -87,7 +87,7 @@ const ROW1: string[][] = [
   ['#back'],
   ['#title'],
   ['[data-t="pen"]', '[data-t="hl"]', '[data-t="er"]'],
-  ['#sh-trigger', '[data-t="text"]'],
+  ['#sh-trigger', '[data-t="text"]', '#gn-math-btn'],
   ['[data-t="sel"]', '[data-t="pan"]', '[data-t="laser"]', '[data-t="bk"]'],
   ['#img', '#gn-stk-btn', '#gn-note-btn', '#snap-btn'],
   ['#undo', '#redo'],

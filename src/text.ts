@@ -279,14 +279,16 @@ function hasTextSelection(): boolean {
  * stamp whatever it appended when that textarea blurs.
  */
 let focusCount = -1;
+let focusFromHit = false;
 
 function hookCommit() {
   document.addEventListener(
     'focusin',
     (e) => {
       const t = e.target as HTMLElement | null;
-      if (!t || t.tagName !== 'TEXTAREA') return;
+      if (!t || t.tagName !== 'TEXTAREA' || t.id !== 'tx') return;
       focusCount = (ev<any[]>('pg().strokes') || []).length;
+      focusFromHit = !!ev<boolean>('!!(te && te._fromHit)');
     },
     true
   );
@@ -295,10 +297,13 @@ function hookCommit() {
     'blur',
     (e) => {
       const t = e.target as HTMLElement | null;
-      if (!t || t.tagName !== 'TEXTAREA') return;
+      if (!t || t.tagName !== 'TEXTAREA' || t.id !== 'tx') return;
+      if ((window as any).__slateKeepTxOnBlur?.(e)) return;
       const before = focusCount;
+      const fromHit = focusFromHit;
       focusCount = -1;
-      if (before < 0) return;
+      focusFromHit = false;
+      if (before < 0 || fromHit) return;
       // the engine commits synchronously on blur, so this lands a frame later
       window.setTimeout(() => {
         if (!state.on) return;

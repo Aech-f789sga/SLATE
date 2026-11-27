@@ -358,6 +358,18 @@ function build() {
     bar.append(b);
   }
 
+  bar.append(sep());
+  const mathBtn = document.createElement('button');
+  mathBtn.type = 'button';
+  mathBtn.id = 'rt-math-btn';
+  mathBtn.title = 'Insert or edit math expression (Symbolab-style)';
+  mathBtn.setAttribute('aria-label', 'Insert or edit math expression');
+  mathBtn.innerHTML = '<span>∑ Math</span>';
+  mathBtn.onclick = () => {
+    (window as any).__slateMathPad?.open?.();
+  };
+  bar.append(mathBtn);
+
   // Formatting buttons must not blur the engine's textarea: a blur would commit
   // the text and close the box mid-edit. Cancelling mousedown keeps the caret
   // where it is while the button's click still fires. The family select and the
@@ -394,8 +406,10 @@ function build() {
     (e) => {
       const tx = textarea();
       if (!tx || e.target !== tx) return;
-      const to = e.relatedTarget as Node | null;
-      if (to && bar && bar.contains(to)) e.stopPropagation();
+      const to = e.relatedTarget as HTMLElement | null;
+      if (to && ((bar && bar.contains(to)) || to.closest?.('#math-pad, #gn-math-btn'))) {
+        e.stopPropagation();
+      }
     },
     true
   );

@@ -1413,16 +1413,19 @@ function shelfList(): any[] {
   const lib = ev<any[]>('lib') || [];
   const flt = ev<string>('flt') || 'all';
   const q = ((document.getElementById('find') as HTMLInputElement | null)?.value || '').toLowerCase();
-  return lib
-    .filter(
-      (n) =>
-        (n.name || '').toLowerCase().includes(q) &&
-        (flt === 'trash' ? n.del : !n.del && (flt !== 'fav' || n.fav))
-    )
-    .sort((a, b) => (b.upd || 0) - (a.upd || 0));
+  const filtered = lib.filter(
+    (n) =>
+      (n.name || '').toLowerCase().includes(q) &&
+      (flt === 'trash' ? n.del : !n.del && (flt !== 'fav' || n.fav))
+  );
+  const sortFn = (window as any).__inkpad_sortLib;
+  return typeof sortFn === 'function'
+    ? sortFn(filtered)
+    : filtered.sort((a, b) => (b.upd || 0) - (a.upd || 0));
 }
 
 function paintCoverCards() {
+  if (document.documentElement.dataset.roGridDrag === '1') return;
   const list = shelfList();
   const cards = Array.from(document.querySelectorAll('#grid .card'));
   cards.forEach((card, i) => {
